@@ -1,0 +1,113 @@
+# studip-router example configuration
+#
+# Copy to ~/.config/studip-router/config.toml (or run `studip init`, which writes
+# one for you) and adjust. Validate with `studip config validate`.
+#
+# Your password is never stored here: `studip auth login` puts it into the OS
+# keychain (macOS Keychain, Secret Service on Linux, Windows Credential Locker).
+
+[server]
+# Your university's Stud.IP; the JSON:API must be enabled (`studip doctor` checks).
+base_url = "https://studip.example.edu"
+username = "jdoe"
+
+[sync]
+# Folder that contains your course folders. "~" is expanded.
+root = "~/Uni/Semester 5"
+
+# Which courses to look at: "current", "all", or a title such as "WiSe 2026/27".
+semester = "current"
+
+# Only sync courses listed below; other courses are reported, never downloaded.
+only_configured_courses = true
+
+# A file changed on Stud.IP:
+#   "version"   keep the old file, save the new one as name_v2.pdf (default)
+#   "overwrite" replace the local copy (never if you edited it locally)
+#   "skip"      keep the old file and only report the update
+on_update = "version"
+
+# Two files want the same name: "suffix" (name_2.pdf, default), "skip" or "error".
+on_conflict = "suffix"
+
+# Where files go that no rule matches (relative to each course folder).
+default_target = "Sonstiges"
+
+# Create missing target folders? Off by default: a missing folder is reported.
+create_missing_dirs = false
+
+# Extract downloaded .zip archives into a folder next to them (archive is kept).
+unzip = false
+
+# Desktop notification after background syncs (`studip schedule install`).
+notify = true
+
+# Files never downloaded (in addition to per-course rules).
+[sync.exclude]
+globs = ["*.mp4", "*.mkv"]
+mime = ["video/*"]
+max_size_mb = 200            # override once with `studip sync --include-large`
+
+# Default renaming, applied after rule templates. Per course: [courses.<id>.rename]
+[rename]
+pad_numbers = 2              # "lecture-1.pdf" -> "lecture-01.pdf"; 0 disables
+spaces = "keep"              # "keep" | "_" | "-"
+umlauts = "keep"             # "keep" | "transliterate" (ä -> ae)
+lowercase = false
+strip_prefixes = []          # e.g. ["Vorlesung_", "VL_"]
+
+# ---------------------------------------------------------------------------
+# Courses are keyed by their Stud.IP ID (see `studip courses`); names may change,
+# IDs do not. `name` is only a label for you.
+# ---------------------------------------------------------------------------
+
+[courses.0123456789abcdef0123456789abcdef]
+name = "Quantum Cooking"
+target = "Quantum Cooking"   # relative to root, or an absolute path
+# default_target = "_inbox"  # per-course override
+unzip = true                 # this course ships slides as .zip
+
+# Merge all slide PDFs into one file after each sync (`studip merge` by hand).
+merge = { source = "Skript : Alle Folien", output = "Alle Folien.pdf" }
+
+# Rules are checked top to bottom; the first match wins.
+# Match keys (all optional, combined with AND):
+#   folder             glob on the Stud.IP folder path, e.g. "Übungen*"
+#   name_glob          glob on the file name, e.g. "*VL*.pdf"
+#   name_regex         regex on the file name; groups usable in `rename`
+#   ext                ["pdf", "zip"]
+#   mime               ["application/pdf", "video/*"]
+#   min_size_mb / max_size_mb
+#   changed_after / changed_before   dates like 2026-10-01
+#   description_regex  regex on the file description in Stud.IP
+#   case_sensitive     default false
+# `rename` variables: {orig_name} {orig_stem} {ext} {folder} {folder_path}
+#   {course} {semester} {date} and regex groups {1} {2} or {name};
+#   format specs work on numbers: {1:02} turns "7" into "07".
+
+[[courses.0123456789abcdef0123456789abcdef.rules]]
+id = "sheets"
+match = { folder = "Übungsblätter*", name_regex = '(?:blatt|sheet)[ _-]?(\d+)' }
+target = "Uebungen"
+rename = "Uebung_{1:02}{ext}"
+
+[[courses.0123456789abcdef0123456789abcdef.rules]]
+id = "slides"
+# On macOS a folder shown as "Skript / Alle Folien" in Finder is
+# "Skript : Alle Folien" on disk - write it with ":" here.
+match = { folder = "Folien*", ext = ["pdf", "zip"] }
+target = "Skript : Alle Folien"
+
+[[courses.0123456789abcdef0123456789abcdef.rules]]
+id = "old-exams"
+match = { name_regex = "(?i)altklausur|exam" }
+target = "Klausur/Altklausuren"
+
+[[courses.0123456789abcdef0123456789abcdef.rules]]
+id = "no-recordings"
+match = { mime = ["video/*"] }
+skip = true
+
+[courses.fedcba9876543210fedcba9876543210]
+name = "Some Course I Do Not Need"
+exclude = true               # listed as "excluded", never touched

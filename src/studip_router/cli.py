@@ -847,6 +847,22 @@ def doctor_cmd(offline: Annotated[bool, typer.Option("--offline")] = False) -> N
         raise typer.Exit(1)
 
 
+@app.command("_complete", hidden=True)
+def complete_cmd(what: str) -> None:
+    """Offline values for shell completion: courses | profiles."""
+    if what == "profiles":
+        print("\n".join(paths.list_profiles()))
+        return
+    try:
+        cfg = load(paths.config_file())
+    except ConfigError:
+        return
+    for c in cfg.courses.values():
+        if not c.exclude:
+            label = (c.name or c.target).replace("\t", " ")
+            print(f"{c.target}\t{label}")
+
+
 @app.command("tui")
 def tui_cmd() -> None:
     """Open the interactive terminal UI (same as running `studip` without a command)."""
