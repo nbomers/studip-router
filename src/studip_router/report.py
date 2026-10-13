@@ -23,6 +23,15 @@ STYLE = {
     Kind.SKIP: "dim",
     Kind.ERROR: "red",
 }
+SYMBOL = {
+    Kind.DOWNLOAD: "✓",
+    Kind.ADOPT: "≡",
+    Kind.NEW_VERSION: "↻",
+    Kind.OVERWRITE: "↻",
+    Kind.MKDIR: "+",
+    Kind.SKIP: "◎",
+    Kind.ERROR: "✗",
+}
 
 
 def setup_file_logging(path: Path, verbose: bool) -> None:
@@ -82,6 +91,10 @@ def plan_table(plan: CoursePlan, verbose: bool) -> Table | None:
         note = a.reason or a.note
         if a.route and a.route.by_default and a.kind is Kind.DOWNLOAD:
             note = (note + "; " if note else "") + "default target"
+        elif a.route and a.route.rule_id and a.kind is not Kind.SKIP:
+            note = (note + "; " if note else "") + f"rule {a.route.rule_id}"
+        if a.unzips:
+            note = (note + "; " if note else "") + "+ unzip"
         table.add_row(
             f"[{STYLE[a.kind]}]{a.kind.value}[/]", remote, _rel(a.dest, plan.course_dir), note
         )
@@ -146,3 +159,35 @@ def print_summary(
         console.print("\n[red]Errors:[/red]")
         for a, msg in errors:
             console.print(f"  {a.file.name if a.file else a.dest}: {msg}")
+
+
+def plan_json(sync_plan: SyncPlan, result, dry_run: bool, news: int) -> dict:
+    def action(a: Action) -> dict:
+        return {
+            "action": a.kind.value,
+            "course_id": a.course_id,
+            "remote": f"{a.file.folder_path}/{a.file.name}".lstrip("/") if a.file else None,
+            "file_id": a.file.id if a.file else None,
+            "dest": str(a.dest) if a.dest else None,
+            "rule": a.route.rule_id if a.route else None,
+            "default_routed": bool(a.route and a.route.by_default),
+            "reason": a.reason or a.note or None,
+        }
+
+    data = {
+        "dry_run": dry_run,
+        "semester": sync_plan.semester.title if sync_plan.semester else "all",
+        "summary": dict(summarize(sync_plan, result.outcome if result else None)),
+        "actions": [action(a) for p in sync_plan.plans for a in p.actions],
+        "unconfigured_courses": [{"id": c.id, "title": c.title} for c in sync_plan.unconfigured],
+        "remote_deleted": [r.local_path for p in sync_plan.plans for r in p.remote_deleted],
+        "new_announcements": news,
+    }
+    if result is not None:
+        data["failed"] = [
+            {"file": a.file.name if a.file else None, "error": msg}
+            for a, msg in result.outcome.failed
+        ]
+        data["extracted"] = [str(p) for p in result.outcome.extracted]
+        data["merged"] = [m.output for m in result.merges if m.written]
+    return data

@@ -28,7 +28,12 @@ dependencies = [
 studip = "studip_router.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "respx>=0.21", "ruff>=0.6"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=1.4.0",
+    "respx>=0.21",
+    "ruff>=0.6",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -43,3 +48,4 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

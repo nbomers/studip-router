@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 from .api import ApiError, StudipClient
 from .config import Config, CourseConfig
+from .executor import Outcome, execute
 from .models import Course, Semester
-from .planner import CoursePlan, build_router, plan_course
+from .planner import Action, CoursePlan, Kind, build_router, plan_course
+from .postprocess import merge_pdfs
 from .state import State
 
 
@@ -133,3 +136,100 @@ def build_plan(
             )
         )
     return result
+
+
+# -- running a plan (shared by CLI and TUI) ------------------------------------------
+
+
+@dataclass
+class MergeOutcome:
+    course: str
+    output: str
+    written: bool
+    reason: str
+
+
+@dataclass
+class RunResult:
+    outcome: Outcome
+    merges: list[MergeOutcome] = field(default_factory=list)
+    interrupted: bool = False
+
+    def new_by_course(self, sync_plan: SyncPlan) -> dict[str, int]:
+        names = {p.course.id: p.course.name or p.course.target for p in sync_plan.plans}
+        counts: dict[str, int] = {}
+        for action in self.outcome.done:
+            if action.transfers:
+                label = names.get(action.course_id, action.course_id)
+                counts[label] = counts.get(label, 0) + 1
+        return counts
+
+
+def execute_plan(
+    sync_plan: SyncPlan,
+    cfg: Config,
+    state: State,
+    client: StudipClient,
+    on_progress: Callable[[Action], None] | None = None,
+    on_course: Callable[[CoursePlan], None] | None = None,
+) -> RunResult:
+    """Execute all course plans, then regenerate merged slide PDFs."""
+    run_id = state.start_run("sync")
+    result = RunResult(Outcome())
+    try:
+        for plan in sync_plan.plans:
+            todo = [a for a in plan.actions if a.kind not in (Kind.SKIP, Kind.ERROR)]
+            if not todo:
+                continue
+            if on_course:
+                on_course(plan)
+            part = execute(plan, state, client.download, run_id, on_progress)
+            result.outcome.done += part.done
+            result.outcome.failed += part.failed
+            result.outcome.extracted += part.extracted
+    except KeyboardInterrupt:
+        result.interrupted = True
+        state.finish_run(run_id, {"interrupted": True})
+        raise
+    result.merges = run_merges(cfg, state, [p.course for p in sync_plan.plans])
+    summary = {
+        "new": sum(1 for a in result.outcome.done if a.transfers),
+        "adopted": sum(1 for a in result.outcome.done if a.kind is Kind.ADOPT),
+        "failed": len(result.outcome.failed),
+    }
+    state.finish_run(run_id, summary)
+    return result
+
+
+def run_merges(
+    cfg: Config, state: State, courses: list[CourseConfig], *, force: bool = False
+) -> list[MergeOutcome]:
+    results = []
+    for course in courses:
+        if course.merge is None or course.exclude:
+            continue
+        course_dir = cfg.course_dir(course)
+        output = course_dir / course.merge.source / course.merge.output
+        previous = state.generated(str(output))
+        try:
+            merged, sha, fingerprint = merge_pdfs(
+                course_dir / course.merge.source,
+                output,
+                previous_sha=previous[0] if previous else None,
+                previous_fingerprint=previous[1] if previous else None,
+                allow_icloud_download=force,
+            )
+        except Exception as exc:  # broken PDFs must not break the sync
+            results.append(MergeOutcome(course.name, str(output), False, f"failed: {exc}"))
+            continue
+        if merged.written and sha and fingerprint:
+            state.set_generated(str(output), sha, fingerprint)
+        results.append(
+            MergeOutcome(
+                course.name or course.target,
+                str(output),
+                merged.written,
+                merged.reason or f"{len(merged.inputs)} PDFs",
+            )
+        )
+    return results

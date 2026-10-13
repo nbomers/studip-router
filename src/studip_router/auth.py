@@ -47,6 +47,8 @@ def delete_password(base_url: str, username: str) -> bool:
 
 
 def has_password(base_url: str, username: str) -> bool:
+    if os.environ.get("STUDIP_ROUTER_PASSWORD"):
+        return True
     try:
         return bool(keyring.get_password(SERVICE, _account(base_url, username)))
     except keyring.errors.KeyringError:
