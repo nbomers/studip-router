@@ -29,14 +29,16 @@ Working inside iCloud Drive/Dropbox? Point the venv elsewhere so it is not synce
 src/studip_router/
   api.py          Stud.IP JSON:API client (pagination, retries, streaming)
   config.py       TOML loading + validation with key paths in errors
-  rules.py        routing rules        rename.py    rename engine
+  config_edit.py  change single values, keeping comments (tomlkit)
+  rules.py        routing rules        rename.py     rename engine
   planner.py      remote x state x disk -> actions (pure, read-only)
-  executor.py     performs actions atomically
+  executor.py     performs actions atomically, verifies downloads
   sync.py         course/semester selection, running plans, merges
-  state.py        SQLite state         fsutil.py    NFC, iCloud, atomic writes
+  state.py        SQLite state         fsutil.py     names, NFC, iCloud, atomic writes
   suggest.py      rule suggestions     postprocess.py  unzip + PDF merge
   reorganize.py   reorganize/undo      news.py, notify.py, schedule.py, doctor.py
-  cli.py          typer CLI            tui.py       Textual UI
+  wizard.py       setup helpers        cli.py        typer CLI
+  tui/            Textual UI: app.py (home), views.py, settings.py, setup.py, widgets.py
 ```
 
 Screenshots in the README come from `uv run python scripts/make_screenshots.py` (fake data only).

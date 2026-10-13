@@ -39,7 +39,7 @@ SSO-only accounts need a future auth provider (session cookie or token).
 ## Architecture
 
 ```
-cli.py / tui.py ──► sync.py ──► planner.py ──► executor.py ──► postprocess.py
+cli.py / tui/   ──► sync.py ──► planner.py ──► executor.py ──► postprocess.py
         │             │   ▲          │  ▲              │
         ▼             ▼   │          ▼  │              ▼
      config.py      api.py│      rules.py rename.py   fsutil.py (atomic, NFC, iCloud)
