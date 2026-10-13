@@ -13,6 +13,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 
+from .rename import SPACES, UMLAUTS, RenameOptions
+from .rules import Rule, parse_rules
+
 ON_UPDATE = ("version", "overwrite", "skip")
 ON_CONFLICT = ("suffix", "skip", "error")
 
@@ -39,7 +42,18 @@ class CourseConfig:
     exclude: bool = False
     default_target: str | None = None
     exclude_files: ExcludeConfig = ExcludeConfig()
-    rules: tuple[dict[str, Any], ...] = ()
+    rules: tuple[Rule, ...] = ()
+    rename: RenameOptions | None = None  # None: use the global options
+    unzip: bool | None = None
+    merge: MergeConfig | None = None
+
+
+@dataclass(frozen=True)
+class MergeConfig:
+    """Merge all PDFs of ``source`` (relative to the course folder) into ``output``."""
+
+    source: str
+    output: str
 
 
 @dataclass(frozen=True)
@@ -55,12 +69,20 @@ class Config:
     default_target: str = "Sonstiges"
     create_missing_dirs: bool = False
     exclude: ExcludeConfig = ExcludeConfig(mime=("video/*",), max_size_mb=200)
-    rename: dict[str, Any] = field(default_factory=dict)
+    unzip: bool = False
+    notify: bool = True
+    rename: RenameOptions = field(default_factory=RenameOptions)
     courses: dict[str, CourseConfig] = field(default_factory=dict)
 
     def course_dir(self, course: CourseConfig) -> Path:
         target = Path(course.target).expanduser()
         return target if target.is_absolute() else self.root / target
+
+    def course_rename(self, course: CourseConfig) -> RenameOptions:
+        return course.rename or self.rename
+
+    def course_unzip(self, course: CourseConfig) -> bool:
+        return self.unzip if course.unzip is None else course.unzip
 
     def course_default_target(self, course: CourseConfig) -> str:
         return course.default_target or self.default_target
@@ -145,6 +167,26 @@ class _Validator:
             self.problems.append(f"{where}: '..' is not allowed")
         return value
 
+    def rename(self, data: Any, where: str, base: RenameOptions) -> RenameOptions:
+        data = self.table(
+            data, where, {"pad_numbers", "spaces", "umlauts", "lowercase", "strip_prefixes"}
+        )
+        values: dict[str, Any] = {}
+        if "pad_numbers" in data:
+            pad = self.get(data, "pad_numbers", where, int, base.pad_numbers)
+            if not 0 <= pad <= 6:
+                self.problems.append(f"{where}.pad_numbers: must be between 0 and 6")
+            values["pad_numbers"] = pad
+        if "spaces" in data:
+            values["spaces"] = self.choice(data, "spaces", where, SPACES, base.spaces)
+        if "umlauts" in data:
+            values["umlauts"] = self.choice(data, "umlauts", where, UMLAUTS, base.umlauts)
+        if "lowercase" in data:
+            values["lowercase"] = self.get(data, "lowercase", where, bool, base.lowercase)
+        if "strip_prefixes" in data:
+            values["strip_prefixes"] = self.str_list(data, "strip_prefixes", where) or ()
+        return base.merged(values)
+
     def exclude(self, data: Any, where: str, base: ExcludeConfig) -> ExcludeConfig:
         data = self.table(data, where, {"globs", "mime", "max_size_mb"})
         size = self.get(data, "max_size_mb", where, (int, float), base.max_size_mb)
@@ -197,6 +239,8 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
             "default_target",
             "create_missing_dirs",
             "exclude",
+            "unzip",
+            "notify",
         },
     )
     root = v.get(sync, "root", "sync", str, "", required=True)
@@ -206,7 +250,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
     defaults = Config.__dataclass_fields__["exclude"].default
     global_exclude = v.exclude(sync.get("exclude", {}), "sync.exclude", defaults)
 
-    rename = v.table(top.get("rename", {}), "rename", set(top.get("rename", {}) or {}))
+    rename = v.rename(top.get("rename", {}), "rename", RenameOptions())
 
     courses: dict[str, CourseConfig] = {}
     for cid, course in v.table(
@@ -216,7 +260,17 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         course = v.table(
             course,
             where,
-            {"name", "target", "exclude", "default_target", "exclude_files", "rules"},
+            {
+                "name",
+                "target",
+                "exclude",
+                "default_target",
+                "exclude_files",
+                "rules",
+                "rename",
+                "unzip",
+                "merge",
+            },
         )
         excluded = v.get(course, "exclude", where, bool, False)
         target = v.get(course, "target", where, str, "", required=not excluded)
@@ -225,7 +279,18 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         course_default = v.get(course, "default_target", where, str)
         if course_default is not None:
             course_default = v.rel_path(course_default, f"{where}.default_target", False)
-        rules = v.get(course, "rules", where, list, [])
+        rules, rule_problems = parse_rules(course.get("rules", []), f"{where}.rules")
+        v.problems.extend(rule_problems)
+        merge = None
+        if "merge" in course:
+            m = v.table(course["merge"], f"{where}.merge", {"source", "output"})
+            source = v.get(m, "source", f"{where}.merge", str, "", required=True)
+            output = v.get(m, "output", f"{where}.merge", str, "", required=True)
+            if source and output:
+                merge = MergeConfig(
+                    v.rel_path(source, f"{where}.merge.source", False),
+                    v.rel_path(output, f"{where}.merge.output", False),
+                )
         courses[cid] = CourseConfig(
             id=cid,
             name=v.get(course, "name", where, str, ""),
@@ -235,7 +300,12 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
             exclude_files=v.exclude(
                 course.get("exclude_files", {}), f"{where}.exclude_files", ExcludeConfig()
             ),
-            rules=tuple(rules),
+            rules=rules,
+            rename=v.rename(course["rename"], f"{where}.rename", rename)
+            if "rename" in course
+            else None,
+            unzip=v.get(course, "unzip", where, bool),
+            merge=merge,
         )
 
     config = Config(
@@ -250,7 +320,9 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         default_target=default_target,
         create_missing_dirs=v.get(sync, "create_missing_dirs", "sync", bool, False),
         exclude=global_exclude,
-        rename=dict(rename),
+        unzip=v.get(sync, "unzip", "sync", bool, False),
+        notify=v.get(sync, "notify", "sync", bool, True),
+        rename=rename,
         courses=courses,
     )
     if v.problems:

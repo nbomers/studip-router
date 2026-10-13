@@ -187,7 +187,7 @@ def test_remote_deleted_is_reported_never_removed(cfg: Config, state: State, roo
 
 def test_slash_in_remote_name_stays_one_file(cfg: Config, state: State, root: Path) -> None:
     plan = _sync(cfg, state, [remote("Blatt 1/2.pdf")])
-    assert plan.actions[0].dest == root / "Example Course" / "Sonstiges" / "Blatt 1-2.pdf"
+    assert plan.actions[0].dest == root / "Example Course" / "Sonstiges" / "Blatt 01-02.pdf"
 
 
 def test_interrupt_leaves_no_partial_file(cfg: Config, state: State, root: Path) -> None:
@@ -241,4 +241,4 @@ def test_old_semester_file_with_same_name_is_left_alone(
     os.utime(old, (datetime(2024, 11, 1).timestamp(),) * 2)
     plan = _plan(cfg, state, [remote("Aufgabe 1.pdf", size=3)], fresh_since=SEMESTER_START)
     assert _kinds(plan) == [Kind.DOWNLOAD]
-    assert plan.actions[0].dest.name == "Aufgabe 1_2.pdf"
+    assert plan.actions[0].dest.name == "Aufgabe 01.pdf"

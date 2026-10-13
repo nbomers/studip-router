@@ -27,6 +27,8 @@ from .fsutil import (
     with_suffix_number,
 )
 from .models import RemoteFile
+from .rename import RenameError, target_name
+from .rules import first_match
 from .state import FileRecord
 
 
@@ -48,6 +50,7 @@ class SkipReason(StrEnum):
     LOCAL_MODIFIED = "local copy modified"
     LOCAL_MISSING = "local copy moved or deleted"
     CONFLICT = "name conflict (policy: skip)"
+    RULE = "skipped by rule"
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,8 @@ class Route:
     name: str
     rule_id: str | None = None
     by_default: bool = False
+    skip: bool = False
+    unzip: bool = False
 
 
 @dataclass
@@ -89,11 +94,30 @@ class CoursePlan:
 Router = Callable[[RemoteFile], Route]
 
 
-def default_router(cfg: Config, course: CourseConfig) -> Router:
-    target = cfg.course_default_target(course)
+def build_router(cfg: Config, course: CourseConfig, semester: str = "") -> Router:
+    """Route by the course's rules (first match wins), else to the default target.
+
+    Raises RenameError for templates that fail on a concrete file.
+    """
+    default_target = cfg.course_default_target(course)
+    options = cfg.course_rename(course)
+    unzip = cfg.course_unzip(course)
+    label = course.name or course.target
 
     def route(file: RemoteFile) -> Route:
-        return Route(subdir=target, name=sanitize_filename(file.name), by_default=True)
+        rule, regex_match = first_match(course.rules, file)
+        if rule is None:
+            name = target_name(file, None, options)
+            return Route(default_target, name, by_default=True, unzip=unzip)
+        if rule.skip:
+            return Route("", sanitize_filename(file.name), rule_id=rule.id, skip=True)
+        name = target_name(
+            file, rule.rename, options, course=label, semester=semester, match=regex_match
+        )
+        assert rule.target is not None
+        return Route(
+            rule.target, name, rule_id=rule.id, unzip=unzip if rule.unzip is None else rule.unzip
+        )
 
     return route
 
@@ -153,7 +177,7 @@ def plan_course(
     """
     course_dir = cfg.course_dir(course)
     plan = CoursePlan(course=course, course_dir=course_dir)
-    route_file = router or default_router(cfg, course)
+    route_file = router or build_router(cfg, course)
     excludes = cfg.course_exclude(course)
     if include_large:
         excludes = ExcludeConfig(excludes.globs, excludes.mime, None)
@@ -177,11 +201,28 @@ def plan_course(
             _plan_known(cfg, plan, file, record, claims)
             continue
 
-        route = route_file(file)
+        try:
+            route = route_file(file)
+        except RenameError as exc:
+            plan.actions.append(Action(Kind.ERROR, course.id, file, reason=str(exc)))
+            continue
+        if route.skip:
+            plan.actions.append(
+                Action(
+                    Kind.SKIP,
+                    course.id,
+                    file,
+                    route=route,
+                    reason=f"{SkipReason.RULE} {route.rule_id}",
+                )
+            )
+            continue
         dest = course_dir / route.subdir / route.name
+        # Hand-downloaded copies carry the original name, not the renamed one.
+        names = [route.name, sanitize_filename(file.name)]
 
         # Already on disk (e.g. downloaded by hand earlier)? Adopt instead of duplicating.
-        match = _find_local(by_name, route.name, file.size, adopted, None)
+        match = _find_local(by_name, names, file.size, adopted, None)
         if match is not None:
             adopted.add(path_key(match))
             plan.actions.append(
@@ -197,7 +238,7 @@ def plan_course(
             continue
 
         # Same name, different content, fetched by hand this semester: an older version.
-        older = fresh_since and _find_local(by_name, route.name, None, adopted, fresh_since)
+        older = fresh_since and _find_local(by_name, names, None, adopted, fresh_since)
         if older:
             adopted.add(path_key(older))
             if cfg.on_update == "skip":
@@ -347,13 +388,14 @@ def name_key(name: str) -> str:
 
 def _find_local(
     by_name: dict[str, list[Path]],
-    name: str,
+    names: list[str],
     size: int | None,
     adopted: set[str],
     modified_after: datetime | None,
 ) -> Path | None:
     """A not-yet-tracked local file with this name and size (or any size, if None)."""
-    for candidate in by_name.get(name_key(name), []):
+    keys = dict.fromkeys(name_key(n) for n in names)
+    for candidate in (c for k in keys for c in by_name.get(k, [])):
         if path_key(candidate) in adopted:
             continue
         st = local_stat(candidate)

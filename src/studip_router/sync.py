@@ -9,7 +9,7 @@ from enum import StrEnum
 from .api import ApiError, StudipClient
 from .config import Config, CourseConfig
 from .models import Course, Semester
-from .planner import CoursePlan, plan_course
+from .planner import CoursePlan, build_router, plan_course
 from .state import State
 
 
@@ -128,6 +128,7 @@ def build_plan(
                 files,
                 state.for_course(entry.course.id),
                 include_large=include_large,
+                router=build_router(cfg, entry.config, entry.course.semester_title),
                 fresh_since=semester.start if semester else None,
             )
         )
