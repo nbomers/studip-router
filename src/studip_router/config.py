@@ -73,6 +73,7 @@ class Config:
     notify: bool = True
     rename: RenameOptions = field(default_factory=RenameOptions)
     courses: dict[str, CourseConfig] = field(default_factory=dict)
+    ui_theme: str = "tokyo-night"
 
     def course_dir(self, course: CourseConfig) -> Path:
         target = Path(course.target).expanduser()
@@ -223,7 +224,8 @@ def load(path: Path) -> Config:
 
 def parse(raw: dict[str, Any], path: Path) -> Config:
     v = _Validator()
-    top = v.table(raw, "config", {"server", "sync", "rename", "courses"})
+    top = v.table(raw, "config", {"server", "sync", "rename", "courses", "ui"})
+    ui = v.table(top.get("ui", {}), "ui", {"theme"})
 
     server = v.table(top.get("server", {}), "server", {"base_url", "username"})
     base_url = v.get(server, "base_url", "server", str, "", required=True)
@@ -328,6 +330,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         notify=v.get(sync, "notify", "sync", bool, True),
         rename=rename,
         courses=courses,
+        ui_theme=v.get(ui, "theme", "ui", str, "tokyo-night"),
     )
     if v.problems:
         raise ConfigError(path, v.problems)

@@ -25,6 +25,7 @@ dependencies = [
     "keyring>=25.0",
     "pypdf>=5",
     "textual>=1.0",
+    "tomlkit>=0.13",
 ]
 
 [project.urls]
