@@ -65,6 +65,22 @@ cli.py / tui/   ──► sync.py ──► planner.py ──► executor.py ─
   the same name and size is treated as moved and its new path is recorded.
 - *Versions*: `name_v2.pdf`, `name_v3.pdf`, counting from the base name.
 - *Conflicts*: `name_2.pdf` (or skip/error).
+- *Not new content*: a changed date with the same content id (Stud.IP's
+  `file` relationship) is a rename/move/re-description → `refresh` or local
+  `rename`. Without a content id the executor hashes the download and drops it
+  if identical. Dates are compared as instants.
+- *Re-uploads*: a new file id whose name matches a file deleted in the same
+  run is treated as the next version of it.
+- *Isolation*: each course is planned in its own try block; malformed API
+  records are skipped (`client.warnings`). Files failing 3x are retried daily.
+- *Semesters*: configured courses always sync; the semester only decides which
+  unconfigured courses are announced (current + next within 60 days).
+- *Concurrency*: one `flock` per profile around every writing run; temp files
+  are `name.<random>.part`, stale ones are removed after 24 h.
+- *Background*: a 401 writes `<profile>.auth-paused`; scheduled runs stop until
+  a successful login; problems are notified.
+- *Courseware* (opt-in): units → structural elements with
+  `include=containers.blocks` → file ids from block payloads → `/file-refs/{id}`.
 - *Config writes* (`rules suggest --write`, TUI): append-only, validated
   before writing, backup as `config.toml.bak`; comments are preserved.
 - *Profiles*: `profiles/<name>.toml` + `state-<name>.sqlite`.
@@ -93,5 +109,5 @@ news_seen(news_id PK, course_id, seen_at)
 ## Possible future work
 
 - Auth providers for SSO-only instances (session cookie, personal tokens).
-- Courseware and Opencast recordings (needs research per instance).
+- Opencast recordings (separate plugin API).
 - A small macOS menu bar app on top of `studip --json`.

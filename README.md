@@ -16,9 +16,11 @@ Most Stud.IP downloaders mirror the course's folder tree. `studip-router` files 
 - **Settings screen**: every option on one page, change with ←/→ (or `h`/`l`), saved immediately — comments in your config file are kept.
 - **Safe**: never deletes, never silently overwrites, never touches files you edited, atomic downloads, clean Ctrl-C.
 - **Knows your existing files**: files you downloaded by hand are recognised (even as `Name_with_underscores.pdf`) instead of being downloaded twice; a file you moved within the course folder is followed.
-- **Updates become versions**: a changed file is saved as `name_v2.pdf` next to the old one (configurable).
+- **Updates become versions**: a changed file is saved as `name_v2.pdf` next to the old one (configurable). Renames, moves and re-uploads of the *same* content never create copies; renamed files are renamed locally too.
+- **Robust against Stud.IP hiccups**: a course that fails (server error, unexpected data) is reported while all others still sync; files that keep failing are retried daily instead of on every run.
 - **Robust with messy files**: odd characters, very long names, missing extensions, interrupted transfers, HTML error pages instead of files, broken ZIP names, iCloud — see [Tricky files](#tricky-files).
-- **Extras**: course announcements, ZIP extraction, merge all slides into one PDF, background sync with desktop notifications, `--json` output, profiles for several accounts.
+- **Background sync** with desktop notifications — also about problems; a failed login pauses it so a changed password cannot lock your account.
+- **Extras**: Courseware files (opt-in), course announcements, ZIP extraction, merged slide PDFs, never-download list, `--json` output, profiles for several accounts.
 
 ## Requirements
 
@@ -31,7 +33,7 @@ Most Stud.IP downloaders mirror the course's folder tree. `studip-router` files 
 uv tool install git+https://github.com/nbomers/studip-router
 ```
 
-or `pipx install git+https://github.com/nbomers/studip-router`. Update with `uv tool upgrade studip-router`.
+or `pipx install git+https://github.com/nbomers/studip-router`. Working on the code? Avoid an editable install from an iCloud/Dropbox folder for daily use: if the sources are evicted, the command stops working (`studip doctor` warns about it). Update with `uv tool upgrade studip-router`.
 
 ## Quickstart
 
@@ -48,6 +50,7 @@ The first start opens a short setup: Stud.IP address, username, password (stored
 | `w` | What's new: open / reveal / preview | `m` | Merge slides into one PDF |
 | `a` | Announcements | `,` | Settings |
 | `c` | Courses: sync on/off, choose folders | `d` | Doctor: check the setup |
+| `i` | in preview / what's new: never download this file | `?` | all keys |
 
 `j`/`k` and arrow keys move, `Enter` opens, `Esc` goes back, `?` shows all keys.
 
@@ -111,6 +114,9 @@ Changed your rules after syncing? `studip reorganize --dry-run` shows how synced
 | `sync.create_missing_dirs` | `false` | create rule target folders that do not exist |
 | `sync.unzip` | `false` | extract `.zip` downloads next to the archive |
 | `sync.notify` | `true` | notification after background syncs |
+| `sync.follow_renames` | `true` | rename the local copy when a file is renamed on Stud.IP |
+| `sync.courseware` | `false` | also sync files from Courseware pages (per course: `courses.<id>.courseware`) |
+| `sync.only_configured_courses` | `true` | `false`: sync every course into a folder named like it |
 | `sync.exclude` | videos, > 200 MB | `globs`, `mime`, `max_size_mb` (`0` = no limit) |
 | `rename.pad_numbers` | `2` | `lecture-1` → `lecture-01`; `0` disables |
 | `rename.spaces` / `umlauts` / `lowercase` | keep | `_` or `-` / `transliterate` / `true` |
@@ -134,8 +140,9 @@ From scripts: `studip config set sync.on_update skip`.
 | `studip reorganize` / `studip undo` | apply changed rules to synced files / revert |
 | `studip history` / `studip news` | recently synced files / unread announcements |
 | `studip merge` | merge slide PDFs |
-| `studip schedule install --every 120` / `uninstall` | background sync (opt-in) |
-| `studip doctor` | check config, folders, keychain, server, scheduler |
+| `studip schedule install --every 120` / `run-now` / `uninstall` | background sync (opt-in) |
+| `studip ignore add / list / remove` | files you never want |
+| `studip doctor [--test-notification]` | check config, folders, keychain, server, scheduler |
 | `studip auth login / status / logout` | password in the OS keychain |
 | `studip config path / validate / edit / set` | config file |
 
@@ -167,6 +174,11 @@ Completes subcommands, flags and your course folders. `shell/fish/functions/stud
 | one file fails | the others continue; the failed one is retried next sync |
 | files only in iCloud (also old `.name.icloud` placeholders) | never downloaded just to compare |
 | ZIPs with garbled umlaut names, ZIP-slip, ZIP bombs | names repaired, unsafe archives refused |
+| `H2O`, `Python3`, `IPv6`, `A4`, `2x2` | left alone by number padding (only standalone numbers are padded) |
+| renamed / moved / re-uploaded on Stud.IP | followed; identical content is never stored twice |
+| two syncs at once (auto-sync + manual) | the second one stops with a message instead of racing |
+| crash or power loss mid-download | leftover temp files are cleaned up after a day |
+| university CA or TLS-inspecting proxy | the operating system's certificate store is used |
 | link to an external site redirects elsewhere | your credentials are never sent to the other host |
 
 ## How it stays safe
@@ -190,13 +202,25 @@ macOS shows `:` as `/` in Finder. On disk it is `Skript : Alle Folien` — use t
 No. A file with the same name (spaces, `_`, `-` treated alike) and size anywhere in the course folder is recorded instead. A same-named file with different content that you fetched this semester is treated as an older version: the new one goes next to it as `_v2`.
 
 **I deleted a file locally. Will it come back?**
-Yes, the next sync downloads it again. Files you never want are excluded with a rule (`skip = true`) or `sync.exclude`.
+Yes, the next sync downloads it again. Files you never want: press `i` on them (preview or what's new), `studip ignore add NAME`, a rule with `skip = true`, or `sync.exclude`.
+
+**The lecturer renamed or re-uploaded a file. Do I get duplicates?**
+No. A rename or move on Stud.IP renames your local copy (unless you edited it). A re-upload under the same name becomes `name_v2.pdf` — or nothing at all if the content is identical.
+
+**What happens at the end of the semester?**
+Courses you set up keep syncing (retake exams, late solutions) until you switch them off under `c`. Courses of the next semester show up as "new" a few weeks before it starts. For a new semester folder, point `sync.root` to it (`studip config set sync.root "~/Uni/Semester 6"`) or give courses absolute targets.
+
+**Does it get the files inside Courseware?**
+Turn on *courseware* in the settings (or per course in the config). `studip doctor` tells you which of your courses use Courseware. Videos are skipped by default (*skip videos*).
+
+**I use studip-router on two Macs with the same iCloud folder.**
+Run auto-sync on one of them only; two machines downloading the same file at the same time make iCloud create "Name 2.pdf" conflict copies.
 
 **My files are in iCloud Drive and "optimised" away.** Fine: evicted files are never downloaded for comparison. Keep the state outside synced folders (the default).
 
 **Can I sync older semesters?** `studip sync --semester "SoSe 2026"`, `--semester all`, or `a` in the courses screen.
 
-**My university uses SSO only.** Not supported yet; contributions welcome (see [docs/DESIGN.md](docs/DESIGN.md)).
+**My university uses SSO only / I enabled two-factor authentication.** Not supported yet: the JSON:API login needs a plain Stud.IP password. Contributions welcome (see [docs/DESIGN.md](docs/DESIGN.md)).
 
 ## Troubleshooting
 
@@ -206,6 +230,11 @@ Yes, the next sync downloads it again. Files you never want are excluded with a 
 | `JSON:API not available (HTTP 404)` | the JSON:API is disabled at your university; ask the Stud.IP admins |
 | `target folder does not exist` | create it, fix the rule target, or turn on *create folders* in the settings |
 | `received an HTML page instead of the file` | log in to Stud.IP in the browser and check the file is accessible |
+| `another studip-router run is in progress` | auto-sync is running right now; try again in a minute |
+| `auto-sync paused after a failed login` | `studip auth login` (or `L` in the settings) resumes it |
+| no notifications | `studip doctor --test-notification`; allow notifications for "Script Editor" in System Settings |
+| background sync cannot read the password | `studip schedule run-now` and choose *Always Allow* when macOS asks for keychain access (again after `uv tool upgrade`) |
+| a course is listed under "could not be read" | usually a temporary Stud.IP problem; the other courses were synced, the log has details |
 | config errors | `studip config validate` names the exact key, e.g. `courses.<id>.rules[2].match.name_regex` |
 | anything else | `studip doctor`, then the log at `~/.local/state/studip-router/studip-router.log` |
 

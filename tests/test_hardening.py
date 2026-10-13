@@ -355,3 +355,23 @@ def test_restore_uses_original_name_when_all_versions_are_gone(cfg, state, root)
     )
     assert plan.actions[0].dest.name == "a.pdf" and _names(folder) == ["a.pdf"]
     assert _plan(cfg, state, [remote("a.pdf", size=4, chdate=D2)]).actions == []
+
+
+@respx.mock
+def test_courseware_files_are_synced_when_enabled(root: Path, tmp_path: Path) -> None:
+    from fake_studip import install_courseware
+
+    install(respx.mock)
+    install_courseware(respx.mock)
+    raw = {
+        "server": {"base_url": BASE, "username": "u"},
+        "sync": {"root": str(root)},
+        "courses": {COURSE: {"target": "Example Course"}},
+    }
+    with StudipClient(BASE, "u", "x") as client, State(tmp_path / "s.sqlite") as state:
+        off = build_plan(client, parse(raw, Path("c")), state)
+        raw["courses"][COURSE]["courseware"] = True
+        on = build_plan(client, parse(raw, Path("c")), state)
+    names = lambda plan: {a.file.name: a.file.folder_path for p in plan.plans for a in p.actions}  # noqa: E731
+    assert "Worksheet.pdf" not in names(off)
+    assert names(on)["Worksheet.pdf"] == "Courseware/Week 1"

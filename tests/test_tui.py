@@ -206,3 +206,38 @@ async def test_invalid_config_shows_problem(course_dir: Path) -> None:
         assert isinstance(app.screen, HomeScreen)
         await pilot.press("s")
         assert isinstance(app.screen, HomeScreen)  # nothing opens, a hint is shown
+
+
+@respx.mock
+async def test_ignore_from_preview_and_cached_home(course_dir: Path) -> None:
+    install(respx.mock)
+    app = StudipRouterApp()
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_for(pilot, lambda: app.status_cache() is not None)
+        calls = len(respx.mock.calls)
+        await pilot.press("w", "escape")
+        await pilot.pause(0.2)
+        assert len(respx.mock.calls) == calls  # cached: returning home costs no requests
+        await pilot.press("p")
+        table = app.screen.query_one(DataTable)
+        await wait_for(pilot, lambda: table.row_count == 3)
+        ignored_name = app.screen.row_actions[0].file.name
+        await pilot.press("i")
+        await wait_for(pilot, lambda: table.row_count == 2)
+        from studip_router.state import State
+
+        with State(paths.state_db()) as state:
+            assert [r["name"] for r in state.ignored()] == [ignored_name]
+
+
+async def test_settings_fit_narrow_terminal(course_dir: Path) -> None:
+    app = StudipRouterApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("comma")
+        row = next(r for r in app.screen.query(SettingRow) if r.setting.label == "theme")
+        row.focus()
+        await pilot.pause()
+        text = row.render().plain
+        assert "◂" in text and "▸" in text and "1/8" in text
+        await pilot.press("l")
+        assert config().ui_theme == "catppuccin-mocha"

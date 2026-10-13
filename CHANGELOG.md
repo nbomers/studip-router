@@ -28,3 +28,10 @@ First public version.
   types, verified downloads with retries, HTML error page detection, iCloud
   placeholders, repaired ZIP member names.
 - fish completions.
+- Hardening after comparing with studip-sync, PFERD and Moodle-DL: per-course error
+  isolation, defensive API parsing, no duplicate versions for renames/moves/re-uploads,
+  rename following, instant-based date comparison, semester-change handling,
+  per-profile run lock, unique temp files, one-time deletion reports, ignore list,
+  back-off for failing files, failure notifications and login pause for background
+  sync, `folder_type` rules, OS certificate store, opt-in Courseware files,
+  standalone-only number padding, recovery of versions after state loss.

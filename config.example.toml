@@ -19,6 +19,10 @@ root = "~/Uni/Semester 5"
 semester = "current"
 
 # Only sync courses listed below; other courses are reported, never downloaded.
+# false: every course is synced into a folder named like the course.
+# Listed courses keep syncing after the semester ends (retake exams, late
+# solutions) until you turn them off; new courses of the next semester are
+# announced shortly before it starts.
 only_configured_courses = true
 
 # A file changed on Stud.IP:
@@ -38,6 +42,13 @@ create_missing_dirs = false
 
 # Extract downloaded .zip archives into a folder next to them (archive is kept).
 unzip = false
+
+# A file renamed on Stud.IP is renamed locally too (only if you did not edit it).
+follow_renames = true
+
+# Also sync files attached to Courseware pages (they appear under the Stud.IP
+# path "Courseware/<page>"); costs a few extra requests per course.
+courseware = false
 
 # Desktop notification after background syncs (`studip schedule install`).
 notify = true
@@ -80,6 +91,8 @@ merge = { source = "Skript : Alle Folien", output = "Alle Folien.pdf" }
 #   min_size_mb / max_size_mb
 #   changed_after / changed_before   dates like 2026-10-01
 #   description_regex  regex on the file description in Stud.IP
+#   folder_type        Stud.IP folder type, e.g. "HomeworkFolder", "CourseGroupFolder",
+#                      "CourseDateFolder" (one folder per session), "Courseware"
 #   case_sensitive     default false
 # `rename` variables: {orig_name} {orig_stem} {ext} {folder} {folder_path}
 #   {course} {semester} {date} and regex groups {1} {2} or {name};
@@ -102,6 +115,11 @@ target = "Skript : Alle Folien"
 id = "old-exams"
 match = { name_regex = "(?i)altklausur|exam" }
 target = "Klausur/Altklausuren"
+
+[[courses.0123456789abcdef0123456789abcdef.rules]]
+id = "own-submissions"
+match = { folder_type = "HomeworkFolder" }
+skip = true
 
 [[courses.0123456789abcdef0123456789abcdef.rules]]
 id = "no-recordings"

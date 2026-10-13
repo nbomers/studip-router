@@ -185,3 +185,22 @@ def _check_server(cfg: Config) -> Iterator[Check]:
         yield Check("login", Level.FAIL, str(exc))
         return
     yield Check("login", Level.OK, f"as {cfg.username}; current semester: {sem.title}")
+    with StudipClient(
+        cfg.base_url, cfg.username, auth.get_password(cfg.base_url, cfg.username)
+    ) as client:
+        courseware = [
+            c.name or c.target
+            for c in cfg.courses.values()
+            if not c.exclude and client.courseware_units(c.id)
+        ]
+    if courseware:
+        yield Check(
+            "courseware",
+            Level.INFO,
+            f"{len(courseware)} course(s) use Courseware ({', '.join(courseware)}); "
+            + (
+                "its files are synced"
+                if cfg.courseware
+                else "turn on 'courseware' in the settings to sync its files"
+            ),
+        )

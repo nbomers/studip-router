@@ -257,6 +257,72 @@ class StudipClient:
                 self._skipped(item, exc)
         return result
 
+    def courseware_files(self, course_id: str) -> list[RemoteFile]:
+        """Files attached to Courseware blocks of a course (download, video, audio, ...).
+
+        Uses ``include`` to load all pages, containers and blocks of a unit in two
+        requests; only the file metadata needs one request per file.
+        """
+        try:
+            units = self._get_json(f"/courses/{course_id}/courseware-units")["data"]
+        except ApiError:
+            return []
+        file_ids: dict[str, str] = {}  # file-ref id -> page path
+        for unit in units:
+            root = _rel_id(unit.get("relationships") or {}, "structural-element")
+            if not root:
+                continue
+            elements: dict[str, dict] = {}
+            included: list[dict] = []
+            doc = self._get_json(
+                f"/courseware-structural-elements/{root}", {"include": "containers.blocks"}
+            )
+            elements[root] = doc["data"]
+            included += doc.get("included") or []
+            for item, inc in self._paginate(
+                f"/courseware-structural-elements/{root}/descendants",
+                {"include": "containers.blocks"},
+            ):
+                elements[item["id"]] = item
+                included += inc
+            containers = {x["id"]: x for x in included if x.get("type") == "courseware-containers"}
+            for block in (x for x in included if x.get("type") == "courseware-blocks"):
+                container = containers.get(_rel_id(block.get("relationships") or {}, "container"))
+                element_id = _rel_id(
+                    (container or {}).get("relationships") or {}, "structural-element"
+                )
+                page = _page_path(elements, element_id, root)
+                for fid in _payload_file_ids((block.get("attributes") or {}).get("payload")):
+                    file_ids.setdefault(fid, page)
+        result = []
+        for fid, page in file_ids.items():
+            try:
+                item = self._get_json(f"/file-refs/{fid}")["data"]
+                attrs = item["attributes"]
+                chdate = _parse_dt(attrs.get("chdate") or attrs.get("mkdate"))
+                if chdate is None or not attrs.get("name"):
+                    raise ValueError("missing name or date")
+                result.append(
+                    RemoteFile(
+                        id=item["id"],
+                        course_id=course_id,
+                        name=attrs["name"],
+                        folder_path=f"Courseware/{page}".rstrip("/"),
+                        size=int(attrs.get("filesize") or 0),
+                        chdate=chdate,
+                        mime_type=attrs.get("mime-type") or "",
+                        description=attrs.get("description") or "",
+                        downloadable=bool(attrs.get("is-downloadable", True)),
+                        content_id=_rel_id(item.get("relationships") or {}, "file") or "",
+                        folder_type="Courseware",
+                    )
+                )
+            except ApiError as exc:
+                self.warnings.append(f"courseware file {fid}: {exc}")
+            except (KeyError, TypeError, ValueError) as exc:
+                self._skipped({"id": fid}, exc)
+        return result
+
     def courseware_units(self, course_id: str) -> int:
         """Number of Courseware units (content there is not synced)."""
         try:
@@ -280,6 +346,35 @@ class StudipClient:
                 sink(block)
         finally:
             response.close()
+
+
+def _payload_file_ids(payload: Any) -> list[str]:
+    """File-ref ids referenced by a Courseware block payload."""
+    if not isinstance(payload, dict):
+        return []
+    ids: list[str] = []
+    for key, value in payload.items():
+        if key in ("file_id", "file_ref_id") and isinstance(value, str) and value:
+            ids.append(value)
+        elif key in ("file_ids", "files") and isinstance(value, list):
+            ids += [
+                v if isinstance(v, str) else v.get("id", "")
+                for v in value
+                if isinstance(v, (str, dict))
+            ]
+    return [i for i in ids if i]
+
+
+def _page_path(elements: dict[str, dict], element_id: str | None, root: str) -> str:
+    """Titles from the unit's first level down to the page, e.g. "Setup/Install"."""
+    parts: list[str] = []
+    seen: set[str] = set()
+    while element_id and element_id in elements and element_id != root and element_id not in seen:
+        seen.add(element_id)
+        element = elements[element_id]
+        parts.append(((element.get("attributes") or {}).get("title") or "").replace("/", "-"))
+        element_id = _rel_id(element.get("relationships") or {}, "parent")
+    return "/".join(reversed([p for p in parts if p]))
 
 
 def folder_path(folders: dict[str, Folder], folder_id: str | None) -> str:

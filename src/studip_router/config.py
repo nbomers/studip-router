@@ -46,6 +46,7 @@ class CourseConfig:
     rename: RenameOptions | None = None  # None: use the global options
     unzip: bool | None = None
     merge: MergeConfig | None = None
+    courseware: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,7 @@ class Config:
     unzip: bool = False
     notify: bool = True
     follow_renames: bool = True
+    courseware: bool = False  # also sync files from Courseware pages (more requests)
     rename: RenameOptions = field(default_factory=RenameOptions)
     courses: dict[str, CourseConfig] = field(default_factory=dict)
     ui_theme: str = "tokyo-night"
@@ -82,6 +84,9 @@ class Config:
 
     def course_rename(self, course: CourseConfig) -> RenameOptions:
         return course.rename or self.rename
+
+    def course_courseware(self, course: CourseConfig) -> bool:
+        return self.courseware if course.courseware is None else course.courseware
 
     def course_unzip(self, course: CourseConfig) -> bool:
         return self.unzip if course.unzip is None else course.unzip
@@ -249,6 +254,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
             "unzip",
             "notify",
             "follow_renames",
+            "courseware",
         },
     )
     root = v.get(sync, "root", "sync", str, "", required=True)
@@ -278,6 +284,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
                 "rename",
                 "unzip",
                 "merge",
+                "courseware",
             },
         )
         excluded = v.get(course, "exclude", where, bool, False)
@@ -313,6 +320,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
             if "rename" in course
             else None,
             unzip=v.get(course, "unzip", where, bool),
+            courseware=v.get(course, "courseware", where, bool),
             merge=merge,
         )
 
@@ -331,6 +339,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         unzip=v.get(sync, "unzip", "sync", bool, False),
         notify=v.get(sync, "notify", "sync", bool, True),
         follow_renames=v.get(sync, "follow_renames", "sync", bool, True),
+        courseware=v.get(sync, "courseware", "sync", bool, False),
         rename=rename,
         courses=courses,
         ui_theme=v.get(ui, "theme", "ui", str, "tokyo-night"),

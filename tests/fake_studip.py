@@ -141,3 +141,86 @@ def install(router: respx.MockRouter) -> None:
             ),
         )
     )
+
+
+def install_courseware(router: respx.MockRouter) -> None:
+    """One Courseware unit with a page that has a download block."""
+    router.get(f"{API}/courses/{COURSE}/courseware-units").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "type": "courseware-units",
+                        "id": "u1",
+                        "attributes": {},
+                        "relationships": {
+                            "structural-element": {
+                                "data": {"type": "courseware-structural-elements", "id": "root"}
+                            }
+                        },
+                    }
+                ]
+            },
+        )
+    )
+    page = {
+        "type": "courseware-structural-elements",
+        "id": "p1",
+        "attributes": {"title": "Week 1"},
+        "relationships": {
+            "parent": {"data": {"type": "courseware-structural-elements", "id": "root"}}
+        },
+    }
+    container = {
+        "type": "courseware-containers",
+        "id": "c1",
+        "attributes": {},
+        "relationships": {
+            "structural-element": {"data": {"type": "courseware-structural-elements", "id": "p1"}}
+        },
+    }
+    block = {
+        "type": "courseware-blocks",
+        "id": "b1",
+        "attributes": {"block-type": "download", "payload": {"file_id": "cw-file"}},
+        "relationships": {"container": {"data": {"type": "courseware-containers", "id": "c1"}}},
+    }
+    router.get(f"{API}/courseware-structural-elements/root").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "type": "courseware-structural-elements",
+                    "id": "root",
+                    "attributes": {"title": "Course"},
+                    "relationships": {},
+                },
+                "included": [],
+            },
+        )
+    )
+    router.get(f"{API}/courseware-structural-elements/root/descendants").mock(
+        return_value=httpx.Response(200, json={**_page([page]), "included": [container, block]})
+    )
+    router.get(f"{API}/file-refs/cw-file").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "type": "file-refs",
+                    "id": "cw-file",
+                    "attributes": {
+                        "name": "Worksheet.pdf",
+                        "filesize": 7,
+                        "mime-type": "application/pdf",
+                        "chdate": "2026-10-10T10:00:00+02:00",
+                        "is-downloadable": True,
+                    },
+                }
+            },
+        )
+    )
+    router.get(f"{API}/file-refs/cw-file/content").mock(
+        return_value=httpx.Response(200, content=b"%PDF-cw")
+    )

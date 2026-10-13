@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import ClassVar
@@ -44,18 +46,28 @@ LOGO = "[b]studip[/b][dim]·[/dim]router"
 # key, title, description, factory
 ACTIONS: list[tuple[str, str, str, Callable[[], Screen]]] = [
     ("s", "Sync now", "download what is new, after a short summary", lambda: SyncView(True)),
-    ("p", "Preview", "every file and where it would go - nothing is changed", SyncView),
+    ("p", "Preview", "every file and its target, nothing changes", SyncView),
     ("w", "What's new", "recently synced files: open, reveal, preview", HistoryView),
     ("a", "Announcements", "news from your courses", NewsView),
     ("c", "Courses", "turn syncing on/off, give new courses a folder", CoursesView),
     ("r", "Rules", "suggestions, test a file name, your rules", RulesView),
     ("o", "Reorganize", "apply changed rules to synced files (undo: u)", ReorganizeView),
     ("m", "Merge slides", "combine lecture PDFs into one file", MergeView),
-    ("comma", "Settings", "behaviour, file names, auto-sync, theme, account", SettingsScreen),
+    ("comma", "Settings", "sync, file names, auto-sync, theme, account", SettingsScreen),
     ("d", "Doctor", "check config, folders, login and server", DoctorView),
 ]
 NEEDS_LOGIN = {"s", "p", "a", "c", "r"}
 KEY_LABEL = {"comma": ","}
+
+
+def _summary(summary: dict) -> str:
+    parts = []
+    for key, label in (("new", "new"), ("failed", "failed"), ("course_errors", "course errors")):
+        if summary.get(key):
+            parts.append(f"{summary[key]} {label}")
+    if summary.get("interrupted"):
+        parts.append("interrupted")
+    return " · ".join(parts) or ("nothing new" if summary else "")
 
 
 def _ago(iso: str | None) -> str:
@@ -99,9 +111,9 @@ class HomeScreen(Screen):
 
     @staticmethod
     def _option(key: str, title: str, description: str) -> Option:
-        text = Text()
+        text = Text(no_wrap=True, overflow="ellipsis")  # narrow terminals: cut, never wrap
         text.append(f" {KEY_LABEL.get(key, key):>2}  ", style="bold")
-        text.append(f"{title:<16}")
+        text.append(f"{title:<15} ")
         text.append(description, style="dim")
         return Option(text, id=key)
 
@@ -115,14 +127,10 @@ class HomeScreen(Screen):
     def refresh_status(self) -> None:
         app: StudipRouterApp = self.app  # type: ignore[assignment]
         cfg = app.cfg
-        cards = {k: self.query_one(f"#card-{k}", Static) for k in ("sync", "files", "news", "todo")}
+        titles = {"sync": "last sync", "files": "files", "news": "announcements", "todo": "to do"}
+        cards = {k: self.query_one(f"#card-{k}", Static) for k in titles}
         for name, card in cards.items():
-            card.border_title = {
-                "sync": "last sync",
-                "files": "files",
-                "news": "announcements",
-                "todo": "to do",
-            }[name]
+            card.border_title = titles[name]
         if cfg is None:
             self.query_one("#who", Static).update(f"[red]config problem[/red]  v{__version__}")
             cards["sync"].update("[red]config invalid[/red]")
@@ -139,32 +147,63 @@ class HomeScreen(Screen):
             last = state.last_run()
             tracked = len(state.all())
             default_routed = len(state.default_routed())
-        summary = ""
+        last_summary: dict = {}
         if last and last["summary"]:
-            summary = f"\n[dim]{last['summary'][:60]}[/dim]"
-        cards["sync"].update(f"[b]{_ago(last['finished_at'] if last else None)}[/b]{summary}")
+            with contextlib.suppress(ValueError):
+                last_summary = json.loads(last["summary"])
+        when = _ago(last["finished_at"] if last else None)
+        cards["sync"].update(f"[b]{when}[/b]\n[dim]{_summary(last_summary)}[/dim]")
         active = sum(1 for c in cfg.courses.values() if not c.exclude)
         courses = f"{active} course" + ("s" if active != 1 else "")
         cards["files"].update(f"[b]{tracked}[/b] synced\n[dim]{courses}[/dim]")
-        if not logged_in:
-            cards["news"].update("[dim]log in to see[/dim]")
-            cards["todo"].update(
-                "[yellow]not logged in[/yellow]\n[dim]press s - you will be "
-                "asked for your password[/dim]"
-            )
-            return
-        todo = []
-        if default_routed:
-            todo.append(f"{default_routed} file(s) in the default folder [dim](r)[/dim]")
-        cards["todo"].update("\n".join(todo) or "[green]✓ all good[/green]")
-        self.load_remote_status(default_routed)
+        self._local = {
+            "default_routed": default_routed,
+            "failed": int(last_summary.get("failed", 0) or 0),
+            "course_errors": int(last_summary.get("course_errors", 0) or 0),
+            "paused": paths.auth_pause_file().exists(),
+            "logged_in": logged_in,
+        }
+        cached = app.status_cache()
+        self._show_status(cached)
+        if logged_in and cached is None:
+            self.load_remote_status()
 
-    def load_remote_status(self, default_routed: int) -> None:
+    def _show_status(self, remote: dict | None) -> None:
+        local = self._local
+        news = self.query_one("#card-news", Static)
+        todo: list[str] = []
+        if local["paused"]:
+            todo.append("[red]auto-sync paused[/red] [dim](log in: , then L)[/dim]")
+        if not local["logged_in"]:
+            news.update("[dim]log in to see[/dim]")
+            todo.append("[yellow]not logged in[/yellow] [dim](s asks for it)[/dim]")
+        elif remote is None:
+            news.update("[dim]…[/dim]")
+        else:
+            unread_count = remote["unread"]
+            news.update(
+                f"[b]{unread_count}[/b] unread" + (" [dim](a)[/dim]" if unread_count else "")
+            )
+            if remote["new_courses"]:
+                todo.append(
+                    f"[yellow]{remote['new_courses']} new course(s)[/yellow] [dim](c)[/dim]"
+                )
+        if local["course_errors"]:
+            todo.append(f"[red]{local['course_errors']} course(s) failed[/red] [dim](p)[/dim]")
+        if local["failed"]:
+            todo.append(f"[red]{local['failed']} file(s) failed[/red] [dim](p)[/dim]")
+        if local["default_routed"]:
+            todo.append(f"{local['default_routed']} in default folder [dim](r)[/dim]")
+        self.query_one("#card-todo", Static).update(
+            "\n".join(todo[:3]) or "[green]✓ all good[/green]"
+        )
+
+    def load_remote_status(self) -> None:
         # A daemon thread instead of a worker: quitting must never wait for a slow
         # or unreachable server just to fill the status cards.
-        threading.Thread(target=self._remote_status, args=(default_routed,), daemon=True).start()
+        threading.Thread(target=self._remote_status, daemon=True).start()
 
-    def _remote_status(self, default_routed: int) -> None:
+    def _remote_status(self) -> None:
         app: StudipRouterApp = self.app  # type: ignore[assignment]
         cfg = app.cfg
         if cfg is None:
@@ -182,22 +221,13 @@ class HomeScreen(Screen):
                 fresh = unread(state, items)
         except Exception:  # status cards are best effort, never crash the app
             return
-        new_courses = sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED)
-
-        def show() -> None:
-            news = self.query_one("#card-news", Static)
-            news.update(f"[b]{len(fresh)}[/b] unread" + (" [dim](a)[/dim]" if fresh else ""))
-            todo = []
-            if new_courses:
-                todo.append(f"[yellow]{new_courses} new course(s)[/yellow] [dim](c)[/dim]")
-            if default_routed:
-                todo.append(f"{default_routed} file(s) in the default folder [dim](r)[/dim]")
-            self.query_one("#card-todo", Static).update(
-                "\n".join(todo) or "[green]✓ all good[/green]"
-            )
-
+        remote = {
+            "unread": len(fresh),
+            "new_courses": sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED),
+        }
+        app.set_status_cache(remote)
         with contextlib.suppress(RuntimeError):  # app already closed
-            app.call_from_thread(show)
+            app.call_from_thread(self._show_status, remote)
 
     def action_move(self, step: int) -> None:
         actions = self.query_one(OptionList)
@@ -231,7 +261,7 @@ class StudipRouterApp(App):
     #top { height: 3; padding: 1 2 0 2; }
     #logo { width: 1fr; color: $accent; }
     #who { width: auto; color: $text-muted; }
-    #cards { height: 6; padding: 0 1; }
+    #cards { height: 5; padding: 0 1; }
     .card { width: 1fr; height: 5; border: round $panel-lighten-2; padding: 0 1; margin: 0 1;
             border-title-color: $text-muted; }
     #actions { height: 1fr; margin: 1 2; border: round $accent 50%; padding: 0 1; }
@@ -267,6 +297,20 @@ class StudipRouterApp(App):
         super().__init__()
         self.cfg: Config | None = None
         self.config_error = ""
+        self._status: tuple[float, dict] | None = None  # (time, remote status)
+
+    STATUS_TTL = 300  # seconds; the home screen must not hammer Stud.IP
+
+    def status_cache(self) -> dict | None:
+        if self._status and time.monotonic() - self._status[0] < self.STATUS_TTL:
+            return self._status[1]
+        return None
+
+    def set_status_cache(self, remote: dict) -> None:
+        self._status = (time.monotonic(), remote)
+
+    def invalidate_status(self) -> None:
+        self._status = None
 
     def on_mount(self) -> None:
         self.reload_config()
@@ -290,7 +334,9 @@ class StudipRouterApp(App):
         self.switch_screen(HomeScreen())
         self.notify("Setup done. Press s to sync, r for rule suggestions.")
 
-    def refresh_home(self) -> None:
+    def refresh_home(self, remote_changed: bool = False) -> None:
+        if remote_changed:
+            self.invalidate_status()
         for screen in self.screen_stack:
             if isinstance(screen, HomeScreen):
                 screen.refresh_status()
@@ -329,7 +375,8 @@ class StudipRouterApp(App):
                 self.notify(str(exc), severity="error")
                 return
             auth.set_password(cfg.base_url, cfg.username, password)
-            self.refresh_home()
+            paths.auth_pause_file().unlink(missing_ok=True)  # resume auto-sync
+            self.refresh_home(remote_changed=True)
             then()
 
         self.push_screen(PasswordScreen(cfg, error), got)

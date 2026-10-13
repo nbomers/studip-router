@@ -93,6 +93,13 @@ SECTIONS: list[tuple[str, list[Setting]]] = [
                 ("sync", "on_conflict"),
             ),
             Setting(
+                "follow renames",
+                "rename the local copy when a file is renamed on Stud.IP",
+                ON_OFF,
+                lambda c: c.follow_renames,
+                ("sync", "follow_renames"),
+            ),
+            Setting(
                 "create folders",
                 "create missing target folders of rules",
                 ON_OFF,
@@ -139,6 +146,13 @@ SECTIONS: list[tuple[str, list[Setting]]] = [
                 ],
                 lambda c: int(c.exclude.max_size_mb or 0),
                 ("sync", "exclude", "max_size_mb"),
+            ),
+            Setting(
+                "courseware",
+                "also sync files from Courseware pages (needs more requests)",
+                ON_OFF,
+                lambda c: c.courseware,
+                ("sync", "courseware"),
             ),
             Setting(
                 "unzip archives",
@@ -252,6 +266,22 @@ class SettingRow(Widget, can_focus=True):
         text.append("▸ " if focused else "  ", style=f"bold {accent}" if focused else "")
         text.append(f"{self.setting.label:<18}", style="bold" if focused else "")
         self._spans = []
+        full = sum(len(label) + 3 for _, label in self.setting.options)
+        if full > max(self.size.width - 24, 20):  # too wide: show "◂ value ▸" instead
+            index = self._index()
+            label = self.setting.options[index][1] if index >= 0 else str(self.value)
+            prev_start = len(text)
+            text.append(" ◂ ", style="bold" if focused else "dim")
+            text.append(f" {label} ", style=f"bold black on {accent}")
+            next_start = len(text)
+            text.append(" ▸ ", style="bold" if focused else "dim")
+            text.append(f" {index + 1}/{len(self.setting.options)}", style="dim")
+            self._spans = [
+                (prev_start, prev_start + 3, "<prev>"),
+                (next_start, next_start + 3, "<next>"),
+            ]
+            text.append(f"\n    {self.setting.help}", style="dim italic")
+            return text
         for value, label in self.setting.options:
             start = len(text)
             selected = value == self.value
@@ -276,10 +306,17 @@ class SettingRow(Widget, can_focus=True):
         if event.y != 0:
             return
         for start, end, value in self._spans:
-            if start <= event.x < end and value != self.value:
+            if not start <= event.x < end:
+                continue
+            if value == "<prev>":
+                self.action_move(-1)
+            elif value == "<next>":
+                self.action_move(1)
+            elif value != self.value:
                 self.post_message(self.Changed(self, value))
 
     def on_focus(self) -> None:
+        self.scroll_visible(animate=False)
         self.refresh()
 
     def on_blur(self) -> None:

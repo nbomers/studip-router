@@ -33,6 +33,7 @@ from .. import doctor, paths
 from ..api import ApiError, StudipClient
 from ..config import Config, ConfigError
 from ..config_edit import set_course
+from ..fsutil import Locked
 from ..models import RemoteFile
 from ..news import News, fetch_news, unread
 from ..planner import Action, Kind, build_router
@@ -125,6 +126,7 @@ class SyncView(View):
         Binding("escape,q", "back", "Back"),
         Binding("s,enter", "start", "Sync now"),
         Binding("v", "toggle_skipped", "Show skipped"),
+        Binding("i", "ignore", "Never download"),
         Binding("r", "refresh", "Refresh"),
         Binding("j", "cursor('down')", show=False),
         Binding("k", "cursor('up')", show=False),
@@ -166,6 +168,7 @@ class SyncView(View):
         self.plan = plan
         table = self.query_one(DataTable)
         table.clear()
+        self.row_actions: list[Action] = []
         for course_plan in plan.plans:
             name = course_plan.course.name or course_plan.course.target
             for a in course_plan.actions:
@@ -180,6 +183,7 @@ class SyncView(View):
                     note = (note + "; " if note else "") + f"rule {a.route.rule_id}"
                 if a.unzips:
                     note += "; + unzip"
+                self.row_actions.append(a)
                 table.add_row(
                     Text(SYMBOL[a.kind], style=STYLE[a.kind]),
                     name,
@@ -190,8 +194,14 @@ class SyncView(View):
         todo = self._todo()
         sem = plan.semester.title if plan.semester else "all semesters"
         extra = ""
+        if plan.errors:
+            names = ", ".join(n for n, _ in plan.errors)
+            extra += (
+                f"\n[red]Could not read {len(plan.errors)} course(s): {names}[/red] "
+                "[dim](the others are fine; details in the log)[/dim]"
+            )
         if plan.unconfigured:
-            extra = (
+            extra += (
                 f"\n[yellow]{len(plan.unconfigured)} course(s) not set up yet[/yellow] "
                 "[dim]→ Courses (c on the home screen)[/dim]"
             )
@@ -216,6 +226,24 @@ class SyncView(View):
     @on(DataTable.RowSelected)
     def _row_selected(self) -> None:
         self.action_start()
+
+    def action_ignore(self) -> None:
+        """Never download the selected file (or download it again, if ignored)."""
+        table = self.query_one(DataTable)
+        rows = getattr(self, "row_actions", [])
+        if self.running or not rows or table.cursor_row >= len(rows):
+            return
+        action = rows[table.cursor_row]
+        if action.file is None:
+            return
+        with State(paths.state_db()) as state:
+            if action.file.id in state.ignored_ids():
+                state.unignore(action.file.id)
+                self.notify(f"{action.file.name} will be synced again.")
+            else:
+                state.ignore(action.file.id, action.course_id, action.file.name)
+                self.notify(f"{action.file.name} will never be downloaded.")
+        self.action_refresh()
 
     def action_toggle_skipped(self) -> None:
         self.show_skipped = not self.show_skipped
@@ -262,6 +290,14 @@ class SyncView(View):
                 self.status,
                 "[yellow]Stopped.[/yellow] Finished files are recorded; "
                 "the rest follows with the next sync.",
+            )
+            self.running = False
+            return
+        except Locked:
+            self.app.call_from_thread(
+                self.status,
+                "[yellow]Another sync is running right now (auto-sync?).[/yellow] "
+                "Try again in a moment.",
             )
             self.running = False
             return
@@ -312,7 +348,7 @@ class SyncView(View):
             else f"[yellow]Sync finished with {failed} problem(s)[/yellow] - they are "
             "retried next time."
         )
-        self.app.refresh_home()  # type: ignore[attr-defined]
+        self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
 
 
 # -- courses ----------------------------------------------------------------------------
@@ -341,7 +377,7 @@ class CoursesView(View):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns("Sync", "Course", "Semester", "Folder")
+        self.query_one(DataTable).add_columns("Sync", "Course", "Type", "Semester", "Folder")
         self.load()
 
     @work(thread=True, exclusive=True)
@@ -369,7 +405,13 @@ class CoursesView(View):
         }
         for e in entries:
             folder = e.config.target if e.config and e.config.target else ""
-            table.add_row(marks[e.status], e.course.title, e.course.semester_title, folder)
+            table.add_row(
+                marks[e.status],
+                e.course.title,
+                Text(e.course.course_type[:22], style="dim"),
+                e.course.semester_title,
+                folder,
+            )
         if entries:
             table.move_cursor(row=min(cursor, len(entries) - 1))
         note = f"{label} · {len(entries)} courses"
@@ -458,6 +500,7 @@ class HistoryView(View):
         Binding("o", "open", "Open"),
         Binding("r", "reveal", "Reveal"),
         Binding("space", "preview", "Preview"),
+        Binding("i", "ignore", "Never download"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -485,6 +528,18 @@ class HistoryView(View):
             return None
         key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         return Path(key) if key else None
+
+    def action_ignore(self) -> None:
+        """Keep the local file but never download it again (also not after deleting it)."""
+        path = self._selected()
+        if path is None:
+            return
+        with State(paths.state_db()) as state:
+            record = next((r for r in state.all() if r.local_path == str(path)), None)
+            if record is None:
+                return
+            state.ignore(record.file_id, record.course_id, record.remote_name)
+        self.notify(f"{path.name}: never downloaded again, even if you delete it.")
 
     def _run(self, *args: str) -> None:
         path = self._selected()
@@ -576,7 +631,7 @@ class NewsView(View):
         )
         with State(paths.state_db()) as state:
             state.mark_news_seen([(n.id, n.course_id)])
-        self.app.refresh_home()  # type: ignore[attr-defined]
+        self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
 
     def action_toggle_all(self) -> None:
         self.show_all = not self.show_all

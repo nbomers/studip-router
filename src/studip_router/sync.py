@@ -174,6 +174,9 @@ def build_plan(
     for course, course_cfg, implicit in selected:
         try:
             files = client.files(course.id)
+            if cfg.course_courseware(course_cfg):
+                known = {f.id for f in files}
+                files += [f for f in client.courseware_files(course.id) if f.id not in known]
             plan = plan_course(
                 cfg,
                 course_cfg,
