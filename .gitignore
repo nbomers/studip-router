@@ -6,7 +6,7 @@ build/
 dist/
 
 # Environments (".nosync" keeps iCloud from syncing the venv)
-.venv/
+.venv
 .venv.nosync/
 .env
 
