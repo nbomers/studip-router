@@ -8,8 +8,10 @@ the same plan to the executor. That is what keeps both modes identical.
 from __future__ import annotations
 
 import fnmatch
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -141,7 +143,14 @@ def plan_course(
     *,
     router: Router | None = None,
     include_large: bool = False,
+    fresh_since: datetime | None = None,
 ) -> CoursePlan:
+    """Plan one course.
+
+    ``fresh_since``: local files with the same name but a different size that
+    were modified after this moment (e.g. downloaded by hand this semester) are
+    treated as an older version of the remote file. ``None`` disables this.
+    """
     course_dir = cfg.course_dir(course)
     plan = CoursePlan(course=course, course_dir=course_dir)
     route_file = router or default_router(cfg, course)
@@ -152,7 +161,7 @@ def plan_course(
     existing = list(walk_files(course_dir))
     by_name: dict[str, list[Path]] = {}
     for p in existing:
-        by_name.setdefault(nfc(p.name).casefold(), []).append(p)
+        by_name.setdefault(name_key(p.name), []).append(p)
     claims = _Claims(existing + [Path(r.local_path) for r in records.values()])
     adopted: set[str] = set(path_key(r.local_path) for r in records.values())
     planned_dirs: set[str] = set()
@@ -172,7 +181,7 @@ def plan_course(
         dest = course_dir / route.subdir / route.name
 
         # Already on disk (e.g. downloaded by hand earlier)? Adopt instead of duplicating.
-        match = _find_identical(by_name, route.name, file.size, adopted)
+        match = _find_local(by_name, route.name, file.size, adopted, None)
         if match is not None:
             adopted.add(path_key(match))
             plan.actions.append(
@@ -183,6 +192,32 @@ def plan_course(
                     dest=match,
                     route=route,
                     note="already present locally",
+                )
+            )
+            continue
+
+        # Same name, different content, fetched by hand this semester: an older version.
+        older = fresh_since and _find_local(by_name, route.name, None, adopted, fresh_since)
+        if older:
+            adopted.add(path_key(older))
+            if cfg.on_update == "skip":
+                plan.actions.append(
+                    Action(Kind.SKIP, course.id, file, dest=older, reason=SkipReason.UPDATE_SKIPPED)
+                )
+                continue
+            version = 2
+            while claims.taken(dest := with_suffix_number(older, version, "_v{n}")):
+                version += 1
+            claims.claim(dest)
+            plan.actions.append(
+                Action(
+                    Kind.NEW_VERSION,
+                    course.id,
+                    file,
+                    dest=dest,
+                    route=route,
+                    version=version,
+                    note=f"differs from local {older.name}, kept it",
                 )
             )
             continue
@@ -301,15 +336,34 @@ def _version_base(path: Path, version: int) -> Path:
     return path
 
 
-def _find_identical(
-    by_name: dict[str, list[Path]], name: str, size: int, adopted: set[str]
+def name_key(name: str) -> str:
+    """Loose file name identity: NFC, case-insensitive, spaces == underscores.
+
+    Stud.IP replaces spaces with underscores in browser downloads, so a file
+    fetched by hand as "Homework_1.pdf" is "Homework 1.pdf" in the API.
+    """
+    return re.sub(r"[\s_]+", "_", nfc(name).casefold())
+
+
+def _find_local(
+    by_name: dict[str, list[Path]],
+    name: str,
+    size: int | None,
+    adopted: set[str],
+    modified_after: datetime | None,
 ) -> Path | None:
-    for candidate in by_name.get(nfc(name).casefold(), []):
+    """A not-yet-tracked local file with this name and size (or any size, if None)."""
+    for candidate in by_name.get(name_key(name), []):
         if path_key(candidate) in adopted:
             continue
         st = local_stat(candidate)
-        if st is not None and st.size == size:
-            return candidate
+        if st is None:
+            continue
+        if size is not None and st.size != size:
+            continue
+        if modified_after is not None and st.mtime < modified_after.timestamp():
+            continue
+        return candidate
     return None
 
 

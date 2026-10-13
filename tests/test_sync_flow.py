@@ -210,3 +210,35 @@ def test_stale_plan_never_overwrites(cfg: Config, state: State, root: Path) -> N
     outcome = execute(plan, state, FakeDownloads(), run_id=1)
     assert len(outcome.failed) == 1
     assert late.read_bytes() == b"appeared meanwhile"
+
+
+SEMESTER_START = datetime(2026, 10, 1, tzinfo=UTC)
+
+
+def test_adopt_matches_underscores_for_spaces(cfg: Config, state: State, root: Path) -> None:
+    (root / "Example Course" / "Uebungen" / "Homework_1.pdf").write_bytes(b"abc")
+    plan = _plan(cfg, state, [remote("Homework 1.pdf", size=3)])
+    assert _kinds(plan) == [Kind.ADOPT]
+
+
+def test_fresh_local_file_with_other_size_becomes_older_version(
+    cfg: Config, state: State, root: Path
+) -> None:
+    local = root / "Example Course" / "Skript : Alle Folien" / "lecture-01.pdf"
+    local.write_bytes(b"old slides")
+    plan = _sync(cfg, state, [remote("lecture-01.pdf", size=3)], fresh_since=SEMESTER_START)
+    assert _kinds(plan) == [Kind.NEW_VERSION]
+    assert plan.actions[0].dest == local.with_name("lecture-01_v2.pdf")
+    assert local.read_bytes() == b"old slides"
+    assert _plan(cfg, state, [remote("lecture-01.pdf", size=3)]).actions == []
+
+
+def test_old_semester_file_with_same_name_is_left_alone(
+    cfg: Config, state: State, root: Path
+) -> None:
+    old = root / "Example Course" / "Sonstiges" / "Aufgabe 1.pdf"
+    old.write_bytes(b"from 2024")
+    os.utime(old, (datetime(2024, 11, 1).timestamp(),) * 2)
+    plan = _plan(cfg, state, [remote("Aufgabe 1.pdf", size=3)], fresh_since=SEMESTER_START)
+    assert _kinds(plan) == [Kind.DOWNLOAD]
+    assert plan.actions[0].dest.name == "Aufgabe 1_2.pdf"

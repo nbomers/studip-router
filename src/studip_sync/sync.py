@@ -128,6 +128,7 @@ def build_plan(
                 files,
                 state.for_course(entry.course.id),
                 include_large=include_large,
+                fresh_since=semester.start if semester else None,
             )
         )
     return result
