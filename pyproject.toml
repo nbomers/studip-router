@@ -26,6 +26,7 @@ dependencies = [
     "pypdf>=5",
     "textual>=1.0",
     "tomlkit>=0.13",
+    "truststore>=0.10",
 ]
 
 [project.urls]

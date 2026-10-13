@@ -20,6 +20,8 @@ STYLE = {
     Kind.NEW_VERSION: "yellow",
     Kind.OVERWRITE: "yellow",
     Kind.MKDIR: "blue",
+    Kind.REFRESH: "dim cyan",
+    Kind.MOVE: "cyan",
     Kind.SKIP: "dim",
     Kind.ERROR: "red",
 }
@@ -29,6 +31,8 @@ SYMBOL = {
     Kind.NEW_VERSION: "↻",
     Kind.OVERWRITE: "↻",
     Kind.MKDIR: "+",
+    Kind.REFRESH: "·",
+    Kind.MOVE: "→",
     Kind.SKIP: "◎",
     Kind.ERROR: "✗",
 }
@@ -128,6 +132,8 @@ def print_summary(
         "overwrite": "overwritten",
         "adopt": "adopted (already local)",
         "mkdir": "folders created",
+        "refresh": "details updated (no new content)",
+        "rename": "renamed like on Stud.IP",
         "error": "errors",
     }
     for key, value in sorted(counts.items()):
@@ -144,9 +150,19 @@ def print_summary(
         for c in sync_plan.missing:
             console.print(f"  {c.id}  {c.name}")
 
+    if sync_plan.errors:
+        console.print("\n[red]Courses that could not be read (the others were synced):[/red]")
+        for name, problem in sync_plan.errors:
+            console.print(f"  {name}: {problem}")
+    if sync_plan.warnings:
+        console.print(
+            f"\n[yellow]{len(sync_plan.warnings)} unexpected record(s) from Stud.IP "
+            "were skipped[/yellow] - see the log for details."
+        )
+
     deleted = [r for p in sync_plan.plans for r in p.remote_deleted]
     if deleted:
-        console.print("\n[yellow]Deleted on Stud.IP (kept locally):[/yellow]")
+        console.print("\n[yellow]Deleted on Stud.IP (kept locally, reported once):[/yellow]")
         for r in deleted:
             console.print(f"  {r.local_path}")
 
@@ -182,6 +198,8 @@ def plan_json(sync_plan: SyncPlan, result, dry_run: bool, news: int) -> dict:
         "unconfigured_courses": [{"id": c.id, "title": c.title} for c in sync_plan.unconfigured],
         "remote_deleted": [r.local_path for p in sync_plan.plans for r in p.remote_deleted],
         "new_announcements": news,
+        "course_errors": [{"course": n, "error": e} for n, e in sync_plan.errors],
+        "warnings": sync_plan.warnings,
     }
     if result is not None:
         data["failed"] = [

@@ -548,6 +548,11 @@ def _plan_missing(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
         return
     if not _ensure_dir(ctx.cfg, ctx.plan, path.parent, ctx.planned_dirs, file):
         return
+    version = record.version
+    base = _version_base(path, record.version)
+    if version > 1 and not base.exists() and not ctx.claims.taken(base):
+        path, version = base, 1  # the original is gone too: restore under its own name
+        ctx.claims.claim(base)
     ctx.plan.actions.append(
         Action(
             Kind.DOWNLOAD,
@@ -555,7 +560,7 @@ def _plan_missing(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
             file,
             dest=path,
             previous=record,
-            version=record.version,
+            version=version,
             note="deleted locally, restoring",
         )
     )

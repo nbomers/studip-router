@@ -70,3 +70,8 @@ def log_file() -> Path:
 
 def lock_file() -> Path:
     return state_dir() / f"{profile() or 'default'}.lock"
+
+
+def auth_pause_file() -> Path:
+    """Exists while auto-sync is paused after a failed login."""
+    return state_dir() / f"{profile() or 'default'}.auth-paused"

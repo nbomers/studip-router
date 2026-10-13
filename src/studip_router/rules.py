@@ -25,6 +25,7 @@ MATCH_KEYS = {
     "changed_before",
     "description_regex",
     "case_sensitive",
+    "folder_type",
 }
 RULE_KEYS = {"id", "match", "target", "rename", "unzip", "skip"}
 TEMPLATE_VARS = {
@@ -53,6 +54,7 @@ class Match:
     changed_before: date | None = None
     description_regex: re.Pattern[str] | None = None
     case_sensitive: bool = False
+    folder_type: tuple[str, ...] = ()  # e.g. ("HomeworkFolder",), case-insensitive
 
     def test(self, file: RemoteFile) -> tuple[bool, re.Match[str] | None]:
         """Return (matched, regex match of name_regex for template groups)."""
@@ -65,6 +67,8 @@ class Match:
         if self.name_glob is not None and not fnmatch.fnmatchcase(
             fold(name), fold(nfc(self.name_glob))
         ):
+            return False, None
+        if self.folder_type and file.folder_type.casefold() not in self.folder_type:
             return False, None
         if self.ext:
             ext = split_ext(name)[1].lstrip(".").lower()
@@ -197,6 +201,10 @@ def parse_match(raw: Any, where: str, problems: list[str]) -> Match:
     if "ext" in raw:
         values["ext"] = tuple(
             e.lower().lstrip(".") for e in _str_tuple(raw["ext"], f"{where}.ext", problems)
+        )
+    if "folder_type" in raw:
+        values["folder_type"] = tuple(
+            t.casefold() for t in _str_tuple(raw["folder_type"], f"{where}.folder_type", problems)
         )
     if "mime" in raw:
         values["mime"] = tuple(

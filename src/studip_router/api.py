@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import ssl
 import time
 from collections.abc import Callable, Iterator
 from datetime import datetime
@@ -37,6 +38,17 @@ def _parse_dt(value: str | None) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.astimezone()
 
 
+def _ssl_context() -> ssl.SSLContext | bool:
+    """Use the operating system's certificate store (works with university CAs and
+    TLS-inspecting proxies that are trusted by the OS but unknown to certifi)."""
+    try:
+        import truststore
+
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:  # pragma: no cover - fall back to httpx's certifi bundle
+        return True
+
+
 def _rel_id(relationships: dict[str, Any], name: str) -> str | None:
     data = (relationships.get(name) or {}).get("data")
     return data.get("id") if isinstance(data, dict) else None
@@ -59,6 +71,7 @@ class StudipClient:
         self._sleep = sleep or (lambda seconds: _sleep(seconds))
         self._http = httpx.Client(
             auth=(username, password),
+            verify=_ssl_context(),
             timeout=httpx.Timeout(timeout, connect=10.0),
             headers={
                 "Accept": "application/vnd.api+json",

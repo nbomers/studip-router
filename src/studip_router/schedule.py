@@ -156,3 +156,17 @@ def status(profile: str | None = None) -> ScheduleStatus:
 
 def _launchctl(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(["launchctl", *args], check=check, capture_output=True, text=True)
+
+
+def run_now(profile: str | None = None) -> bool:
+    """Kick off the installed job immediately. False if none is installed."""
+    if sys.platform == "darwin":
+        if not _plist_path(profile).exists():
+            return False
+        _launchctl("kickstart", f"gui/{os.getuid()}/{label(profile)}")
+        return True
+    timer = _systemd_dir() / f"{_unit(profile)}.timer"
+    if not timer.exists():
+        return False
+    subprocess.run(["systemctl", "--user", "start", f"{_unit(profile)}.service"], check=True)
+    return True

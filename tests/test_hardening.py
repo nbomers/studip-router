@@ -341,3 +341,17 @@ def test_execute_plan_holds_the_lock(cfg, state, monkeypatch) -> None:
 
     with exclusive_lock(paths.lock_file()), pytest.raises(Locked):
         execute_plan(SyncPlan(semester=None), cfg, state, client=None)  # type: ignore[arg-type]
+
+
+def test_restore_uses_original_name_when_all_versions_are_gone(cfg, state, root) -> None:
+    folder = root / "Example Course" / "Sonstiges"
+    _sync(cfg, state, [remote("a.pdf", chdate=D1)], FakeDownloads({"file-a.pdf": b"abc"}))
+    _sync(cfg, state, [remote("a.pdf", size=4, chdate=D2)], FakeDownloads({"file-a.pdf": b"abcd"}))
+    assert _names(folder) == ["a.pdf", "a_v2.pdf"]
+    for f in folder.iterdir():
+        f.unlink()
+    plan = _sync(
+        cfg, state, [remote("a.pdf", size=4, chdate=D2)], FakeDownloads({"file-a.pdf": b"abcd"})
+    )
+    assert plan.actions[0].dest.name == "a.pdf" and _names(folder) == ["a.pdf"]
+    assert _plan(cfg, state, [remote("a.pdf", size=4, chdate=D2)]).actions == []

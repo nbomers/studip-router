@@ -43,6 +43,8 @@ def run_checks(*, offline: bool = False) -> Iterator[Check]:
     yield Check("config", Level.OK, f"{cfg.path} ({len(active)} active courses)")
     yield from _check_paths(cfg)
     yield from _check_state()
+    yield from _check_install()
+    yield from _check_paused()
     yield from _check_schedule()
     if not offline:
         yield from _check_server(cfg)
@@ -109,6 +111,36 @@ def _check_state() -> Iterator[Check]:
         yield Check("state", Level.WARN, f"{db} is in a synced folder; SQLite may get corrupted")
     else:
         yield Check("state", Level.OK, str(db))
+
+
+def _check_install() -> Iterator[Check]:
+    """An editable install from a cloud folder breaks when the sources are evicted."""
+    import json
+    from importlib.metadata import PackageNotFoundError, distribution
+    from urllib.parse import unquote
+
+    try:
+        info = json.loads(distribution("studip-router").read_text("direct_url.json") or "{}")
+    except (PackageNotFoundError, ValueError):
+        return
+    if not (info.get("dir_info") or {}).get("editable"):
+        return
+    source = unquote(info.get("url", ""))
+    if any(m in source for m in ("Mobile Documents", "Dropbox", "OneDrive", "Google Drive")):
+        yield Check(
+            "installation",
+            Level.WARN,
+            "installed in editable mode from a cloud-synced folder; if the sources "
+            "are evicted, studip (and auto-sync) stops working. Use "
+            "`uv tool install --reinstall .` without --editable for daily use",
+        )
+
+
+def _check_paused() -> Iterator[Check]:
+    if paths.auth_pause_file().exists():
+        yield Check(
+            "auto-sync", Level.FAIL, "paused after a failed login - run `studip auth login`"
+        )
 
 
 def _check_schedule() -> Iterator[Check]:

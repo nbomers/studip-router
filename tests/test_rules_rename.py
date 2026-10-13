@@ -189,3 +189,13 @@ def test_per_course_rename_overrides_global(root: Path) -> None:
     cfg = _cfg(root, [], global_rename={"pad_numbers": 3}, rename={"spaces": "_"})
     route = build_router(cfg, cfg.courses[COURSE_ID])
     assert route(remote("VL 1.pdf")).name == "VL_001.pdf"
+
+
+def test_folder_type_rule(root: Path) -> None:
+    from dataclasses import replace
+
+    rules = [{"id": "mine", "match": {"folder_type": "HomeworkFolder"}, "skip": True}]
+    cfg = _cfg(root, rules)
+    route = build_router(cfg, cfg.courses[COURSE_ID])
+    assert route(replace(remote("my.pdf"), folder_type="HomeworkFolder")).skip
+    assert not route(replace(remote("x.pdf"), folder_type="StandardFolder")).skip

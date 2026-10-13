@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -22,6 +23,7 @@ from rich.table import Table
 from . import __version__, auth, doctor, paths, report, schedule
 from .api import ApiError, AuthFailed, StudipClient
 from .config import Config, ConfigError, CourseConfig, load
+from .fsutil import Locked
 from .models import RemoteFile
 from .news import fetch_news, unread
 from .notify import notify, sync_message
@@ -61,6 +63,11 @@ app.add_typer(auth_app, name="auth")
 app.add_typer(config_app, name="config")
 app.add_typer(rules_app, name="rules")
 app.add_typer(schedule_app, name="schedule")
+ignore_app = typer.Typer(
+    no_args_is_help=True,
+    help="Files you never want (otherwise deleted files come back with the next sync).",
+)
+app.add_typer(ignore_app, name="ignore")
 
 console = Console(highlight=False)
 err = Console(stderr=True, highlight=False)
@@ -181,6 +188,7 @@ def auth_login(config: ConfigOpt = None) -> None:
     except ApiError as exc:
         raise fail(str(exc)) from None
     auth.set_password(cfg.base_url, cfg.username, password)
+    paths.auth_pause_file().unlink(missing_ok=True)  # resume auto-sync
     console.print(
         f"[green]✓[/green] Logged in as {me['name'] or cfg.username}; "
         "password stored in the keychain."
@@ -393,7 +401,23 @@ def sync_cmd(
     cfg = load_config(config)
     report.setup_file_logging(paths.log_file(), verbose)
     out = Console(quiet=quiet or OPTS.json, highlight=False)
-    with open_client(cfg) as client, State(paths.state_db()) as state:
+    background = send_notification  # the scheduler runs `sync --notify --quiet`
+    pause = paths.auth_pause_file()
+    if background and pause.exists():
+        # A failed login paused auto-sync so a wrong password cannot lock the account.
+        log_line = "auto-sync paused after a failed login; run `studip auth login`"
+        logging.getLogger("studip_router").warning(log_line)
+        raise typer.Exit(3)
+    try:
+        password = auth.get_password(cfg.base_url, cfg.username)
+    except auth.AuthError as exc:
+        if background:
+            notify("studip-router", "No password stored - run `studip auth login`.")
+        raise fail(str(exc), 3) from None
+    with (
+        StudipClient(cfg.base_url, cfg.username, password) as client,
+        State(paths.state_db()) as state,
+    ):
         try:
             with out.status("Fetching course data..."):
                 sync_plan = build_plan(
@@ -404,8 +428,20 @@ def sync_cmd(
                     course_query=course,
                     include_large=include_large,
                 )
+        except AuthFailed as exc:
+            pause.parent.mkdir(parents=True, exist_ok=True)
+            pause.write_text("login failed\n")
+            if background:
+                notify(
+                    "studip-router",
+                    "Stud.IP login failed - auto-sync paused. Run `studip auth login`.",
+                )
+            raise fail(f"{exc}; auto-sync is paused until `studip auth login`", 3) from None
         except ApiError as exc:
+            if background:
+                notify("studip-router", f"Sync failed: {exc}")
             raise fail(str(exc)) from None
+        pause.unlink(missing_ok=True)  # login works again
         if dry_run or verbose:
             for plan in sync_plan.plans:
                 if (table := report.plan_table(plan, verbose)) is not None:
@@ -423,6 +459,8 @@ def sync_cmd(
                         f"  [{report.STYLE[a.kind]}]{report.SYMBOL[a.kind]}[/] {a.dest.name}"
                     ),
                 )
+            except Locked as exc:
+                raise fail(f"{exc} - try again in a moment", 75) from None
             except KeyboardInterrupt:
                 err.print(
                     "\n[yellow]Interrupted.[/yellow] Finished files are recorded, no "
@@ -442,14 +480,22 @@ def sync_cmd(
                     out.print(f"  [yellow]◎[/yellow] merge {m.course}: {m.reason}")
             if news_count:
                 out.print(f"\n[cyan]{news_count} new announcement(s)[/cyan] - `studip news`")
-            if quiet and result and result.outcome.failed:
-                for action, msg in result.outcome.failed:
+            if quiet:
+                for name, problem in sync_plan.errors:
+                    err.print(f"[red]✗[/red] course {name}: {problem}")
+                for action, msg in result.outcome.failed if result else []:
                     err.print(f"[red]✗[/red] {action.file.name if action.file else ''}: {msg}")
-        if send_notification and result and cfg.notify:
-            message = sync_message(result.new_by_course(sync_plan), news_count)
+        failed = len(result.outcome.failed) if result else 0
+        if background and cfg.notify:
+            message = sync_message(result.new_by_course(sync_plan) if result else {}, news_count)
+            problems = failed + len(sync_plan.errors)
+            if problems:
+                message = (message + ". " if message else "") + (
+                    f"{problems} problem(s) - open studip for details"
+                )
             if message:
                 notify("Stud.IP", message)
-        if result and result.outcome.failed:
+        if failed or sync_plan.errors:
             raise typer.Exit(1)
 
 
@@ -845,6 +891,23 @@ def schedule_install(
     console.print(f"[green]✓[/green] Installed ({where}). Remove with `studip schedule uninstall`.")
 
 
+@schedule_app.command("run-now")
+def schedule_run_now() -> None:
+    """Start the background job once now (to check keychain access and notifications)."""
+    try:
+        ok = schedule.run_now(paths.profile())
+    except OSError as exc:
+        raise fail(str(exc)) from None
+    if not ok:
+        raise fail("no background job installed; `studip schedule install` first")
+    console.print(
+        "Started. Watch for a notification; the log is "
+        f"{paths.state_dir() / 'scheduler.log'}.\n"
+        "If macOS asks for keychain access, choose [b]Always Allow[/b] - "
+        "otherwise the background sync cannot read your password."
+    )
+
+
 @schedule_app.command("uninstall")
 def schedule_uninstall() -> None:
     """Remove the background job."""
@@ -870,8 +933,21 @@ def schedule_status() -> None:
 
 
 @app.command("doctor")
-def doctor_cmd(offline: Annotated[bool, typer.Option("--offline")] = False) -> None:
+def doctor_cmd(
+    offline: Annotated[bool, typer.Option("--offline")] = False,
+    test_notification: Annotated[
+        bool, typer.Option("--test-notification", help="Send a test desktop notification.")
+    ] = False,
+) -> None:
     """Check config, folders, keychain, server and scheduler."""
+    if test_notification:
+        shown = notify("studip-router", "Test notification - notifications work.")
+        console.print(
+            "Sent. If nothing appeared, allow notifications for 'Script Editor' "
+            "in System Settings > Notifications."
+            if shown
+            else "[yellow]No notification mechanism available.[/yellow]"
+        )
     checks = list(doctor.run_checks(offline=offline))
     if OPTS.json:
         emit_json(checks)
@@ -886,6 +962,69 @@ def doctor_cmd(offline: Annotated[bool, typer.Option("--offline")] = False) -> N
             console.print(f"{marks[c.level]} [bold]{c.name}[/bold]: {c.detail}")
     if any(c.level == "fail" for c in checks):
         raise typer.Exit(1)
+
+
+@ignore_app.command("list")
+def ignore_list() -> None:
+    """Show ignored files."""
+    with State(paths.state_db()) as state:
+        rows = state.ignored()
+    if OPTS.json:
+        emit_json([dict(r) for r in rows])
+        return
+    if not rows:
+        console.print("No ignored files.")
+    for r in rows:
+        console.print(f"{r['file_id']}  {r['name']}  [dim]since {r['since'][:10]}[/dim]")
+
+
+@ignore_app.command("add")
+def ignore_add(
+    query: Annotated[str, typer.Argument(help="Stud.IP file id, or part of the file name.")],
+    config: ConfigOpt = None,
+) -> None:
+    """Never download this file again (it is not deleted locally)."""
+    cfg = load_config(config)
+    q = query.casefold()
+    with State(paths.state_db()) as state:
+        hits = [
+            (r.file_id, r.course_id, r.remote_name)
+            for r in state.all()
+            if r.file_id == query or q in r.remote_name.casefold()
+        ]
+        if not hits:
+            with open_client(cfg) as client:
+                for c in cfg.courses.values():
+                    if c.exclude:
+                        continue
+                    hits += [
+                        (f.id, c.id, f.name)
+                        for f in client.files(c.id)
+                        if f.id == query or q in f.name.casefold()
+                    ]
+        if len(hits) != 1:
+            names = "\n  ".join(f"{fid}  {name}" for fid, _, name in hits[:20])
+            raise fail(
+                f"{len(hits)} files match {query!r}" + (f"; use the id:\n  {names}" if hits else "")
+            )
+        fid, cid, name = hits[0]
+        state.ignore(fid, cid, name)
+    console.print(f"[green]✓[/green] {name} will not be downloaded any more.")
+
+
+@ignore_app.command("remove")
+def ignore_remove(query: Annotated[str, typer.Argument(help="File id or name.")]) -> None:
+    """Download this file again from the next sync on."""
+    with State(paths.state_db()) as state:
+        hits = [
+            r
+            for r in state.ignored()
+            if r["file_id"] == query or query.casefold() in r["name"].casefold()
+        ]
+        if len(hits) != 1:
+            raise fail(f"{len(hits)} ignored files match {query!r}")
+        state.unignore(hits[0]["file_id"])
+    console.print(f"[green]✓[/green] {hits[0]['name']} is synced again.")
 
 
 @app.command("_complete", hidden=True)
