@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS files (
     version            INTEGER NOT NULL DEFAULT 1,
     rule_id            TEXT,
     routed_by_default  INTEGER NOT NULL DEFAULT 0,
-    synced_at          TEXT NOT NULL
+    synced_at          TEXT NOT NULL,
+    mime_type          TEXT NOT NULL DEFAULT '',
+    description        TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS files_course ON files(course_id);
 CREATE TABLE IF NOT EXISTS runs (
@@ -71,6 +73,8 @@ class FileRecord:
     rule_id: str | None = None
     routed_by_default: bool = False
     synced_at: str = ""
+    mime_type: str = ""
+    description: str = ""
 
 
 def now_iso() -> str:
@@ -84,6 +88,14 @@ class State:
         self._db = sqlite3.connect(path)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(files)")}
+        for name in ("mime_type", "description"):
+            if name not in columns:
+                self._db.execute(f"ALTER TABLE files ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        self._db.commit()
 
     def close(self) -> None:
         self._db.close()

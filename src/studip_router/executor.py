@@ -132,6 +132,8 @@ def _record(
         routed_by_default=(
             route.by_default if route else (previous.routed_by_default if previous else False)
         ),
+        mime_type=file.mime_type,
+        description=file.description,
     )
 
 

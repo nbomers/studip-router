@@ -116,3 +116,12 @@ def test_merge_refuses_foreign_output(tmp_path: Path) -> None:
         tmp_path, tmp_path / "All.pdf", previous_sha=None, previous_fingerprint=None
     )
     assert not result.written and "not created" in result.reason
+
+
+def test_news_html_to_text() -> None:
+    from studip_router.news import html_to_text
+
+    html = "<p>Hallo&nbsp;zusammen,</p><ul><li>Blatt 1 &amp; 2</li></ul><p>Gruß</p>"
+    assert html_to_text(html) == "Hallo\xa0zusammen,\n\n• Blatt 1 & 2\nGruß"
+    assert html_to_text("<p>a &amp;lt; b</p>") == "a &lt; b"
+    assert html_to_text("plain &lt;text&gt;") == "plain <text>"
