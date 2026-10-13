@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments (".nosync" keeps iCloud from syncing the venv)
+.venv/
+.venv.nosync/
+.env
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Never commit personal config, state or downloads
+config.toml
+!config.example.toml
+*.sqlite
+*.db
+*.part
+*.log
+
+# macOS / iCloud
+.DS_Store
+*.icloud
