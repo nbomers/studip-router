@@ -39,7 +39,13 @@ from .sync import (
     run_merges,
 )
 from .tomlwrite import append_blocks, rule_block
-from .wizard import CourseChoice, local_course_folders, propose_target, render_config
+from .wizard import (
+    CourseChoice,
+    detect_default_target,
+    local_course_folders,
+    propose_target,
+    render_config,
+)
 
 app = typer.Typer(
     add_completion=False,
@@ -281,7 +287,20 @@ def init_cmd(
                 None if answer.strip() == "-" else answer.strip(),
             )
         )
-    text = render_config(base_url, username, root, choices)
+    course_dirs = [root_path / c.target for c in choices if c.target]
+    detected = detect_default_target(course_dirs)
+    default_target = Prompt.ask(
+        "Folder for files no rule matches (inside each course folder)",
+        default=detected or "_unsorted",
+    )
+    text = render_config(base_url, username, root, choices, default_target)
+    missing = [d for d in course_dirs if not (d / default_target).is_dir()]
+    if missing:
+        console.print(
+            f"[yellow]Note:[/yellow] {len(missing)} course folder(s) have no "
+            f"'{default_target}' folder yet; create them or enable "
+            "create_missing_dirs."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         shutil.copy2(path, path.with_name(path.name + ".bak"))

@@ -87,7 +87,27 @@ class CourseChoice:
     target: str | None  # None: excluded
 
 
-def render_config(base_url: str, username: str, root: str, courses: list[CourseChoice]) -> str:
+def detect_default_target(course_dirs: list[Path]) -> str | None:
+    """The catch-all folder most course folders share ("Sonstiges", "Misc", ...)."""
+    from collections import Counter
+
+    from .suggest import local_category_dirs, local_subdirs
+
+    found: Counter[str] = Counter()
+    for course_dir in course_dirs:
+        dirs = local_category_dirs(local_subdirs(course_dir, depth=1), "misc")
+        if dirs:
+            found[dirs[0]] += 1
+    return found.most_common(1)[0][0] if found else None
+
+
+def render_config(
+    base_url: str,
+    username: str,
+    root: str,
+    courses: list[CourseChoice],
+    default_target: str = "Sonstiges",
+) -> str:
     lines = [
         "# studip-router configuration - see config.example.toml for all options.",
         "# The password is stored in your OS keychain, never in this file.",
@@ -99,7 +119,8 @@ def render_config(base_url: str, username: str, root: str, courses: list[CourseC
         "[sync]",
         f"root = {value(root)}",
         'semester = "current"',
-        'default_target = "Sonstiges"',
+        f"default_target = {value(default_target)}  # where files go that no rule matches",
+        "create_missing_dirs = false",
         "",
         "# Courses are keyed by their Stud.IP ID; `name` is only a label.",
         "# Add [[courses.<id>.rules]] blocks (or run `studip rules suggest`) to route files.",

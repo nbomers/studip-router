@@ -11,36 +11,87 @@ from typing import Any
 from .fsutil import is_ignored, nfc
 from .models import RemoteFile
 
-# (category, keywords found in Stud.IP folder/file names, preferred local folders)
-CATEGORIES: list[tuple[str, tuple[str, ...], tuple[str, ...]]] = [
-    (
-        "exams",
-        ("altklausur", "klausur", "exam", "prüfung", "pruefung"),
-        ("klausur/altklausuren", "klausur", "exams", "pruefung", "prüfung"),
+# Keywords are matched against *normalised* names (lower case, umlauts as ae/oe/ue/ss),
+# so "Übungen", "Uebungen", "UEBUNG" and "übungsblätter" all hit "uebung".
+# Order matters: the first category whose keyword matches wins.
+REMOTE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "exams": ("altklausur", "probeklausur", "klausur", "exam", "pruefung", "past paper", "testat"),
+    "solutions": ("loesung", "solution", "answer"),
+    "exercises": (
+        "uebung",
+        "ubung",
+        "exercise",
+        "blatt",
+        "blaetter",
+        "sheet",
+        "homework",
+        "hausaufgabe",
+        "assignment",
+        "aufgabe",
+        "tutori",
+        "praktikum",
+        "problem set",
+        "worksheet",
+        "zettel",
+        "abgabe",
+        "lab",
     ),
-    (
-        "exercises",
-        (
-            "übung",
-            "uebung",
-            "blatt",
-            "sheet",
-            "homework",
-            "assignment",
-            "exercise",
-            "aufgabe",
-            "tutori",
-            "praktikum",
-            "lab",
-        ),
-        ("uebungen", "übungen", "uebung", "übung", "exercises", "homework", "tutorium"),
+    "slides": (
+        "folie",
+        "slide",
+        "vorlesung",
+        "lecture",
+        "skript",
+        "script",
+        "praesentation",
+        "presentation",
+        "handout",
+        "kapitel",
+        "chapter",
+        "vl",
     ),
-    (
-        "slides",
-        ("folie", "slide", "vorlesung", "lecture", "skript", "script", "vl"),
-        ("skript : alle folien", "skript", "folien", "slides", "vorlesung", "lecture"),
+}
+LOCAL_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "exams": ("klausur", "exam", "pruefung"),
+    "solutions": ("loesung", "solution"),
+    "exercises": (
+        "uebung",
+        "ubung",
+        "exercise",
+        "blatt",
+        "blaetter",
+        "sheet",
+        "homework",
+        "hausaufgabe",
+        "assignment",
+        "aufgabe",
+        "tutori",
+        "praktikum",
+        "lab",
     ),
-]
+    "slides": ("skript", "script", "folie", "slide", "vorlesung", "lecture", "notes", "unterlagen"),
+    "misc": ("sonstig", "misc", "other", "allgemein", "general", "divers", "inbox", "extra"),
+}
+# Local folders that are archives, never a target for new files.
+_ARCHIVE = ("old", "alt", "archiv", "archive", "backup", "previous")
+_PAST = ("alt", "old", "past", "previous", "frueher")
+
+
+def normalise_name(text: str) -> str:
+    text = nfc(text).casefold()
+    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        text = text.replace(a, b)
+    return text
+
+
+def _has_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    for kw in keywords:
+        if len(kw) <= 3:  # short ones ("vl", "lab", "alt", "old") only as whole words
+            if re.search(rf"(?<![a-z]){re.escape(kw)}(?![a-z])", text):
+                return True
+        elif kw in text:
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -73,24 +124,41 @@ def local_subdirs(course_dir: Path, depth: int = 2) -> list[str]:
 
 
 def _category(text: str) -> str | None:
-    words = nfc(text).casefold()
-    for name, keywords, _ in CATEGORIES:
-        for kw in keywords:
-            # "vl" and "lab" only as whole words, the rest as substrings
-            if len(kw) <= 3:
-                if re.search(rf"(?<![a-zäöü]){re.escape(kw)}(?![a-zäöü])", words):
-                    return name
-            elif kw in words:
-                return name
+    words = normalise_name(text)
+    for name, keywords in REMOTE_KEYWORDS.items():
+        if _has_keyword(words, keywords):
+            return name
     return None
 
 
+def local_category_dirs(subdirs: list[str], category: str) -> list[str]:
+    """Local folders for ``category``, best first; archive folders are never offered."""
+    keywords = LOCAL_KEYWORDS[category]
+    scored: list[tuple[int, str]] = []
+    for rel in subdirs:
+        parts = [normalise_name(p) for p in rel.split("/")]
+        if any(_has_keyword(p, _ARCHIVE) for p in parts):
+            continue
+        if not _has_keyword(parts[-1], keywords) and not (
+            category == "exams"
+            and len(parts) > 1
+            and _has_keyword(parts[0], keywords)
+            and _has_keyword(parts[-1], (*_PAST, "altklausur"))
+        ):
+            continue
+        score = 10 - len(parts)
+        if category == "exams" and _has_keyword(parts[-1], (*_PAST, "altklausur")):
+            score += 5  # old exams go into "Klausur/Altklausuren" rather than "Klausur"
+        scored.append((score, rel))
+    return [rel for _, rel in sorted(scored, key=lambda x: (-x[0], x[1]))]
+
+
 def _local_target(category: str, subdirs: list[str]) -> str | None:
-    by_key = {d.casefold(): d for d in subdirs}
-    preferred = next(c for name, _, c in CATEGORIES if name == category)
-    for candidate in preferred:
-        if candidate in by_key:
-            return by_key[candidate]
+    found = local_category_dirs(subdirs, category)
+    if found:
+        return found[0]
+    if category == "solutions":  # no own folder: solutions go with the exercises
+        return _local_target("exercises", subdirs)
     return None
 
 
@@ -118,26 +186,41 @@ def suggest_rules(
     """
     subdirs = local_subdirs(course_dir)
     taken = set(existing_ids or ())
-    by_folder: Counter[str] = Counter(f.folder_path.split("/", 1)[0] for f in files)
     suggestions: list[Suggestion] = []
+
+    # Each file is classified by the first folder on its path (up to 3 levels)
+    # whose name reveals a category: "Material/Folien/x.pdf" -> "Material/Folien".
+    by_prefix: Counter[str] = Counter()
+    for f in files:
+        parts = [p for p in f.folder_path.split("/") if p][:3]
+        for depth in range(1, len(parts) + 1):
+            if _category(parts[depth - 1]) is not None:
+                by_prefix["/".join(parts[:depth])] += 1
+                break
+        else:
+            if parts:  # may still join a classified series of session folders
+                by_prefix[parts[0]] += 1
 
     # Per-session folders ("01. Sitzung am 04.11.30 ...") collapse into one pattern.
     members: dict[str, list[str]] = {}
-    for top in sorted(by_folder):
-        if top:
-            members.setdefault(folder_pattern(top), []).append(top)
+    for prefix in sorted(by_prefix):
+        parent, _, last = prefix.rpartition("/")
+        pattern = (parent + "/" if parent else "") + folder_pattern(last)
+        members.setdefault(pattern, []).append(prefix)
     grouped: dict[str, tuple[str, int, list[str]]] = {}
     for pattern, names in members.items():
         # one session folder named "... Vorlesung" classifies the whole series
-        category = next((c for n in names if (c := _category(n)) is not None), None)
+        category = next(
+            (c for n in names if (c := _category(n.rpartition("/")[2])) is not None), None
+        )
         if category is not None:
-            grouped[pattern] = (category, sum(by_folder[n] for n in names), names)
+            grouped[pattern] = (category, sum(by_prefix[n] for n in names), names)
 
     for pattern, (category, count, names) in grouped.items():
         target = _local_target(category, subdirs)
         if target is None:
             continue
-        rule_id = _unique(f"{category}-{_slug(pattern.strip('*'))}", taken)
+        rule_id = _unique(f"{category}-{_slug(pattern.strip('*').rpartition('/')[2])}", taken)
         shown = names[0] if len(names) == 1 else f"{names[0]} (+{len(names) - 1} more)"
         suggestions.append(
             Suggestion(
@@ -152,7 +235,7 @@ def suggest_rules(
     by_category: dict[str, int] = Counter(
         c for f in root_files if (c := _category(f.name)) is not None
     )
-    keywords = {name: kws for name, kws, _ in CATEGORIES}
+    keywords = REMOTE_KEYWORDS
     for category, count in sorted(by_category.items()):
         target = _local_target(category, subdirs)
         if target is None:

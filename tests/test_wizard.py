@@ -38,3 +38,18 @@ def test_render_config_is_valid_and_quotes_safely() -> None:
     cfg = parse(tomllib.loads(text), Path("c.toml"))
     assert cfg.courses["a" * 32].name == 'Course "One"'
     assert cfg.courses["b" * 32].exclude
+
+
+def test_detect_default_target(tmp_path: Path) -> None:
+    from studip_router.wizard import detect_default_target
+
+    dirs = []
+    for course, misc in (("A", "Misc"), ("B", "Misc"), ("C", "Other stuff"), ("D", None)):
+        d = tmp_path / course
+        d.mkdir()
+        (d / "Slides").mkdir()
+        if misc:
+            (d / misc).mkdir()
+        dirs.append(d)
+    assert detect_default_target(dirs) == "Misc"
+    assert detect_default_target([dirs[3]]) is None

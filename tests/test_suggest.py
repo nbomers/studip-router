@@ -101,3 +101,43 @@ def test_folder_pattern_keeps_plain_names() -> None:
     assert folder_pattern("Folien") == "Folien*"
     assert folder_pattern("Lecture Slides") == "Lecture Slides*"
     assert folder_pattern("3) Übungen") == "*Übungen*"
+
+
+@pytest.mark.parametrize(
+    ("local", "remote_folder", "expected"),
+    [
+        (["Übungen"], "Übungsblätter", "Übungen"),
+        (["Exercises"], "Homework", "Exercises"),
+        (["Hausaufgaben"], "Assignments", "Hausaufgaben"),
+        (["Tutorien"], "Tutorium Mo 10-12", "Tutorien"),
+        (["Vorlesungsfolien"], "Slides", "Vorlesungsfolien"),
+        (["Lecture Notes"], "Folien", "Lecture Notes"),
+        (["Exams", "Exams/Past Papers"], "Altklausuren", "Exams/Past Papers"),
+        (["Prüfung"], "Klausurvorbereitung", "Prüfung"),
+        (["Uebungen", "Uebungen/Loesungen"], "Musterlösungen", "Uebungen/Loesungen"),
+        (["Uebungen"], "Lösungen", "Uebungen"),  # no solutions folder: with exercises
+    ],
+)
+def test_generic_folder_names(tmp_path: Path, local, remote_folder, expected) -> None:
+    course = tmp_path / "Course"
+    for d in local:
+        (course / d).mkdir(parents=True)
+    [s] = suggest_rules([remote("x.pdf", folder=remote_folder)], course)
+    assert s.rule["target"] == expected
+
+
+def test_archive_folders_are_never_targets(tmp_path: Path) -> None:
+    course = tmp_path / "Course"
+    for d in ("Sonstiges/old/Übung", "Archiv/Folien"):
+        (course / d).mkdir(parents=True)
+    assert (
+        suggest_rules([remote("x.pdf", folder="Übungen"), remote("y.pdf", folder="Folien")], course)
+        == []
+    )
+
+
+def test_nested_remote_folders(tmp_path: Path) -> None:
+    course = tmp_path / "Course"
+    (course / "Folien").mkdir(parents=True)
+    [s] = suggest_rules([remote("x.pdf", folder="Material/Vorlesungsfolien/Teil 1")], course)
+    assert s.rule["match"]["folder"] == "Material/Vorlesungsfolien*"
