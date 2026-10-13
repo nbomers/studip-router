@@ -63,7 +63,8 @@ RULES = [
             RenameOptions(strip_prefixes=("vorlesung_",), lowercase=True),
             "intro.pdf",
         ),
-        ("Kapitel 1.v2.pdf", RenameOptions(), "Kapitel 01.v02.pdf"),
+        ("Kapitel 1.v2.pdf", RenameOptions(), "Kapitel 01.v2.pdf"),
+        ("H2O Python3 IPv6 A4 2x2.pdf", RenameOptions(), "H2O Python3 IPv6 A4 2x2.pdf"),
     ],
 )
 def test_normalise(name: str, options: RenameOptions, expected: str) -> None:

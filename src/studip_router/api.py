@@ -31,7 +31,15 @@ class AuthFailed(ApiError):
 
 
 def _parse_dt(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value) if value else None
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.astimezone()
+
+
+def _rel_id(relationships: dict[str, Any], name: str) -> str | None:
+    data = (relationships.get(name) or {}).get("data")
+    return data.get("id") if isinstance(data, dict) else None
 
 
 class StudipClient:
@@ -60,6 +68,7 @@ class StudipClient:
             transport=transport,
         )
         self._semesters: dict[str, Semester] = {}
+        self.warnings: list[str] = []  # records skipped because the API sent surprises
 
     def close(self) -> None:
         self._http.close()
@@ -169,54 +178,86 @@ class StudipClient:
         self.semesters()  # fill cache so relationships resolve
         result = []
         for item, _ in self._paginate(f"/users/{user_id}/courses"):
-            rel = item.get("relationships") or {}
-            start = ((rel.get("start-semester") or {}).get("data") or {}).get("id")
-            end = ((rel.get("end-semester") or {}).get("data") or {}).get("id")
-            result.append(
-                Course(
-                    id=item["id"],
-                    title=item["attributes"]["title"],
-                    start_semester=self._semesters.get(start),
-                    end_semester=self._semesters.get(end) if end else None,
+            try:
+                rel = item.get("relationships") or {}
+                start = _rel_id(rel, "start-semester")
+                end = _rel_id(rel, "end-semester")
+                attrs = item["attributes"]
+                result.append(
+                    Course(
+                        id=item["id"],
+                        title=attrs["title"],
+                        start_semester=self._semesters.get(start) if start else None,
+                        end_semester=self._semesters.get(end) if end else None,
+                        course_type=str(attrs.get("course-type") or ""),
+                    )
                 )
-            )
+            except (KeyError, TypeError, ValueError) as exc:
+                self._skipped(item, exc)
         return result
 
     def folders(self, course_id: str) -> list[Folder]:
         result = []
         for item, _ in self._paginate(f"/courses/{course_id}/folders"):
-            attrs = item["attributes"]
-            parent = ((item.get("relationships") or {}).get("parent") or {}).get("data")
-            result.append(
-                Folder(
-                    id=item["id"],
-                    name=attrs.get("name", ""),
-                    parent_id=parent["id"] if parent else None,
-                    folder_type=attrs.get("folder-type", ""),
+            try:
+                attrs = item.get("attributes") or {}
+                parent = _rel_id(item.get("relationships") or {}, "parent")
+                result.append(
+                    Folder(
+                        id=item["id"],
+                        name=attrs.get("name") or "",
+                        parent_id=parent,
+                        folder_type=attrs.get("folder-type") or "",
+                    )
                 )
-            )
+            except (KeyError, TypeError) as exc:
+                self._skipped(item, exc)
         return result
 
     def files(self, course_id: str) -> list[RemoteFile]:
         folders = {f.id: f for f in self.folders(course_id)}
         result = []
         for item, _ in self._paginate(f"/courses/{course_id}/file-refs"):
-            attrs = item["attributes"]
-            parent = ((item.get("relationships") or {}).get("parent") or {}).get("data")
-            result.append(
-                RemoteFile(
-                    id=item["id"],
-                    course_id=course_id,
-                    name=attrs["name"],
-                    folder_path=folder_path(folders, parent["id"] if parent else None),
-                    size=int(attrs.get("filesize") or 0),
-                    chdate=_parse_dt(attrs["chdate"]),
-                    mime_type=attrs.get("mime-type") or "",
-                    description=attrs.get("description") or "",
-                    downloadable=bool(attrs.get("is-downloadable", True)),
+            try:
+                attrs = item["attributes"]
+                rel = item.get("relationships") or {}
+                parent = _rel_id(rel, "parent")
+                chdate = _parse_dt(attrs.get("chdate") or attrs.get("mkdate"))
+                if chdate is None or not attrs.get("name"):
+                    raise ValueError("missing name or date")
+                result.append(
+                    RemoteFile(
+                        id=item["id"],
+                        course_id=course_id,
+                        name=attrs["name"],
+                        folder_path=folder_path(folders, parent),
+                        size=int(attrs.get("filesize") or 0),
+                        chdate=chdate,
+                        mime_type=attrs.get("mime-type") or "",
+                        description=attrs.get("description") or "",
+                        downloadable=bool(attrs.get("is-downloadable", True)),
+                        content_id=_rel_id(rel, "file") or "",
+                        folder_type=folders[parent].folder_type if parent in folders else "",
+                    )
                 )
-            )
+            except (KeyError, TypeError, ValueError) as exc:
+                self._skipped(item, exc)
         return result
+
+    def courseware_units(self, course_id: str) -> int:
+        """Number of Courseware units (content there is not synced)."""
+        try:
+            doc = self._get_json(f"/courses/{course_id}/courseware-units", {"page[limit]": 1})
+        except ApiError:
+            return 0
+        total = (doc.get("meta") or {}).get("page", {}).get("total")
+        return int(total) if total is not None else len(doc.get("data") or [])
+
+    def _skipped(self, item: Any, exc: Exception) -> None:
+        item_id = item.get("id", "?") if isinstance(item, dict) else "?"
+        message = f"skipped unexpected API record {item_id}: {exc!r}"
+        log.warning(message)
+        self.warnings.append(message)
 
     def download(self, file_id: str, sink: Callable[[bytes], None], chunk: int = 1 << 16) -> None:
         """Stream a file's content into ``sink`` chunk by chunk."""

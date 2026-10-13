@@ -66,3 +66,7 @@ def state_db() -> Path:
 
 def log_file() -> Path:
     return state_dir() / "studip-router.log"
+
+
+def lock_file() -> Path:
+    return state_dir() / f"{profile() or 'default'}.lock"

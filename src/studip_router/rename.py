@@ -88,7 +88,9 @@ def render(template: str, variables: dict[str, Any]) -> str:
         raise RenameError(f"invalid template {template!r}: {exc}") from exc
 
 
-_SHORT_NUMBER = r"(?<!\d)(\d{{1,{n}}})(?!\d)"
+# Only numbers standing on their own ("Blatt 3", "lecture-1", "01_intro", "Teil 1.2"):
+# never digits that belong to a word like "H2O", "Python3", "IPv6", "A4" or "2x2".
+_SHORT_NUMBER = r"(?<![^\s_\-.(\[#])(\d{{1,{n}}})(?![^\s_\-.)\]])"
 
 
 def normalise(name: str, options: RenameOptions, mime_type: str = "") -> str:

@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 
 from .api import ApiError
-from .fsutil import atomic_writer, local_stat, nfc, sha256_file
+from .fsutil import atomic_writer, local_stat, move_no_clobber, nfc, sha256_file
 from .models import RemoteFile
 from .planner import Action, CoursePlan, Kind
 from .postprocess import PostprocessError, extract_zip
@@ -47,7 +47,11 @@ def execute(
         except (ApiError, OSError) as exc:
             log.error("failed: %s -> %s: %s", _label(action), action.dest, exc)
             outcome.failed.append((action, str(exc)))
+            if action.file is not None:
+                state.record_failure(action.file.id, str(exc))
             continue
+        if action.file is not None and action.transfers:
+            state.clear_failure(action.file.id)
         outcome.done.append(action)
         if on_progress:
             on_progress(action)
@@ -83,25 +87,99 @@ def _apply(action: Action, state: State, download: Downloader, run_id: int) -> N
 
     file = action.file
     assert file is not None
+    previous = action.previous
     if action.kind is Kind.ADOPT:
         st = local_stat(action.dest)
         assert st is not None
         digest = None if st.dataless else sha256_file(action.dest)
-        state.upsert(_record(action, file, action.dest, st.size, st.mtime, digest, action.version))
+        _save(state, action, file, action.dest, st.size, st.mtime, digest, action.version)
         log.info("adopt %s", action.dest)
+        return
+
+    if action.kind is Kind.REFRESH:  # only Stud.IP details changed
+        assert previous is not None
+        _save(
+            state,
+            action,
+            file,
+            Path(previous.local_path),
+            previous.local_size,
+            previous.local_mtime,
+            previous.sha256,
+            previous.version,
+        )
+        return
+
+    if action.kind is Kind.MOVE:  # renamed on Stud.IP: follow with the local copy
+        assert previous is not None
+        move_no_clobber(Path(previous.local_path), action.dest)
+        state.journal(run_id, "move", str(action.dest), src=previous.local_path)
+        _save(
+            state,
+            action,
+            file,
+            action.dest,
+            previous.local_size,
+            previous.local_mtime,
+            previous.sha256,
+            previous.version,
+        )
+        log.info("rename %s -> %s", previous.local_path, action.dest)
         return
 
     # DOWNLOAD / NEW_VERSION / OVERWRITE
     if action.kind is not Kind.OVERWRITE and action.dest.exists():
         # Plan is stale (file appeared meanwhile): never clobber.
         raise OSError(f"refusing to overwrite unexpected file {action.dest}")
-    sha = fetch_verified(file, action.dest, download)
+    # A changed date often means a renamed or re-uploaded but identical file:
+    # compare the content before creating a "_v2" copy of the same bytes.
+    known = (
+        previous.sha256
+        if previous is not None
+        and action.kind is not Kind.DOWNLOAD
+        and previous.filesize == file.size
+        and previous.sha256
+        else None
+    )
+    sha, written = fetch_verified(file, action.dest, download, unless_sha=known)
+    if not written:
+        assert previous is not None
+        log.info("%s: content unchanged on Stud.IP, nothing written", file.name)
+        action.kind = Kind.REFRESH
+        action.note = "same content as before, nothing written"
+        _save(
+            state,
+            action,
+            file,
+            Path(previous.local_path),
+            previous.local_size,
+            previous.local_mtime,
+            previous.sha256,
+            previous.version,
+        )
+        return
     mtime = file.chdate.timestamp()
     os.utime(action.dest, (mtime, mtime))
     size = action.dest.stat().st_size
-    state.upsert(_record(action, file, action.dest, size, mtime, sha, action.version))
+    _save(state, action, file, action.dest, size, mtime, sha, action.version)
     state.journal(run_id, action.kind.value, str(action.dest))
     log.info("%s %s", action.kind.value, action.dest)
+
+
+def _save(
+    state: State,
+    action: Action,
+    file: RemoteFile,
+    path: Path,
+    size: int,
+    mtime: float,
+    sha: str | None,
+    version: int,
+) -> None:
+    state.upsert(_record(action, file, path, size, mtime, sha, version))
+    previous = action.previous
+    if previous is not None and previous.file_id != file.id:  # re-upload replaced it
+        state.delete_file_record(previous.file_id)
 
 
 _sleep = time.sleep  # replaced in tests
@@ -140,16 +218,19 @@ def fetch_verified(
     dest: Path,
     download: Downloader,
     attempts: int = 3,
-) -> str:
-    """Download into ``dest`` atomically and return its sha256.
+    unless_sha: str | None = None,
+) -> tuple[str, bool]:
+    """Download into ``dest`` atomically; return (sha256, written).
 
     Interrupted transfers and size mismatches are retried. If the size reported
     by Stud.IP is wrong but two complete downloads agree, the file is accepted.
+    With ``unless_sha``, identical content is discarded instead of written.
     """
     mismatch: int | None = None
     for attempt in range(1, attempts + 1):
         try:
-            with atomic_writer(dest) as (fh, digest):
+            commit = (lambda sha: sha != unless_sha) if unless_sha else None
+            with atomic_writer(dest, commit) as (fh, digest):
                 guard = _Guard(file, fh.write)
                 download(file.id, guard.write)
                 if file.size > 0 and guard.size != file.size and guard.size != mismatch:
@@ -161,7 +242,8 @@ def fetch_verified(
                 log.warning(
                     "%s: Stud.IP reports %s bytes, file has %s", file.name, file.size, mismatch
                 )
-            return digest()
+            sha = digest()
+            return sha, sha != unless_sha
         except DownloadError as exc:
             if "HTML page" in str(exc) or attempt == attempts:
                 raise
@@ -203,6 +285,7 @@ def _record(
         ),
         mime_type=file.mime_type,
         description=file.description,
+        content_id=file.content_id,
     )
 
 

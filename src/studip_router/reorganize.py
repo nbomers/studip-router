@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
+from . import paths
 from .config import Config
-from .fsutil import nfc, path_key, with_suffix_number
+from .fsutil import exclusive_lock, move_no_clobber, nfc, path_key, with_suffix_number
 from .models import RemoteFile
 from .planner import build_router
 from .rename import RenameError
@@ -84,6 +84,11 @@ def plan_reorganize(cfg: Config, state: State, course_id: str | None = None) -> 
 
 
 def apply_reorganize(moves: list[Move], state: State) -> tuple[int, list[tuple[Move, str]]]:
+    with exclusive_lock(paths.lock_file()):
+        return _apply_reorganize(moves, state)
+
+
+def _apply_reorganize(moves: list[Move], state: State) -> tuple[int, list[tuple[Move, str]]]:
     run_id = state.start_run("reorganize")
     done = 0
     failed: list[tuple[Move, str]] = []
@@ -94,7 +99,7 @@ def apply_reorganize(moves: list[Move], state: State) -> tuple[int, list[tuple[M
             if not move.dst.parent.is_dir():
                 move.dst.parent.mkdir(parents=True)
                 state.journal(run_id, "mkdir", str(move.dst.parent))
-            _move_no_clobber(move.src, move.dst)
+            move_no_clobber(move.src, move.dst)
         except OSError as exc:
             failed.append((move, str(exc)))
             continue
@@ -111,21 +116,6 @@ def apply_reorganize(moves: list[Move], state: State) -> tuple[int, list[tuple[M
         log.info("move %s -> %s", move.src, move.dst)
     state.finish_run(run_id, {"moved": done, "failed": len(failed)})
     return done, failed
-
-
-def _move_no_clobber(src: Path, dst: Path) -> None:
-    """Rename without ever replacing an existing file (link+unlink is atomic on POSIX)."""
-    if dst.exists():
-        raise FileExistsError(f"{dst} exists")
-    try:
-        os.link(src, dst)  # fails if dst exists
-    except OSError:
-        # cross-device or filesystem without hard links: check-then-rename
-        if dst.exists():
-            raise
-        os.rename(src, dst)
-        return
-    os.unlink(src)
 
 
 @dataclass(frozen=True)
@@ -158,6 +148,11 @@ def plan_undo(state: State) -> tuple[int | None, list[UndoStep]]:
 
 
 def apply_undo(state: State, run_id: int, steps: list[UndoStep]) -> int:
+    with exclusive_lock(paths.lock_file()):
+        return _apply_undo(state, run_id, steps)
+
+
+def _apply_undo(state: State, run_id: int, steps: list[UndoStep]) -> int:
     by_path = {path_key(r.local_path): r for r in state.all()}
     undone = 0
     undo_run = state.start_run("undo")
@@ -165,7 +160,7 @@ def apply_undo(state: State, run_id: int, steps: list[UndoStep]) -> int:
         if step.problem:
             continue
         if step.op == "move" and step.src:
-            _move_no_clobber(Path(step.dst), Path(step.src))
+            move_no_clobber(Path(step.dst), Path(step.src))
             record = by_path.get(path_key(step.dst))
             if record:
                 state.upsert(replace(record, local_path=nfc(step.src)))

@@ -25,7 +25,21 @@ CREATE TABLE IF NOT EXISTS files (
     routed_by_default  INTEGER NOT NULL DEFAULT 0,
     synced_at          TEXT NOT NULL,
     mime_type          TEXT NOT NULL DEFAULT '',
-    description        TEXT NOT NULL DEFAULT ''
+    description        TEXT NOT NULL DEFAULT '',
+    content_id         TEXT NOT NULL DEFAULT '',
+    gone               INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS ignored (
+    file_id   TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL,
+    name      TEXT NOT NULL,
+    since     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS failures (
+    file_id    TEXT PRIMARY KEY,
+    count      INTEGER NOT NULL,
+    last_error TEXT NOT NULL,
+    last_try   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS files_course ON files(course_id);
 CREATE TABLE IF NOT EXISTS runs (
@@ -75,6 +89,8 @@ class FileRecord:
     synced_at: str = ""
     mime_type: str = ""
     description: str = ""
+    content_id: str = ""
+    gone: bool = False  # deleted on Stud.IP and already reported
 
 
 def now_iso() -> str:
@@ -92,9 +108,14 @@ class State:
 
     def _migrate(self) -> None:
         columns = {row["name"] for row in self._db.execute("PRAGMA table_info(files)")}
-        for name in ("mime_type", "description"):
+        for name, kind in (
+            ("mime_type", "TEXT NOT NULL DEFAULT ''"),
+            ("description", "TEXT NOT NULL DEFAULT ''"),
+            ("content_id", "TEXT NOT NULL DEFAULT ''"),
+            ("gone", "INTEGER NOT NULL DEFAULT 0"),
+        ):
             if name not in columns:
-                self._db.execute(f"ALTER TABLE files ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+                self._db.execute(f"ALTER TABLE files ADD COLUMN {name} {kind}")
         self._db.commit()
 
     def close(self) -> None:
@@ -121,6 +142,7 @@ class State:
         record.synced_at = record.synced_at or now_iso()
         data = asdict(record)
         data["routed_by_default"] = int(record.routed_by_default)
+        data["gone"] = int(record.gone)
         cols = ", ".join(data)
         marks = ", ".join(f":{k}" for k in data)
         self._db.execute(f"INSERT OR REPLACE INTO files ({cols}) VALUES ({marks})", data)
@@ -170,6 +192,56 @@ class State:
         )
         return [_record(r) for r in rows]
 
+    def mark_gone(self, file_ids: list[str]) -> None:
+        self._db.executemany(
+            "UPDATE files SET gone = 1 WHERE file_id = ?", [(f,) for f in file_ids]
+        )
+        self._db.commit()
+
+    def unmark_gone(self, file_ids: list[str]) -> None:
+        self._db.executemany(
+            "UPDATE files SET gone = 0 WHERE file_id = ?", [(f,) for f in file_ids]
+        )
+        self._db.commit()
+
+    # -- ignored files ------------------------------------------------------------
+
+    def ignored_ids(self) -> set[str]:
+        return {r[0] for r in self._db.execute("SELECT file_id FROM ignored")}
+
+    def ignored(self) -> list[sqlite3.Row]:
+        return list(self._db.execute("SELECT * FROM ignored ORDER BY course_id, name"))
+
+    def ignore(self, file_id: str, course_id: str, name: str) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO ignored VALUES (?, ?, ?, ?)",
+            (file_id, course_id, name, now_iso()),
+        )
+        self._db.commit()
+
+    def unignore(self, file_id: str) -> bool:
+        cur = self._db.execute("DELETE FROM ignored WHERE file_id = ?", (file_id,))
+        self._db.commit()
+        return cur.rowcount > 0
+
+    # -- failures (to back off from files that keep failing) ---------------------
+
+    def failures(self) -> dict[str, tuple[int, str, str]]:
+        rows = self._db.execute("SELECT file_id, count, last_error, last_try FROM failures")
+        return {r[0]: (r[1], r[2], r[3]) for r in rows}
+
+    def record_failure(self, file_id: str, error: str) -> None:
+        self._db.execute(
+            "INSERT INTO failures VALUES (?, 1, ?, ?) ON CONFLICT(file_id) DO UPDATE SET "
+            "count = count + 1, last_error = excluded.last_error, last_try = excluded.last_try",
+            (file_id, error[:500], now_iso()),
+        )
+        self._db.commit()
+
+    def clear_failure(self, file_id: str) -> None:
+        self._db.execute("DELETE FROM failures WHERE file_id = ?", (file_id,))
+        self._db.commit()
+
     def delete_file_record(self, file_id: str) -> None:
         """Forget a file (used by undo); the local file itself is never touched here."""
         self._db.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
@@ -213,4 +285,5 @@ class State:
 def _record(row: sqlite3.Row) -> FileRecord:
     data = dict(row)
     data["routed_by_default"] = bool(data["routed_by_default"])
+    data["gone"] = bool(data.get("gone", 0))
     return FileRecord(**data)

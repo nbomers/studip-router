@@ -21,13 +21,14 @@ class Semester:
 class Course:
     id: str
     title: str
-    start_semester: Semester | None
+    start_semester: Semester | None  # None: no semester (study groups, "unlimited")
     end_semester: Semester | None  # None means "unlimited"
+    course_type: str = ""
 
     def runs_in(self, semester: Semester) -> bool:
         """True if the course is active during ``semester``."""
         if self.start_semester is None:
-            return False
+            return True  # study groups and courses without semester are always current
         if self.start_semester.start > semester.start:
             return False
         return self.end_semester is None or self.end_semester.end >= semester.end
@@ -35,7 +36,7 @@ class Course:
     @property
     def semester_title(self) -> str:
         if self.start_semester is None:
-            return "?"
+            return "no semester"
         if self.end_semester is None or self.end_semester.id == self.start_semester.id:
             return self.start_semester.title
         return f"{self.start_semester.title} - {self.end_semester.title}"
@@ -60,3 +61,5 @@ class RemoteFile:
     mime_type: str
     description: str
     downloadable: bool
+    content_id: str = ""  # id of the stored file; changes only when the content is replaced
+    folder_type: str = ""  # Stud.IP type of the parent folder, e.g. "HomeworkFolder"

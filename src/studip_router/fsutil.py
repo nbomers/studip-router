@@ -6,8 +6,10 @@ import hashlib
 import html
 import os
 import re
+import secrets
 import stat
 import sys
+import time
 import unicodedata
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -175,16 +177,44 @@ def split_ext(name: str) -> tuple[str, str]:
     return stem, ext
 
 
+_PART = re.compile(r"\.[0-9a-f]{8}\.part$")
+
+
 def part_path(dest: Path) -> Path:
-    return dest.with_name(dest.name + ".part")
+    """Unique temporary name next to ``dest``; parallel writers never share it."""
+    base = truncate_name(dest.name, "", 200)  # stays below 255 bytes with the suffix
+    return dest.with_name(f"{base}.{secrets.token_hex(4)}.part")
+
+
+def cleanup_stale_parts(directory: Path, older_than: float = 24 * 3600) -> list[Path]:
+    """Remove temp files this tool left behind (crash, power loss). Only our pattern."""
+    removed = []
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return removed
+    now = time.time()
+    for entry in entries:
+        if _PART.search(entry.name) and entry.is_file(follow_symlinks=False):
+            try:
+                if now - entry.stat().st_mtime > older_than:
+                    os.unlink(entry.path)
+                    removed.append(Path(entry.path))
+            except OSError:
+                pass
+    return removed
 
 
 @contextmanager
-def atomic_writer(dest: Path) -> Iterator[tuple[BinaryIO, Callable[[], str]]]:
-    """Write to ``dest.part``; on success fsync and atomically replace ``dest``.
+def atomic_writer(
+    dest: Path, commit: Callable[[str], bool] | None = None
+) -> Iterator[tuple[BinaryIO, Callable[[], str]]]:
+    """Write to a temp file; on success fsync and atomically replace ``dest``.
 
     Yields the open file and a function returning the sha256 of what was written.
-    On any exception (including KeyboardInterrupt) the .part file is removed.
+    ``commit(sha)`` returning False discards the result instead of replacing
+    ``dest``. On any exception (including KeyboardInterrupt) the temp file is
+    removed.
     """
     tmp = part_path(dest)
     digest = hashlib.sha256()
@@ -203,8 +233,55 @@ def atomic_writer(dest: Path) -> Iterator[tuple[BinaryIO, Callable[[], str]]]:
         fh.flush()
         os.fsync(fh.fileno())
         fh.close()
+        if commit is not None and not commit(digest.hexdigest()):
+            tmp.unlink(missing_ok=True)
+            return
         os.replace(tmp, dest)
     except BaseException:
         fh.close()
         tmp.unlink(missing_ok=True)
         raise
+
+
+def move_no_clobber(src: Path, dst: Path) -> None:
+    """Rename without ever replacing an existing file (link+unlink is atomic on POSIX)."""
+    if dst.exists():
+        raise FileExistsError(f"{dst} exists")
+    try:
+        os.link(src, dst)  # fails if dst exists
+    except OSError:
+        # cross-device or filesystem without hard links: check-then-rename
+        if dst.exists():
+            raise
+        os.rename(src, dst)
+        return
+    os.unlink(src)
+
+
+class Locked(Exception):
+    pass
+
+
+@contextmanager
+def exclusive_lock(path: Path) -> Iterator[None]:
+    """Process-wide lock so two syncs (e.g. scheduler + manual) never run at once."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fh = path.open("a+")
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            try:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise Locked("another studip-router run is in progress") from exc
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise Locked("another studip-router run is in progress") from exc
+        yield
+    finally:
+        fh.close()  # releases the lock

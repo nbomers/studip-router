@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 
+from . import paths
 from .api import ApiError, StudipClient
 from .config import Config, CourseConfig
 from .executor import Outcome, execute
+from .fsutil import cleanup_stale_parts, exclusive_lock, sanitize_filename
 from .models import Course, Semester
 from .planner import Action, CoursePlan, Kind, build_router, plan_course
 from .postprocess import merge_pdfs
 from .state import State
+
+log = logging.getLogger(__name__)
 
 
 class CourseStatus(StrEnum):
@@ -40,6 +48,8 @@ class SyncPlan:
     plans: list[CoursePlan] = field(default_factory=list)
     unconfigured: list[Course] = field(default_factory=list)
     missing: list[CourseConfig] = field(default_factory=list)  # configured, not on Stud.IP
+    errors: list[tuple[str, str]] = field(default_factory=list)  # (course, problem)
+    warnings: list[str] = field(default_factory=list)
 
 
 def _norm_semester(title: str) -> str:
@@ -63,17 +73,44 @@ def resolve_semester(client: StudipClient, wanted: str) -> Semester | None:
     raise ApiError(f"unknown semester {wanted!r} (recent: {titles})")
 
 
+UPCOMING_DAYS = 60  # courses of the next semester show up this long before it starts
+
+
+def upcoming_semester(client: StudipClient, current: Semester) -> Semester | None:
+    later = [s for s in client.semesters() if s.start > current.start]
+    if not later:
+        return None
+    nxt = min(later, key=lambda s: s.start)
+    days = (nxt.start - datetime.now().astimezone()).days
+    return nxt if days <= UPCOMING_DAYS else None
+
+
 def list_courses(
-    client: StudipClient, cfg: Config, semester: Semester | None
+    client: StudipClient,
+    cfg: Config,
+    semester: Semester | None,
+    *,
+    strict: bool = False,
 ) -> tuple[list[CourseEntry], list[CourseConfig]]:
+    """Courses relevant for ``semester`` (None: all).
+
+    Configured courses are always included (a semester change must not silently
+    stop syncing them, e.g. for retake exams) unless ``strict`` is set, which an
+    explicit ``--semester`` does. Unconfigured courses of the next semester are
+    included shortly before it starts.
+    """
     user = client.me()
     courses = client.courses(user["id"])
     remote_ids = {c.id for c in courses}
-    entries = [
-        CourseEntry(c, cfg.courses.get(c.id))
-        for c in courses
-        if semester is None or c.runs_in(semester)
-    ]
+    nxt = upcoming_semester(client, semester) if semester is not None else None
+
+    def relevant(c: Course) -> bool:
+        if semester is None or c.runs_in(semester) or (nxt and c.runs_in(nxt)):
+            return True
+        configured = cfg.courses.get(c.id)
+        return bool(configured and not configured.exclude and not strict)
+
+    entries = [CourseEntry(c, cfg.courses.get(c.id)) for c in courses if relevant(c)]
     entries.sort(key=lambda e: (e.status != CourseStatus.ACTIVE, e.course.title.casefold()))
     missing = [c for cid, c in cfg.courses.items() if cid not in remote_ids and not c.exclude]
     return entries, missing
@@ -113,28 +150,48 @@ def build_plan(
     include_large: bool = False,
 ) -> SyncPlan:
     semester = resolve_semester(client, semester_name or cfg.semester)
-    entries, missing = list_courses(client, cfg, semester)
+    strict = semester_name is not None or cfg.semester not in ("current", "all")
+    entries, missing = list_courses(client, cfg, semester, strict=strict)
     result = SyncPlan(semester=semester, missing=missing)
     result.unconfigured = [e.course for e in entries if e.status is CourseStatus.UNCONFIGURED]
 
-    selected = [e for e in entries if e.status is CourseStatus.ACTIVE]
+    selected: list[tuple[Course, CourseConfig, bool]] = [
+        (e.course, e.config, False)
+        for e in entries
+        if e.status is CourseStatus.ACTIVE
+        if e.config is not None
+    ]
+    if not cfg.only_configured_courses:  # sync everything into folders named like the course
+        selected += [
+            (c, CourseConfig(id=c.id, name=c.title, target=sanitize_filename(c.title)), True)
+            for c in result.unconfigured
+        ]
+        result.unconfigured = []
     if course_query:
-        selected = [select_course(entries, course_query)]
+        entry = select_course(entries, course_query)
+        selected = [s for s in selected if s[0].id == entry.course.id]
 
-    for entry in selected:
-        assert entry.config is not None
-        files = client.files(entry.course.id)
-        result.plans.append(
-            plan_course(
+    for course, course_cfg, implicit in selected:
+        try:
+            files = client.files(course.id)
+            plan = plan_course(
                 cfg,
-                entry.config,
+                course_cfg,
                 files,
-                state.for_course(entry.course.id),
+                state.for_course(course.id),
                 include_large=include_large,
-                router=build_router(cfg, entry.config, entry.course.semester_title),
+                router=build_router(cfg, course_cfg, course.semester_title),
                 fresh_since=semester.start if semester else None,
+                create_course_dir=implicit,
+                ignored=state.ignored_ids(),
+                failures=state.failures(),
             )
-        )
+        except Exception as exc:  # one broken course must not stop the others
+            log.error("course %s failed: %s", course.title, exc, exc_info=True)
+            result.errors.append((course_cfg.name or course.title, str(exc) or repr(exc)))
+            continue
+        result.plans.append(plan)
+    result.warnings = list(client.warnings)
     return result
 
 
@@ -173,20 +230,41 @@ def execute_plan(
     on_progress: Callable[[Action], None] | None = None,
     on_course: Callable[[CoursePlan], None] | None = None,
 ) -> RunResult:
-    """Execute all course plans, then regenerate merged slide PDFs."""
+    """Execute all course plans, then regenerate merged slide PDFs.
+
+    Holds a per-profile lock: a second run (e.g. the scheduler while the UI
+    syncs) fails fast with ``Locked`` instead of racing for the same files.
+    """
+    with exclusive_lock(paths.lock_file()):
+        return _execute_locked(sync_plan, cfg, state, client, on_progress, on_course)
+
+
+def _execute_locked(
+    sync_plan: SyncPlan,
+    cfg: Config,
+    state: State,
+    client: StudipClient,
+    on_progress: Callable[[Action], None] | None,
+    on_course: Callable[[CoursePlan], None] | None,
+) -> RunResult:
     run_id = state.start_run("sync")
     result = RunResult(Outcome())
     try:
         for plan in sync_plan.plans:
+            for directory, _, _ in os.walk(plan.course_dir):
+                cleanup_stale_parts(Path(directory))
             todo = [a for a in plan.actions if a.kind not in (Kind.SKIP, Kind.ERROR)]
-            if not todo:
-                continue
-            if on_course:
-                on_course(plan)
-            part = execute(plan, state, client.download, run_id, on_progress)
-            result.outcome.done += part.done
-            result.outcome.failed += part.failed
-            result.outcome.extracted += part.extracted
+            if todo:
+                if on_course:
+                    on_course(plan)
+                part = execute(plan, state, client.download, run_id, on_progress)
+                result.outcome.done += part.done
+                result.outcome.failed += part.failed
+                result.outcome.extracted += part.extracted
+            # report deletions on Stud.IP once, not on every run
+            state.mark_gone([r.file_id for r in plan.remote_deleted])
+            if plan.reappeared:
+                state.unmark_gone(plan.reappeared)
     except KeyboardInterrupt:
         result.interrupted = True
         state.finish_run(run_id, {"interrupted": True})
@@ -196,6 +274,7 @@ def execute_plan(
         "new": sum(1 for a in result.outcome.done if a.transfers),
         "adopted": sum(1 for a in result.outcome.done if a.kind is Kind.ADOPT),
         "failed": len(result.outcome.failed),
+        "course_errors": len(sync_plan.errors),
     }
     state.finish_run(run_id, summary)
     return result
