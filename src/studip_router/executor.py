@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,6 +13,7 @@ from .api import ApiError
 from .fsutil import atomic_writer, local_stat, nfc, sha256_file
 from .models import RemoteFile
 from .planner import Action, CoursePlan, Kind
+from .postprocess import PostprocessError, extract_zip
 from .state import FileRecord, State
 
 log = logging.getLogger(__name__)
@@ -23,6 +25,7 @@ Downloader = Callable[[str, Callable[[bytes], None]], None]
 class Outcome:
     done: list[Action] = field(default_factory=list)
     failed: list[tuple[Action, str]] = field(default_factory=list)
+    extracted: list[Path] = field(default_factory=list)
 
 
 def execute(
@@ -45,7 +48,26 @@ def execute(
         outcome.done.append(action)
         if on_progress:
             on_progress(action)
+        if action.unzips:
+            _unzip(action, state, run_id, outcome)
     return outcome
+
+
+def _unzip(action: Action, state: State, run_id: int, outcome: Outcome) -> None:
+    assert action.dest is not None
+    st = local_stat(action.dest)
+    if st is None or st.dataless:
+        return  # never pull an archive out of iCloud just to extract it
+    try:
+        folder = extract_zip(action.dest)
+    except (PostprocessError, OSError, zipfile.BadZipFile) as exc:
+        log.error("unzip failed for %s: %s", action.dest, exc)
+        outcome.failed.append((action, f"unzip failed: {exc}"))
+        return
+    if folder is not None:
+        state.journal(run_id, "unzip", str(folder), src=str(action.dest))
+        outcome.extracted.append(folder)
+        log.info("unzip %s -> %s", action.dest, folder)
 
 
 def _apply(action: Action, state: State, download: Downloader, run_id: int) -> None:

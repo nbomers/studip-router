@@ -33,6 +33,17 @@ CREATE TABLE IF NOT EXISTS runs (
     mode        TEXT NOT NULL,
     summary     TEXT
 );
+CREATE TABLE IF NOT EXISTS generated (
+    path        TEXT PRIMARY KEY,
+    sha256      TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS news_seen (
+    news_id   TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL,
+    seen_at   TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS journal (
     run_id INTEGER NOT NULL,
     seq    INTEGER NOT NULL,
@@ -124,6 +135,60 @@ class State:
         self._db.execute(
             "INSERT INTO journal (run_id, seq, op, src, dst) VALUES (?, ?, ?, ?, ?)",
             (run_id, seq, op, src, dst),
+        )
+        self._db.commit()
+
+    def runs(self, limit: int = 10) -> list[sqlite3.Row]:
+        return list(self._db.execute("SELECT * FROM runs ORDER BY run_id DESC LIMIT ?", (limit,)))
+
+    def journal_entries(self, run_id: int) -> list[sqlite3.Row]:
+        return list(
+            self._db.execute("SELECT * FROM journal WHERE run_id = ? ORDER BY seq", (run_id,))
+        )
+
+    def recent_files(self, limit: int = 50) -> list[FileRecord]:
+        rows = self._db.execute(
+            "SELECT * FROM files ORDER BY synced_at DESC, local_path LIMIT ?", (limit,)
+        )
+        return [_record(r) for r in rows]
+
+    def default_routed(self) -> list[FileRecord]:
+        rows = self._db.execute(
+            "SELECT * FROM files WHERE routed_by_default = 1 ORDER BY course_id, local_path"
+        )
+        return [_record(r) for r in rows]
+
+    def delete_file_record(self, file_id: str) -> None:
+        """Forget a file (used by undo); the local file itself is never touched here."""
+        self._db.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
+        self._db.commit()
+
+    def generated(self, path: str) -> tuple[str, str] | None:
+        row = self._db.execute(
+            "SELECT sha256, fingerprint FROM generated WHERE path = ?", (path,)
+        ).fetchone()
+        return (row["sha256"], row["fingerprint"]) if row else None
+
+    def set_generated(self, path: str, sha256: str, fingerprint: str) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO generated VALUES (?, ?, ?, ?)",
+            (path, sha256, fingerprint, now_iso()),
+        )
+        self._db.commit()
+
+    def news_seen(self, news_ids: list[str]) -> set[str]:
+        if not news_ids:
+            return set()
+        marks = ",".join("?" * len(news_ids))
+        rows = self._db.execute(
+            f"SELECT news_id FROM news_seen WHERE news_id IN ({marks})", news_ids
+        )
+        return {r[0] for r in rows}
+
+    def mark_news_seen(self, items: list[tuple[str, str]]) -> None:
+        self._db.executemany(
+            "INSERT OR IGNORE INTO news_seen VALUES (?, ?, ?)",
+            [(nid, cid, now_iso()) for nid, cid in items],
         )
         self._db.commit()
 

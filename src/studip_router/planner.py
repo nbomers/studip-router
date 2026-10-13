@@ -81,6 +81,17 @@ class Action:
     def transfers(self) -> bool:
         return self.kind in (Kind.DOWNLOAD, Kind.NEW_VERSION, Kind.OVERWRITE)
 
+    @property
+    def unzips(self) -> bool:
+        """True if the archive will be extracted next to itself after this action."""
+        if self.route is None or not self.route.unzip or self.dest is None:
+            return False
+        if self.dest.suffix.lower() != ".zip":
+            return False
+        if self.kind is Kind.ADOPT:
+            return not self.dest.with_suffix("").exists()
+        return self.transfers
+
 
 @dataclass
 class CoursePlan:
@@ -198,7 +209,7 @@ def plan_course(
 
         record = records.get(file.id)
         if record is not None:
-            _plan_known(cfg, plan, file, record, claims)
+            _plan_known(cfg, plan, file, record, claims, route_file)
             continue
 
         try:
@@ -297,7 +308,12 @@ def plan_course(
 
 
 def _plan_known(
-    cfg: Config, plan: CoursePlan, file: RemoteFile, record: FileRecord, claims: _Claims
+    cfg: Config,
+    plan: CoursePlan,
+    file: RemoteFile,
+    record: FileRecord,
+    claims: _Claims,
+    route_file: Router,
 ) -> None:
     if record.chdate == file.chdate.isoformat() and record.filesize == file.size:
         plan.unchanged += 1
@@ -330,6 +346,10 @@ def _plan_known(
         )
         return
 
+    try:
+        route = route_file(file)
+    except RenameError:
+        route = None
     modified = is_locally_modified(record, st, path)
     if cfg.on_update == "overwrite" and not modified:
         plan.actions.append(
@@ -338,6 +358,7 @@ def _plan_known(
                 plan.course.id,
                 file,
                 dest=path,
+                route=route,
                 previous=record,
                 version=record.version,
             )
@@ -357,6 +378,7 @@ def _plan_known(
             plan.course.id,
             file,
             dest=dest,
+            route=route,
             previous=record,
             version=version,
             note=note,
