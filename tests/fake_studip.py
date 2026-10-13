@@ -122,6 +122,7 @@ def install(router: respx.MockRouter) -> None:
         router.get(f"{API}/file-refs/{fid}/content").mock(
             return_value=httpx.Response(200, content=data)
         )
+    router.get(f"{API}/courses/{OTHER}/news").mock(return_value=httpx.Response(200, json=_page([])))
     router.get(f"{API}/courses/{COURSE}/news").mock(
         return_value=httpx.Response(
             200,

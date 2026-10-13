@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 PAGE_LIMIT = 100
+_sleep = time.sleep  # replaced in tests
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
@@ -43,11 +44,11 @@ class StudipClient:
         timeout: float = 30.0,
         max_retries: int = 4,
         transport: httpx.BaseTransport | None = None,
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
         self.api_url = base_url.rstrip("/") + "/jsonapi.php/v1"
         self._max_retries = max_retries
-        self._sleep = sleep
+        self._sleep = sleep or (lambda seconds: _sleep(seconds))
         self._http = httpx.Client(
             auth=(username, password),
             timeout=httpx.Timeout(timeout, connect=10.0),

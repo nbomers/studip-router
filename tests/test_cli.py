@@ -111,3 +111,15 @@ def test_profiles_are_separate(
 def test_doctor_offline(setup: Path) -> None:
     result = run("doctor", "--offline")
     assert "config" in result.output and "course Quantum Cooking" in result.output
+
+
+def test_config_set(setup: Path) -> None:
+    assert run("config", "set", "sync.on_update", "skip").exit_code == 0
+    assert run("config", "set", "sync.exclude.max_size_mb", "500").exit_code == 0
+    assert run("config", "set", "rename.lowercase", "true").exit_code == 0
+    bad = run("config", "set", "sync.on_update", "explode")
+    assert bad.exit_code == 2 and "must be one of" in bad.output
+    out = json.loads(run("--json", "config", "validate").output)
+    assert out["valid"]
+    text = Path(paths.config_file()).read_text()
+    assert 'on_update = "skip"' in text and "max_size_mb = 500" in text

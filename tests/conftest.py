@@ -20,6 +20,18 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("studip_router.executor._sleep", lambda _s: None)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests must never reach a real server (respx mocks never open sockets)."""
+    import socket
+
+    def blocked(self, address):
+        raise ConnectionRefusedError(f"network disabled in tests: {address}")
+
+    monkeypatch.setattr(socket.socket, "connect", blocked)
+    monkeypatch.setattr("studip_router.api._sleep", lambda _s: None)
+
+
 @pytest.fixture
 def root(tmp_path: Path) -> Path:
     course = tmp_path / "uni" / "Example Course"

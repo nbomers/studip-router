@@ -145,7 +145,7 @@ def exclusion_reason(file: RemoteFile, rules: ExcludeConfig) -> SkipReason | Non
         return SkipReason.EXCLUDED
     if any(fnmatch.fnmatchcase(file.mime_type.lower(), m.lower()) for m in rules.mime):
         return SkipReason.EXCLUDED
-    if rules.max_size_mb is not None and file.size > rules.max_size_mb * 1024 * 1024:
+    if rules.max_size_mb and file.size > rules.max_size_mb * 1024 * 1024:  # 0: no limit
         return SkipReason.TOO_LARGE
     return None
 

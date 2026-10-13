@@ -195,8 +195,8 @@ class _Validator:
     def exclude(self, data: Any, where: str, base: ExcludeConfig) -> ExcludeConfig:
         data = self.table(data, where, {"globs", "mime", "max_size_mb"})
         size = self.get(data, "max_size_mb", where, (int, float), base.max_size_mb)
-        if size is not None and size <= 0:
-            self.problems.append(f"{where}.max_size_mb: must be positive")
+        if size is not None and size < 0:
+            self.problems.append(f"{where}.max_size_mb: must be 0 (no limit) or positive")
         globs = self.str_list(data, "globs", where)
         mime = self.str_list(data, "mime", where)
         return ExcludeConfig(

@@ -233,6 +233,27 @@ def config_validate(config: ConfigOpt = None) -> None:
     )
 
 
+@config_app.command("set")
+def config_set(
+    key: Annotated[str, typer.Argument(help="Dotted key, e.g. sync.on_update")],
+    value: Annotated[str, typer.Argument(help='TOML value: skip, true, 200, "text"')],
+) -> None:
+    """Change one setting in place (comments are kept; the result is validated)."""
+    import tomllib
+
+    from .config_edit import set_value
+
+    try:
+        parsed = tomllib.loads(f"v = {value}")["v"]
+    except tomllib.TOMLDecodeError:
+        parsed = value  # bare words are strings: `studip config set sync.on_update skip`
+    try:
+        set_value(paths.config_file(), tuple(key.split(".")), parsed)
+    except ConfigError as exc:
+        raise fail(f"not changed: {'; '.join(exc.problems)}", 2) from None
+    console.print(f"[green]✓[/green] {key} = {parsed!r}")
+
+
 @config_app.command("edit")
 def config_edit() -> None:
     """Open the config in $EDITOR and validate it afterwards."""
