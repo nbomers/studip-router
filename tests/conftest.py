@@ -17,6 +17,7 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Never touch the real config, state or keychain from tests."""
     monkeypatch.setenv("STUDIP_ROUTER_CONFIG", str(tmp_path / "cfg" / "config.toml"))
     monkeypatch.setenv("STUDIP_ROUTER_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr("studip_router.executor._sleep", lambda _s: None)
 
 
 @pytest.fixture

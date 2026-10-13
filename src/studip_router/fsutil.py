@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import os
 import re
 import stat
@@ -18,8 +19,30 @@ from typing import BinaryIO
 SF_DATALESS = getattr(stat, "SF_DATALESS", 0x40000000)
 IGNORED_NAMES = {".DS_Store", "Icon\r"}
 IGNORED_SUFFIXES = (".part", ".tmp", ".icloud")
-_WINDOWS_FORBIDDEN = re.compile(r'[<>:"\\|?*\x00-\x1f]')
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+# Not allowed on Windows/OneDrive and not synced by iCloud for Windows; on macOS
+# a ":" shows up as "/" in Finder. Replaced when names are made portable.
+_NON_PORTABLE = re.compile(r'[<>"\\|?*]')
+_RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])$", re.IGNORECASE)
+_ENTITY = re.compile(r"&(?:[a-zA-Z]{2,8}|#\d{2,5}|#x[0-9a-fA-F]{2,4});")
+# Leaves room for "_v12", "_99" and ".part" within the usual 255-byte limit.
+MAX_NAME_BYTES = 240
+MIME_EXTENSIONS = {
+    "application/pdf": ".pdf",
+    "application/zip": ".zip",
+    "application/x-zip-compressed": ".zip",
+    "text/plain": ".txt",
+    "text/csv": ".csv",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "application/msword": ".doc",
+    "application/vnd.ms-powerpoint": ".ppt",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/x-ipynb+json": ".ipynb",
+}
 
 
 def nfc(text: str) -> str:
@@ -31,16 +54,47 @@ def path_key(path: Path | str) -> str:
     return nfc(str(path)).casefold()
 
 
-def sanitize_filename(name: str) -> str:
-    """Turn a remote file name into a safe single path component."""
+def sanitize_filename(name: str, *, portable: bool = True, mime_type: str = "") -> str:
+    """Turn a remote file name into a safe single path component.
+
+    Always: NFC, no "/" or control characters, HTML entities decoded, no
+    leading dot (hidden file), no trailing dots/spaces, at most
+    MAX_NAME_BYTES of UTF-8 (the extension is kept). ``portable`` also
+    replaces characters that Windows, OneDrive or iCloud for Windows reject.
+    A missing extension is added from ``mime_type`` when it is well known.
+    """
+    if _ENTITY.search(name):
+        name = html.unescape(name)
     name = nfc(name).replace("/", "-")
     name = _CONTROL.sub("", name)
-    if sys.platform == "win32":
-        name = _WINDOWS_FORBIDDEN.sub("_", name)
-    name = name.strip().rstrip(".")
-    if name in ("", ".", ".."):
+    if portable or sys.platform == "win32":
+        name = name.replace(": ", " - ").replace(":", "-")
+        name = _NON_PORTABLE.sub("_", name)
+    name = name.strip().rstrip(". ").lstrip(".").strip()
+    if not name:
         name = "unnamed"
-    return name
+    stem, ext = split_ext(name)
+    if not ext and mime_type.lower() in MIME_EXTENSIONS:
+        ext = MIME_EXTENSIONS[mime_type.lower()]
+    if _RESERVED.match(stem):
+        stem = "_" + stem
+    return truncate_name(stem, ext)
+
+
+def truncate_name(stem: str, ext: str, limit: int = MAX_NAME_BYTES) -> str:
+    """Shorten ``stem`` so that stem+ext fits ``limit`` UTF-8 bytes."""
+    if len(ext.encode()) > 20:  # not a real extension
+        stem, ext = stem + ext, ""
+    budget = limit - len(ext.encode())
+    encoded = stem.encode()
+    if len(encoded) > budget:
+        stem = encoded[:budget].decode("utf-8", errors="ignore").rstrip(" .")
+    return stem + ext
+
+
+def icloud_placeholder(path: Path) -> Path:
+    """Older macOS keeps evicted files as ".name.icloud" placeholders."""
+    return path.with_name(f".{path.name}.icloud")
 
 
 def is_ignored(name: str) -> bool:
@@ -55,10 +109,20 @@ class LocalStat:
 
 
 def local_stat(path: Path) -> LocalStat | None:
-    """stat() never triggers an iCloud download, so this is always cheap."""
+    """stat() never triggers an iCloud download, so this is always cheap.
+
+    An old-style ".name.icloud" placeholder counts as an evicted file of
+    unknown size (``size == -1``).
+    """
     try:
         st = path.stat()
     except FileNotFoundError:
+        try:
+            ph = icloud_placeholder(path).stat()
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        return LocalStat(-1, ph.st_mtime, True)
+    except NotADirectoryError:
         return None
     flags = getattr(st, "st_flags", 0)
     return LocalStat(st.st_size, st.st_mtime, bool(flags & SF_DATALESS))
@@ -84,7 +148,11 @@ def walk_files(root: Path) -> Iterator[Path]:
         except OSError:
             continue
         for entry in entries:
-            if is_ignored(entry.name):
+            name = entry.name
+            if name.startswith(".") and name.endswith(".icloud") and len(name) > 8:
+                yield Path(current) / name[1:-7]  # evicted file, old-style placeholder
+                continue
+            if is_ignored(name):
                 continue
             if entry.is_dir(follow_symlinks=False):
                 stack.append(Path(entry.path))
@@ -95,7 +163,9 @@ def walk_files(root: Path) -> Iterator[Path]:
 def with_suffix_number(path: Path, n: int, template: str) -> Path:
     """name.pdf -> name_2.pdf (template "_{n}") or name_v2.pdf (template "_v{n}")."""
     stem, ext = split_ext(path.name)
-    return path.with_name(f"{stem}{template.format(n=n)}{ext}")
+    suffix = template.format(n=n)
+    stem = truncate_name(stem, "", MAX_NAME_BYTES + 14 - len((suffix + ext).encode()))
+    return path.with_name(f"{stem}{suffix}{ext}")
 
 
 def split_ext(name: str) -> tuple[str, str]:

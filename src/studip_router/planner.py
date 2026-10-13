@@ -120,7 +120,12 @@ def build_router(cfg: Config, course: CourseConfig, semester: str = "") -> Route
             name = target_name(file, None, options)
             return Route(default_target, name, by_default=True, unzip=unzip)
         if rule.skip:
-            return Route("", sanitize_filename(file.name), rule_id=rule.id, skip=True)
+            return Route(
+                "",
+                sanitize_filename(file.name, mime_type=file.mime_type),
+                rule_id=rule.id,
+                skip=True,
+            )
         name = target_name(
             file, rule.rename, options, course=label, semester=semester, match=regex_match
         )
@@ -229,7 +234,7 @@ def plan_course(
             continue
         dest = course_dir / route.subdir / route.name
         # Hand-downloaded copies carry the original name, not the renamed one.
-        names = [route.name, sanitize_filename(file.name)]
+        names = [route.name, sanitize_filename(file.name, portable=False), file.name]
 
         # Already on disk (e.g. downloaded by hand earlier)? Adopt instead of duplicating.
         match = _find_local(by_name, names, file.size, adopted, None)
@@ -389,7 +394,7 @@ def _plan_missing(
 ) -> None:
     """A tracked file is gone locally: follow it if it was moved, else download it again."""
     path = Path(record.local_path)
-    names = [path.name, sanitize_filename(file.name)]
+    names = [path.name, sanitize_filename(file.name, portable=False), file.name]
     moved = _find_local(by_name, names, record.local_size, adopted, None)
     if moved is not None and record.chdate == file.chdate.isoformat():
         adopted.add(path_key(moved))
@@ -434,12 +439,12 @@ def _version_base(path: Path, version: int) -> Path:
 
 
 def name_key(name: str) -> str:
-    """Loose file name identity: NFC, case-insensitive, spaces == underscores.
+    """Loose file name identity: NFC, case-insensitive; spaces, "_", "-", ":" alike.
 
-    Stud.IP replaces spaces with underscores in browser downloads, so a file
-    fetched by hand as "Homework_1.pdf" is "Homework 1.pdf" in the API.
+    Browsers and Stud.IP replace spaces and special characters when files are
+    downloaded by hand, so "Homework_1.pdf" on disk is "Homework 1.pdf" in the API.
     """
-    return re.sub(r"[\s_]+", "_", nfc(name).casefold())
+    return re.sub(r"[\s_:\-]+", "_", nfc(name).casefold())
 
 
 def _find_local(
@@ -457,7 +462,8 @@ def _find_local(
         st = local_stat(candidate)
         if st is None:
             continue
-        if size is not None and st.size != size:
+        # size -1: old-style iCloud placeholder, size unknown - trust the name
+        if size is not None and st.size not in (size, -1):
             continue
         if modified_after is not None and st.mtime < modified_after.timestamp():
             continue

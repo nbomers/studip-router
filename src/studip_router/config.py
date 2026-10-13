@@ -169,7 +169,9 @@ class _Validator:
 
     def rename(self, data: Any, where: str, base: RenameOptions) -> RenameOptions:
         data = self.table(
-            data, where, {"pad_numbers", "spaces", "umlauts", "lowercase", "strip_prefixes"}
+            data,
+            where,
+            {"pad_numbers", "spaces", "umlauts", "lowercase", "strip_prefixes", "portable"},
         )
         values: dict[str, Any] = {}
         if "pad_numbers" in data:
@@ -183,6 +185,8 @@ class _Validator:
             values["umlauts"] = self.choice(data, "umlauts", where, UMLAUTS, base.umlauts)
         if "lowercase" in data:
             values["lowercase"] = self.get(data, "lowercase", where, bool, base.lowercase)
+        if "portable" in data:
+            values["portable"] = self.get(data, "portable", where, bool, base.portable)
         if "strip_prefixes" in data:
             values["strip_prefixes"] = self.str_list(data, "strip_prefixes", where) or ()
         return base.merged(values)

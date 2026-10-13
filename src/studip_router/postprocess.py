@@ -47,7 +47,7 @@ def extract_zip(zip_path: Path) -> Path | None:
             if sum(m.file_size for m in members) > MAX_UNZIPPED_BYTES:
                 raise PostprocessError(f"{zip_path.name}: archive too large when extracted")
             for member in members:
-                rel = _safe_member_path(member.filename)
+                rel = _safe_member_path(member_name(member))
                 if rel is None:
                     continue
                 dest = tmp.joinpath(*rel.parts)
@@ -60,6 +60,21 @@ def extract_zip(zip_path: Path) -> Path | None:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
     return target
+
+
+def member_name(info: zipfile.ZipInfo) -> str:
+    """Archive member name; repairs UTF-8 names stored without the UTF-8 flag.
+
+    Python decodes unflagged names as cp437, which garbles UTF-8 names written
+    by some tools ("Übung" becomes "├£bung").
+    """
+    name = info.filename
+    if not info.flag_bits & 0x800:
+        try:
+            return name.encode("cp437").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return name
 
 
 def _safe_member_path(name: str) -> PurePosixPath | None:

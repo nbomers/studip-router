@@ -28,6 +28,7 @@ class RenameOptions:
     umlauts: str = "keep"
     lowercase: bool = False
     strip_prefixes: tuple[str, ...] = ()
+    portable: bool = True  # replace characters Windows/OneDrive/iCloud reject
 
     def merged(self, overrides: dict[str, Any]) -> RenameOptions:
         values = dict(overrides)
@@ -90,7 +91,7 @@ def render(template: str, variables: dict[str, Any]) -> str:
 _SHORT_NUMBER = r"(?<!\d)(\d{{1,{n}}})(?!\d)"
 
 
-def normalise(name: str, options: RenameOptions) -> str:
+def normalise(name: str, options: RenameOptions, mime_type: str = "") -> str:
     stem, ext = split_ext(nfc(name))
     for prefix in options.strip_prefixes:
         if stem.casefold().startswith(prefix.casefold()) and len(stem) > len(prefix):
@@ -105,7 +106,7 @@ def normalise(name: str, options: RenameOptions) -> str:
     if options.pad_numbers > 1:
         width = options.pad_numbers
         stem = re.sub(_SHORT_NUMBER.format(n=width - 1), lambda m: m.group(1).zfill(width), stem)
-    return sanitize_filename(stem + ext)
+    return sanitize_filename(stem + ext, portable=options.portable, mime_type=mime_type)
 
 
 def target_name(
@@ -124,4 +125,4 @@ def target_name(
             raise RenameError(f"template {template!r} produced a path: {name!r}")
         if not name.strip():
             raise RenameError(f"template {template!r} produced an empty name")
-    return normalise(name, options)
+    return normalise(name, options, file.mime_type)

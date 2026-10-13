@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import httpx
 
 from .api import ApiError
 from .fsutil import atomic_writer, local_stat, nfc, sha256_file
@@ -92,17 +95,83 @@ def _apply(action: Action, state: State, download: Downloader, run_id: int) -> N
     if action.kind is not Kind.OVERWRITE and action.dest.exists():
         # Plan is stale (file appeared meanwhile): never clobber.
         raise OSError(f"refusing to overwrite unexpected file {action.dest}")
-    with atomic_writer(action.dest) as (fh, digest):
-        download(file.id, fh.write)
-    sha = digest()
+    sha = fetch_verified(file, action.dest, download)
     mtime = file.chdate.timestamp()
     os.utime(action.dest, (mtime, mtime))
     size = action.dest.stat().st_size
-    if size != file.size:
-        log.warning("size mismatch for %s: expected %s, got %s", action.dest, file.size, size)
     state.upsert(_record(action, file, action.dest, size, mtime, sha, action.version))
     state.journal(run_id, action.kind.value, str(action.dest))
     log.info("%s %s", action.kind.value, action.dest)
+
+
+_sleep = time.sleep  # replaced in tests
+
+
+class DownloadError(OSError):
+    """The received content is not the file we expected."""
+
+
+class _Guard:
+    """Counts bytes and rejects HTML error/login pages served instead of a file."""
+
+    def __init__(self, file: RemoteFile, sink: Callable[[bytes], object]) -> None:
+        self.file = file
+        self.sink = sink
+        self.size = 0
+
+    def write(self, chunk: bytes) -> None:
+        if self.size == 0 and chunk and not _expects_html(self.file):
+            head = chunk[:512].lstrip().lower()
+            if head.startswith((b"<!doctype html", b"<html")):
+                raise DownloadError(
+                    "received an HTML page instead of the file "
+                    "(expired login, missing permission or a link to a website?)"
+                )
+        self.size += len(chunk)
+        self.sink(chunk)
+
+
+def _expects_html(file: RemoteFile) -> bool:
+    return file.name.lower().endswith((".html", ".htm")) or "html" in file.mime_type.lower()
+
+
+def fetch_verified(
+    file: RemoteFile,
+    dest: Path,
+    download: Downloader,
+    attempts: int = 3,
+) -> str:
+    """Download into ``dest`` atomically and return its sha256.
+
+    Interrupted transfers and size mismatches are retried. If the size reported
+    by Stud.IP is wrong but two complete downloads agree, the file is accepted.
+    """
+    mismatch: int | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with atomic_writer(dest) as (fh, digest):
+                guard = _Guard(file, fh.write)
+                download(file.id, guard.write)
+                if file.size > 0 and guard.size != file.size and guard.size != mismatch:
+                    mismatch = guard.size
+                    raise DownloadError(
+                        f"incomplete download: got {guard.size} of {file.size} bytes"
+                    )
+            if mismatch is not None:
+                log.warning(
+                    "%s: Stud.IP reports %s bytes, file has %s", file.name, file.size, mismatch
+                )
+            return digest()
+        except DownloadError as exc:
+            if "HTML page" in str(exc) or attempt == attempts:
+                raise
+            log.warning("%s (attempt %s/%s)", exc, attempt, attempts)
+        except httpx.HTTPError as exc:  # connection dropped mid-transfer
+            if attempt == attempts:
+                raise ApiError(f"download failed: {exc}") from exc
+            log.warning("download of %s interrupted (%s), retrying", file.name, exc)
+        _sleep(2**attempt)
+    raise AssertionError("unreachable")
 
 
 def _record(
