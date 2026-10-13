@@ -7,7 +7,10 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Noah Bomers" }]
 requires-python = ">=3.11"
+keywords = ["studip", "stud.ip", "university", "sync", "download", "cli", "tui"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
     "Environment :: Console",
     "Intended Audience :: Education",
     "Operating System :: MacOS",
@@ -23,6 +26,10 @@ dependencies = [
     "pypdf>=5",
     "textual>=1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/nbomers/studip-router"
+Issues = "https://github.com/nbomers/studip-router/issues"
 
 [project.scripts]
 studip = "studip_router.cli:main"
