@@ -264,7 +264,7 @@ _DATE = re.compile(r"\d{1,2}\.\d{1,2}\.(?:\d{2,4})?|\d{4}-\d{2}-\d{2}")
 def folder_pattern(top: str) -> str:
     """Glob for a top-level folder; numbered or dated session folders are generalised.
 
-    "01. Lab-Session am Di, 04.11.30 (...)" -> "*Lab-Session*",
+    "03. Sitzung am Mi, 04.11.30 (...)" -> "*Sitzung*",
     "Folien" -> "Folien*".
     """
     if not (_NUMBERED.match(top) or _DATE.search(top)):

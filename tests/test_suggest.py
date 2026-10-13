@@ -87,8 +87,8 @@ def test_append_refuses_to_break_config(tmp_path: Path) -> None:
 
 def test_session_folders_collapse_into_one_pattern(course_dir: Path) -> None:
     files = [
-        remote("s1.pdf", folder="01. Lab-Session am Di, 13.10.30, 16:00 (Einführung)"),
-        remote("s2.pdf", folder="02. Lab-Session am Di, 20.10.30, 16:00 (Vorlesung 2)"),
+        remote("s1.pdf", folder="01. Lab-Session am Mo, 02.11.30, 10:00 (Intro)"),
+        remote("s2.pdf", folder="02. Lab-Session am Mo, 09.11.30, 10:00 (Vorlesung 2)"),
     ]
     [s] = suggest_rules(files, course_dir)
     assert s.rule["match"]["folder"] == "*Lab-Session*"
