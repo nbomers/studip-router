@@ -149,6 +149,9 @@ No. Files with the same name (spaces and underscores are treated alike, as Stud.
 **My files are in iCloud Drive / are "optimised" away.**
 Fine. Evicted files are recognised and never downloaded just for comparison. Keep the state outside synced folders (the default).
 
+**I deleted a file locally. Will it come back?**
+Yes — the local folder mirrors Stud.IP, so the next sync downloads it again. Files you do not want at all are excluded with a rule (`skip = true`) or `sync.exclude`. If you only *moved* a file within the course folder (same name and size), the tool follows it to its new place instead of downloading a duplicate.
+
 **Can I sync older semesters?** `studip sync --semester "SoSe 2026"` or `--semester all`.
 
 **My university uses SSO only.** Not supported yet; a pluggable auth provider (session cookie / token) is planned. Contributions welcome.

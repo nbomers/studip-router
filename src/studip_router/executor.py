@@ -84,7 +84,7 @@ def _apply(action: Action, state: State, download: Downloader, run_id: int) -> N
         st = local_stat(action.dest)
         assert st is not None
         digest = None if st.dataless else sha256_file(action.dest)
-        state.upsert(_record(action, file, action.dest, st.size, st.mtime, digest, 1))
+        state.upsert(_record(action, file, action.dest, st.size, st.mtime, digest, action.version))
         log.info("adopt %s", action.dest)
         return
 

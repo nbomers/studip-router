@@ -48,7 +48,6 @@ class SkipReason(StrEnum):
     NOT_DOWNLOADABLE = "not downloadable"
     UPDATE_SKIPPED = "update skipped (policy)"
     LOCAL_MODIFIED = "local copy modified"
-    LOCAL_MISSING = "local copy moved or deleted"
     CONFLICT = "name conflict (policy: skip)"
     RULE = "skipped by rule"
 
@@ -209,7 +208,7 @@ def plan_course(
 
         record = records.get(file.id)
         if record is not None:
-            _plan_known(cfg, plan, file, record, claims, route_file)
+            _plan_known(cfg, plan, file, record, claims, route_file, by_name, adopted, planned_dirs)
             continue
 
         try:
@@ -314,24 +313,17 @@ def _plan_known(
     record: FileRecord,
     claims: _Claims,
     route_file: Router,
+    by_name: dict[str, list[Path]],
+    adopted: set[str],
+    planned_dirs: set[str],
 ) -> None:
+    path = Path(record.local_path)
+    st = local_stat(path)  # stat() never pulls a file out of iCloud
+    if st is None:
+        _plan_missing(cfg, plan, file, record, by_name, adopted, planned_dirs)
+        return
     if record.chdate == file.chdate.isoformat() and record.filesize == file.size:
         plan.unchanged += 1
-        return
-
-    path = Path(record.local_path)
-    st = local_stat(path)
-    if st is None:
-        plan.actions.append(
-            Action(
-                Kind.SKIP,
-                plan.course.id,
-                file,
-                dest=path,
-                previous=record,
-                reason=SkipReason.LOCAL_MISSING,
-            )
-        )
         return
     if cfg.on_update == "skip":
         plan.actions.append(
@@ -382,6 +374,48 @@ def _plan_known(
             previous=record,
             version=version,
             note=note,
+        )
+    )
+
+
+def _plan_missing(
+    cfg: Config,
+    plan: CoursePlan,
+    file: RemoteFile,
+    record: FileRecord,
+    by_name: dict[str, list[Path]],
+    adopted: set[str],
+    planned_dirs: set[str],
+) -> None:
+    """A tracked file is gone locally: follow it if it was moved, else download it again."""
+    path = Path(record.local_path)
+    names = [path.name, sanitize_filename(file.name)]
+    moved = _find_local(by_name, names, record.local_size, adopted, None)
+    if moved is not None and record.chdate == file.chdate.isoformat():
+        adopted.add(path_key(moved))
+        plan.actions.append(
+            Action(
+                Kind.ADOPT,
+                plan.course.id,
+                file,
+                dest=moved,
+                previous=record,
+                version=record.version,
+                note=f"moved locally from {path.name}",
+            )
+        )
+        return
+    if not _ensure_dir(cfg, plan, path.parent, planned_dirs, file):
+        return
+    plan.actions.append(
+        Action(
+            Kind.DOWNLOAD,
+            plan.course.id,
+            file,
+            dest=path,
+            previous=record,
+            version=record.version,
+            note="deleted locally, restoring",
         )
     )
 

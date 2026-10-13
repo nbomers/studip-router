@@ -138,15 +138,35 @@ def test_same_size_touch_is_not_a_modification(root: Path, state: State) -> None
     assert _kinds(_plan(cfg, state, [newer])) == [Kind.OVERWRITE]
 
 
-def test_local_file_moved_away_is_not_redownloaded(cfg: Config, state: State, root: Path) -> None:
+def test_deleted_local_file_is_restored(cfg: Config, state: State, root: Path) -> None:
+    target = root / "Example Course" / "Sonstiges" / "a.pdf"
+    _sync(cfg, state, [remote("a.pdf")], FakeDownloads({"file-a.pdf": b"abc"}))
+    target.unlink()
+    plan = _sync(cfg, state, [remote("a.pdf")], FakeDownloads({"file-a.pdf": b"abc"}))
+    assert _kinds(plan) == [Kind.DOWNLOAD]
+    assert plan.actions[0].note == "deleted locally, restoring"
+    assert target.read_bytes() == b"abc"
+    assert _plan(cfg, state, [remote("a.pdf")]).actions == []  # and stable afterwards
+
+
+def test_deleted_newer_version_restores_latest(cfg: Config, state: State, root: Path) -> None:
     _sync(cfg, state, [remote("a.pdf")])
     (root / "Example Course" / "Sonstiges" / "a.pdf").unlink()
-    # unchanged remote: nothing happens at all
+    newer = remote("a.pdf", size=4, chdate=datetime(2026, 11, 1, tzinfo=UTC))
+    plan = _sync(cfg, state, [newer], FakeDownloads({"file-a.pdf": b"new!"}))
+    assert _kinds(plan) == [Kind.DOWNLOAD]
+    assert (root / "Example Course" / "Sonstiges" / "a.pdf").read_bytes() == b"new!"
+
+
+def test_moved_local_file_is_followed_not_duplicated(cfg: Config, state: State, root: Path) -> None:
+    course = root / "Example Course"
+    _sync(cfg, state, [remote("a.pdf")])
+    (course / "Sonstiges" / "a.pdf").rename(course / "Uebungen" / "a.pdf")
+    downloads = FakeDownloads()
+    plan = _sync(cfg, state, [remote("a.pdf")], downloads)
+    assert _kinds(plan) == [Kind.ADOPT] and downloads.calls == []
+    assert not (course / "Sonstiges" / "a.pdf").exists()
     assert _plan(cfg, state, [remote("a.pdf")]).actions == []
-    # changed remote: reported, not silently restored
-    newer = remote("a.pdf", chdate=datetime(2026, 11, 1, tzinfo=UTC))
-    plan = _plan(cfg, state, [newer])
-    assert plan.actions[0].reason == SkipReason.LOCAL_MISSING
 
 
 def test_exclusions(cfg: Config, state: State) -> None:

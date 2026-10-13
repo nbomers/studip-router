@@ -60,6 +60,9 @@ cli.py / tui.py ──► sync.py ──► planner.py ──► executor.py ─
   NFC, spaces == underscores) and size anywhere in the course folder is
   recorded instead of downloaded. Same name, different size and modified
   since the semester started → treated as an older version (`_v2` next to it).
+- *Locally deleted files* are downloaded again to their old path (the folder
+  mirrors Stud.IP); a tracked file found elsewhere in the course folder with
+  the same name and size is treated as moved and its new path is recorded.
 - *Versions*: `name_v2.pdf`, `name_v3.pdf`, counting from the base name.
 - *Conflicts*: `name_2.pdf` (or skip/error).
 - *Config writes* (`rules suggest --write`, TUI): append-only, validated
