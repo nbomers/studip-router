@@ -83,3 +83,21 @@ def test_append_refuses_to_break_config(tmp_path: Path) -> None:
         append_blocks(cfg_file, [rule_block("x", {"match": {}, "target": "a"})], "h")
     assert cfg_file.read_text() == "[courses.x]\nrules = 1\n"
     assert not (tmp_path / "config.toml.bak").exists()
+
+
+def test_session_folders_collapse_into_one_pattern(course_dir: Path) -> None:
+    files = [
+        remote("s1.pdf", folder="01. Lab-Session am Di, 13.10.30, 16:00 (Einführung)"),
+        remote("s2.pdf", folder="02. Lab-Session am Di, 20.10.30, 16:00 (Vorlesung 2)"),
+    ]
+    [s] = suggest_rules(files, course_dir)
+    assert s.rule["match"]["folder"] == "*Lab-Session*"
+    assert s.files == 2 and "+1 more" in s.reason
+
+
+def test_folder_pattern_keeps_plain_names() -> None:
+    from studip_router.suggest import folder_pattern
+
+    assert folder_pattern("Folien") == "Folien*"
+    assert folder_pattern("Lecture Slides") == "Lecture Slides*"
+    assert folder_pattern("3) Übungen") == "*Übungen*"

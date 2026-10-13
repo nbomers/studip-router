@@ -121,22 +121,30 @@ def suggest_rules(
     by_folder: Counter[str] = Counter(f.folder_path.split("/", 1)[0] for f in files)
     suggestions: list[Suggestion] = []
 
-    for top, count in sorted(by_folder.items()):
-        if not top:
-            continue
-        category = _category(top)
-        if category is None:
-            continue
+    # Per-session folders ("01. Sitzung am 04.11.30 ...") collapse into one pattern.
+    members: dict[str, list[str]] = {}
+    for top in sorted(by_folder):
+        if top:
+            members.setdefault(folder_pattern(top), []).append(top)
+    grouped: dict[str, tuple[str, int, list[str]]] = {}
+    for pattern, names in members.items():
+        # one session folder named "... Vorlesung" classifies the whole series
+        category = next((c for n in names if (c := _category(n)) is not None), None)
+        if category is not None:
+            grouped[pattern] = (category, sum(by_folder[n] for n in names), names)
+
+    for pattern, (category, count, names) in grouped.items():
         target = _local_target(category, subdirs)
         if target is None:
             continue
-        rule_id = _unique(f"{category}-{_slug(top)}", taken)
+        rule_id = _unique(f"{category}-{_slug(pattern.strip('*'))}", taken)
+        shown = names[0] if len(names) == 1 else f"{names[0]} (+{len(names) - 1} more)"
         suggestions.append(
             Suggestion(
-                rule={"id": rule_id, "match": {"folder": f"{top}*"}, "target": target},
+                rule={"id": rule_id, "match": {"folder": pattern}, "target": target},
                 category=category,
                 files=count,
-                reason=f"Stud.IP folder {top!r} looks like {category}",
+                reason=f"Stud.IP folder {shown!r} looks like {category}",
             )
         )
 
@@ -164,6 +172,25 @@ def suggest_rules(
             )
         )
     return suggestions
+
+
+_NUMBERED = re.compile(r"^\s*(?:\d+|[IVX]+)[.):\-]?\s+")
+_DATE = re.compile(r"\d{1,2}\.\d{1,2}\.(?:\d{2,4})?|\d{4}-\d{2}-\d{2}")
+
+
+def folder_pattern(top: str) -> str:
+    """Glob for a top-level folder; numbered or dated session folders are generalised.
+
+    "01. Lab-Session am Di, 04.11.30 (...)" -> "*Lab-Session*",
+    "Folien" -> "Folien*".
+    """
+    if not (_NUMBERED.match(top) or _DATE.search(top)):
+        return f"{top}*"
+    rest = _NUMBERED.sub("", top)
+    words = [w for w in re.split(r"[\s,()]+", rest) if len(w) >= 4 and not _DATE.search(w)]
+    if not words:
+        return f"{top}*"
+    return f"*{words[0]}*"
 
 
 def _unique(rule_id: str, taken: set[str]) -> str:

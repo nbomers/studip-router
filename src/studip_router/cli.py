@@ -619,7 +619,8 @@ def rules_suggest(
         if not blocks:
             console.print("No new suggestions.")
             return
-        console.print("\n".join(blocks))
+        # plain print: rich would read "[[courses...]]" as markup
+        print("\n".join(blocks))
     if write and blocks:
         if not yes and not Confirm.ask(f"Append {len(blocks)} rule(s) to {cfg.path}?"):
             raise typer.Exit()
