@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from studip_sync.config import Config, parse
-from studip_sync.models import RemoteFile
-from studip_sync.state import State
+from studip_router.config import Config, parse
+from studip_router.models import RemoteFile
+from studip_router.state import State
 
 COURSE_ID = "c0ffee00c0ffee00c0ffee00c0ffee00"
 
@@ -15,8 +15,8 @@ COURSE_ID = "c0ffee00c0ffee00c0ffee00c0ffee00"
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Never touch the real config, state or keychain from tests."""
-    monkeypatch.setenv("STUDIP_SYNC_CONFIG", str(tmp_path / "cfg" / "config.toml"))
-    monkeypatch.setenv("STUDIP_SYNC_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("STUDIP_ROUTER_CONFIG", str(tmp_path / "cfg" / "config.toml"))
+    monkeypatch.setenv("STUDIP_ROUTER_STATE_DIR", str(tmp_path / "state"))
 
 
 @pytest.fixture

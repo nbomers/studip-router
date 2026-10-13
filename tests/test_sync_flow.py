@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 from conftest import COURSE_ID, FakeDownloads, make_config, remote
 
-from studip_sync.config import Config
-from studip_sync.executor import execute
-from studip_sync.planner import Kind, SkipReason, plan_course
-from studip_sync.state import State
+from studip_router.config import Config
+from studip_router.executor import execute
+from studip_router.planner import Kind, SkipReason, plan_course
+from studip_router.state import State
 
 
 def _plan(cfg: Config, state: State, files, **kw):

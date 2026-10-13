@@ -7,11 +7,11 @@ from pathlib import Path
 
 import platformdirs
 
-APP_NAME = "studip-sync"
+APP_NAME = "studip-router"
 
 
 def config_file() -> Path:
-    if env := os.environ.get("STUDIP_SYNC_CONFIG"):
+    if env := os.environ.get("STUDIP_ROUTER_CONFIG"):
         return Path(env).expanduser()
     # ~/.config on macOS too: platformdirs' macOS default (Application Support)
     # is unusual for CLI tools and awkward to edit from a shell.
@@ -22,7 +22,7 @@ def config_file() -> Path:
 
 
 def state_dir() -> Path:
-    if env := os.environ.get("STUDIP_SYNC_STATE_DIR"):
+    if env := os.environ.get("STUDIP_ROUTER_STATE_DIR"):
         return Path(env).expanduser()
     base = os.environ.get("XDG_STATE_HOME") or (
         "~/.local/state" if os.name != "nt" else platformdirs.user_state_dir()
@@ -35,4 +35,4 @@ def state_db() -> Path:
 
 
 def log_file() -> Path:
-    return state_dir() / "studip-sync.log"
+    return state_dir() / "studip-router.log"

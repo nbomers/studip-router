@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from studip_sync.config import ConfigError, load, parse
+from studip_router.config import ConfigError, load, parse
 
 BASE = {
     "server": {"base_url": "https://studip.example.edu", "username": "jdoe"},

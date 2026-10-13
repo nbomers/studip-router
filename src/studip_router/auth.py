@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 import keyring
 import keyring.errors
 
-SERVICE = "studip-sync"
+SERVICE = "studip-router"
 
 
 class AuthError(Exception):
@@ -20,8 +20,8 @@ def _account(base_url: str, username: str) -> str:
 
 
 def get_password(base_url: str, username: str) -> str:
-    """Return the stored password, or STUDIP_SYNC_PASSWORD if set (for CI/headless use)."""
-    if env := os.environ.get("STUDIP_SYNC_PASSWORD"):
+    """Return the stored password, or STUDIP_ROUTER_PASSWORD if set (for CI/headless use)."""
+    if env := os.environ.get("STUDIP_ROUTER_PASSWORD"):
         return env
     try:
         password = keyring.get_password(SERVICE, _account(base_url, username))

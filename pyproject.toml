@@ -1,5 +1,5 @@
 [project]
-name = "studip-sync"
+name = "studip-router"
 version = "0.1.0"
 description = "Sync Stud.IP course files into your own folder structure, with per-course routing and renaming rules."
 readme = "README.md"
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-studip = "studip_sync.cli:main"
+studip = "studip_router.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "respx>=0.21", "ruff>=0.6"]

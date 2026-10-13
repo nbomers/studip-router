@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from studip_sync.api import AuthFailed, StudipClient
+from studip_router.api import AuthFailed, StudipClient
 
 BASE = "https://studip.example.edu"
 API = BASE + "/jsonapi.php/v1"

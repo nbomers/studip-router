@@ -53,7 +53,7 @@ class StudipClient:
             timeout=httpx.Timeout(timeout, connect=10.0),
             headers={
                 "Accept": "application/vnd.api+json",
-                "User-Agent": f"studip-sync/{__version__}",
+                "User-Agent": f"studip-router/{__version__}",
             },
             follow_redirects=True,
             transport=transport,

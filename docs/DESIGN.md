@@ -1,6 +1,6 @@
-# studip-sync – Design
+# studip-router – Design
 
-`studip-sync` mirrors course files from any Stud.IP instance (via the JSON:API)
+`studip-router` mirrors course files from any Stud.IP instance (via the JSON:API)
 into an existing local folder structure, routing and renaming files by
 per-course rules. The CLI command is `studip`.
 
@@ -56,9 +56,9 @@ prints the plan; sync executes it.
 ### Package layout (`src/` layout)
 
 ```
-src/studip_sync/
+src/studip_router/
   __init__.py
-  __main__.py      # python -m studip_sync
+  __main__.py      # python -m studip_router
   cli.py           # typer app: init, courses, sync, status, rules, rename,
                    # reorganize, undo, config, doctor
   config.py        # TOML load + schema validation with precise error paths
@@ -111,7 +111,7 @@ Stdlib covers the rest: `tomllib`, `sqlite3`, `hashlib`, `logging`,
 
 ## State (SQLite, outside any synced folder)
 
-Location: `platformdirs.user_state_dir("studip-sync")`.
+Location: `platformdirs.user_state_dir("studip-router")`.
 
 ```
 files(file_id PK, course_id, remote_name, remote_folder_path, chdate,
@@ -126,7 +126,7 @@ name. A file is re-downloaded only if `chdate` or `filesize` changed remotely.
 
 ## Config schema (TOML)
 
-Location: `platformdirs.user_config_dir("studip-sync")/config.toml`.
+Location: `platformdirs.user_config_dir("studip-router")/config.toml`.
 Courses are keyed by Stud.IP ID (names change, IDs don't). Validation errors
 point to the key path, e.g. `courses.<id>.rules[2].match.name_regex: invalid
 regex: missing ), unterminated subpattern at position 7`. TOML syntax errors

@@ -29,7 +29,7 @@ def setup_file_logging(path: Path, verbose: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    root = logging.getLogger("studip_sync")
+    root = logging.getLogger("studip_router")
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
     root.addHandler(handler)
 
