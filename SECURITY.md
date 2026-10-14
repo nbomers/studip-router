@@ -9,6 +9,8 @@ What the tool guarantees:
 - The password is stored only in the OS keychain (or read from
   `STUDIP_ROUTER_PASSWORD` for headless use) and never written to the config,
   the state database, logs or any output.
+- Course PDF passwords (`studip pdf-password`) are kept in the OS keychain only, like
+  the Stud.IP password.
 - Credentials are only sent over HTTPS (plain HTTP only to `localhost`) and only to the
   configured Stud.IP host; redirects to other
   hosts do not receive them.

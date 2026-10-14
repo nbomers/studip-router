@@ -30,6 +30,8 @@ rules. The command is `studip`; without arguments it opens a terminal UI.
 | File metadata        | `GET courses/{id}/file-refs` (paginated)             |
 | Download             | `GET file-refs/{id}/content` (streamed)              |
 | Announcements        | `GET courses/{id}/news`                              |
+| Course dates         | `GET courses/{id}/events` (`is-cancelled`, `categories`, `location`) |
+| Courseware (opt-in)  | `GET courses/{id}/courseware-units`, structural elements with `include=containers.blocks`, `GET file-refs/{id}` |
 
 File refs carry `name, chdate, mkdate, filesize, mime-type, description,
 is-downloadable`. There is no content hash; hashes are computed locally.

@@ -35,8 +35,12 @@ src/studip_router/
   executor.py     performs actions atomically, verifies downloads
   sync.py         course/semester selection, running plans, merges
   state.py        SQLite state         fsutil.py     names, NFC, iCloud, atomic writes
-  suggest.py      rule suggestions     postprocess.py  unzip + PDF merge
+  suggest.py      rule suggestions     postprocess.py  unzip, PDF unlock + merge
   reorganize.py   reorganize/undo      news.py, notify.py, schedule.py, doctor.py
+  dates.py        course date changes, exams
+  auth.py         keychain (Stud.IP and PDF passwords)
+  models.py       shared data types    paths.py      config/state locations, profiles
+  report.py       tables, summaries    tomlwrite.py  appending rule blocks
   wizard.py       setup helpers        cli.py        typer CLI
   tui/            Textual UI: app.py (home), views.py, settings.py, setup.py, widgets.py
 ```

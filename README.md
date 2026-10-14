@@ -534,7 +534,8 @@ IDs or accounts are in the repository.
 | [Textual](https://textual.textualize.io) | MIT | terminal UI |
 | [keyring](https://github.com/jaraco/keyring) | MIT | password in the OS keychain |
 | [tomlkit](https://github.com/python-poetry/tomlkit) | MIT | config edits that keep comments |
-| [pypdf](https://github.com/py-pdf/pypdf) | BSD-3-Clause | merged slide PDFs |
+| [pypdf](https://github.com/py-pdf/pypdf) | BSD-3-Clause | merged slide PDFs, unlocking PDFs |
+| [cryptography](https://github.com/pyca/cryptography) | Apache-2.0 / BSD-3-Clause | AES for locked PDFs |
 | [platformdirs](https://github.com/tox-dev/platformdirs) | MIT | config, state and log paths |
 | [truststore](https://github.com/sethmlarson/truststore) | MIT | the operating system's certificates |
 
