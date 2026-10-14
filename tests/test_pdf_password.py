@@ -8,16 +8,20 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+import keyring
 import pytest
 from conftest import COURSE_ID, FakeDownloads, make_config, remote
+from keyring.backend import KeyringBackend
 from pypdf import PdfReader, PdfWriter
 
-from studip_router.config import Config
+from studip_router import auth
+from studip_router.config import Config, parse
 from studip_router.executor import Outcome, execute, unlock_course
 from studip_router.planner import Kind, plan_course
 from studip_router.postprocess import Unlock, unlock_pdf
 from studip_router.report import unlocked_lines
 from studip_router.state import State
+from studip_router.sync import SyncPlan, execute_plan
 
 COURSE_PW = "mci-2026"
 
@@ -187,3 +191,72 @@ def test_hint_when_the_password_fits_nothing(tmp_path: Path) -> None:
     assert any("own password" in line for line in unlocked_lines(outcome))
     outcome.unlocked.append(tmp_path / "y.pdf")
     assert not any("own password" in line for line in unlocked_lines(outcome))
+
+
+class MemoryKeyring(KeyringBackend):
+    priority = 1  # type: ignore[assignment]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.items: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service: str, username: str) -> str | None:
+        return self.items.get((service, username))
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self.items[(service, username)] = password
+
+    def delete_password(self, service: str, username: str) -> None:
+        del self.items[(service, username)]
+
+
+def test_every_course_has_its_own_password(
+    root: Path, state: State, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other_id = "0de11ca7e550de11ca7e550de11ca7e5"
+    (root / "Other Course" / "Sonstiges").mkdir(parents=True)
+    cfg = parse(
+        {
+            "server": {"base_url": "https://studip.example.edu", "username": "jdoe"},
+            "sync": {"root": str(root)},
+            "courses": {
+                COURSE_ID: {"name": "Example Course", "target": "Example Course"},
+                other_id: {"name": "Other Course", "target": "Other Course"},
+            },
+        },
+        Path("config.toml"),
+    )
+    previous = keyring.get_keyring()
+    keyring.set_keyring(MemoryKeyring())
+    try:
+        auth.set_pdf_password(COURSE_ID, "first-password")
+        auth.set_pdf_password(other_id, "second-password")
+        content = {
+            "file-a.pdf": pdf("first-password"),
+            "file-b.pdf": pdf("second-password"),
+            "file-c.pdf": pdf("second-password"),  # in the first course: wrong password
+        }
+        a = remote("a.pdf", size=len(content["file-a.pdf"]))
+        c = remote("c.pdf", size=len(content["file-c.pdf"]))
+        b = replace(remote("b.pdf", size=len(content["file-b.pdf"])), course_id=other_id)
+        plans = [
+            plan_course(cfg, cfg.courses[COURSE_ID], [a, c], state.for_course(COURSE_ID)),
+            plan_course(cfg, cfg.courses[other_id], [b], state.for_course(other_id)),
+        ]
+
+        class Client:
+            download = FakeDownloads(content)
+
+        result = execute_plan(SyncPlan(None, plans), cfg, state, Client())  # type: ignore[arg-type]
+
+        assert sorted(p.relative_to(root).as_posix() for p in result.outcome.unlocked) == [
+            "Example Course/Sonstiges/a.pdf",
+            "Other Course/Sonstiges/b.pdf",
+        ]
+        assert [p.name for p, _ in result.outcome.still_locked] == ["c.pdf"]
+
+        assert auth.delete_pdf_password(COURSE_ID)  # removing one keeps the other
+        assert auth.get_pdf_password(COURSE_ID) is None
+        assert auth.get_pdf_password(other_id) == "second-password"
+    finally:
+        keyring.set_keyring(previous)
