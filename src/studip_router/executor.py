@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 
 from .api import ApiError
-from .fsutil import atomic_writer, local_stat, move_no_clobber, nfc, sha256_file
+from .fsutil import atomic_writer, local_stat, move_no_clobber, sha256_file
 from .models import RemoteFile
 from .planner import Action, CoursePlan, Kind
 from .postprocess import PostprocessError, extract_zip
@@ -274,7 +274,7 @@ def _record(
         remote_folder_path=file.folder_path,
         chdate=file.chdate.isoformat(),
         filesize=file.size,
-        local_path=nfc(str(path)),
+        local_path=str(path),  # as on disk; compare via path_key()
         local_size=size,
         local_mtime=mtime,
         sha256=sha,

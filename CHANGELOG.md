@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 First public version.
 
+### Fixed
+- On Linux, a hand-downloaded file with a decomposed (NFD) name was adopted and then
+  seen as deleted on the next sync; the state now keeps the path as it is on disk.
+
 ### Added
 - Incremental sync via the Stud.IP JSON:API with Basic Auth; password in the OS keychain.
 - Per-course routing rules (folder, name glob/regex, extension, MIME type, size, date,

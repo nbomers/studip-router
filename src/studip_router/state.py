@@ -79,7 +79,7 @@ class FileRecord:
     remote_folder_path: str
     chdate: str  # ISO 8601 as delivered by the API
     filesize: int
-    local_path: str  # absolute, NFC
+    local_path: str  # absolute, as on disk (NFD on some file systems)
     local_size: int
     local_mtime: float
     sha256: str | None
