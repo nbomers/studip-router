@@ -11,8 +11,8 @@ import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import urlsplit
 
+from .api import base_url_problem
 from .rename import SPACES, UMLAUTS, RenameOptions
 from .rules import Rule, parse_rules
 
@@ -235,8 +235,8 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
 
     server = v.table(top.get("server", {}), "server", {"base_url", "username"})
     base_url = v.get(server, "base_url", "server", str, "", required=True)
-    if base_url and urlsplit(base_url).scheme not in ("http", "https"):
-        v.problems.append("server.base_url: must start with https:// (or http://)")
+    if base_url and (problem := base_url_problem(base_url)):
+        v.problems.append(f"server.base_url: {problem}")
     username = v.get(server, "username", "server", str, "", required=True)
 
     sync = v.table(

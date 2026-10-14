@@ -13,7 +13,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, SelectionList, Static
 
 from .. import auth, paths
-from ..api import ApiError, AuthFailed, StudipClient
+from ..api import ApiError, AuthFailed, StudipClient, base_url_problem
 from ..fsutil import sanitize_filename
 from ..models import Course
 from ..wizard import (
@@ -82,6 +82,9 @@ class SetupScreen(Screen):
             return
         if not values["url"].startswith(("https://", "http://")):
             values["url"] = "https://" + values["url"]
+        if problem := base_url_problem(values["url"]):
+            self.query_one("#status", Static).update(f"[yellow]The address {problem}.[/yellow]")
+            return
         if not Path(values["root"]).expanduser().is_dir():
             self.query_one("#status", Static).update(
                 f"[yellow]{values['root']} does not exist.[/yellow]"

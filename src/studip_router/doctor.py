@@ -11,7 +11,7 @@ from enum import StrEnum
 import httpx
 
 from . import __version__, auth, paths, schedule
-from .api import ApiError, StudipClient
+from .api import ApiError, StudipClient, ssl_context
 from .config import Config, ConfigError, load
 from .fsutil import local_stat, walk_files
 
@@ -160,7 +160,12 @@ def _check_schedule() -> Iterator[Check]:
 
 def _check_server(cfg: Config) -> Iterator[Check]:
     try:
-        r = httpx.get(cfg.base_url + "/jsonapi.php/v1/discovery", timeout=15, follow_redirects=True)
+        r = httpx.get(
+            cfg.base_url + "/jsonapi.php/v1/discovery",
+            timeout=15,
+            follow_redirects=True,
+            verify=ssl_context(),  # same certificates as the sync itself
+        )
     except httpx.HTTPError as exc:
         yield Check("server", Level.FAIL, f"{cfg.base_url} not reachable: {exc}")
         return

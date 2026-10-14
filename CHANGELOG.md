@@ -11,6 +11,11 @@ First public version.
 ### Fixed
 - On Linux, a hand-downloaded file with a decomposed (NFD) name was adopted and then
   seen as deleted on the next sync; the state now keeps the path as it is on disk.
+- The Stud.IP address must use `https://` (plain `http://` only for `localhost`), so the
+  password is never sent unencrypted.
+- `studip doctor` checks the server with the operating system's certificates, like the
+  sync itself, instead of reporting university CAs as unreachable.
+- Background sync on Linux works when the path to `studip` contains spaces.
 
 ### Added
 - Incremental sync via the Stud.IP JSON:API with Basic Auth; password in the OS keychain.

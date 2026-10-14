@@ -45,6 +45,19 @@ def test_course_requires_target_unless_excluded() -> None:
     assert problems == ["courses.abc.target: required"]
 
 
+@pytest.mark.parametrize(
+    "url", ["http://studip.example.edu", "ftp://studip.example.edu", "studip.example.edu"]
+)
+def test_base_url_must_be_https(url: str) -> None:
+    raw = {**BASE, "server": {"base_url": url, "username": "jdoe"}}
+    assert any(p.startswith("server.base_url: must start with https://") for p in _problems(raw))
+
+
+def test_plain_http_allowed_for_localhost() -> None:
+    raw = {**BASE, "server": {"base_url": "http://localhost:8080", "username": "jdoe"}}
+    assert parse(raw, Path("config.toml")).base_url == "http://localhost:8080"
+
+
 def test_parent_dir_traversal_rejected() -> None:
     raw = {**BASE, "courses": {"abc": {"target": "x", "default_target": "../escape"}}}
     assert any("'..' is not allowed" in p for p in _problems(raw))

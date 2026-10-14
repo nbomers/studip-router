@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -38,7 +39,26 @@ def _parse_dt(value: str | None) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.astimezone()
 
 
-def _ssl_context() -> ssl.SSLContext | bool:
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def base_url_problem(url: str) -> str | None:
+    """Why ``url`` must not receive the password, or None if it is fine.
+
+    Basic Auth sends the password with every request, so plain HTTP is only
+    allowed for a Stud.IP running on this machine.
+    """
+    parts = urlsplit(url)
+    if parts.scheme == "https" and parts.hostname:
+        return None
+    if parts.scheme == "http" and parts.hostname in LOCAL_HOSTS:
+        return None
+    if parts.scheme == "http":
+        return "must start with https:// (http:// would send your password unencrypted)"
+    return "must start with https://"
+
+
+def ssl_context() -> ssl.SSLContext | bool:
     """Use the operating system's certificate store (works with university CAs and
     TLS-inspecting proxies that are trusted by the OS but unknown to certifi)."""
     try:
@@ -66,12 +86,14 @@ class StudipClient:
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
+        if problem := base_url_problem(base_url):
+            raise ApiError(f"Stud.IP address {base_url!r} {problem}")
         self.api_url = base_url.rstrip("/") + "/jsonapi.php/v1"
         self._max_retries = max_retries
         self._sleep = sleep or (lambda seconds: _sleep(seconds))
         self._http = httpx.Client(
             auth=(username, password),
-            verify=_ssl_context(),
+            verify=ssl_context(),
             timeout=httpx.Timeout(timeout, connect=10.0),
             headers={
                 "Accept": "application/vnd.api+json",

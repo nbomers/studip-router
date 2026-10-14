@@ -80,11 +80,17 @@ def launchd_plist(exe: str, minutes: int, profile: str | None) -> dict:
     }
 
 
+def _systemd_quote(arg: str) -> str:
+    """One ExecStart argument, safe with spaces, quotes, ``%`` specifiers and ``$``."""
+    escaped = arg.replace("\\", "\\\\").replace('"', '\\"')
+    return '"' + escaped.replace("%", "%%").replace("$", "$$") + '"'
+
+
 def systemd_units(exe: str, minutes: int, profile: str | None) -> tuple[str, str]:
-    prof = f" --profile {profile}" if profile else ""
+    args = [exe, *(["--profile", profile] if profile else []), "sync", "--notify", "--quiet"]
     service = (
         "[Unit]\nDescription=studip-router sync\n\n"
-        f"[Service]\nType=oneshot\nExecStart={exe}{prof} sync --notify --quiet\n"
+        f"[Service]\nType=oneshot\nExecStart={' '.join(map(_systemd_quote, args))}\n"
     )
     timer = (
         "[Unit]\nDescription=Run studip-router sync periodically\n\n"

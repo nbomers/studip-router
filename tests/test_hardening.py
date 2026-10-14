@@ -14,12 +14,13 @@ from conftest import COURSE_ID, FakeDownloads, make_config, remote
 from fake_studip import API, BASE, COURSE, OTHER, install
 
 from studip_router import paths
-from studip_router.api import StudipClient
+from studip_router.api import ApiError, StudipClient
 from studip_router.config import parse
 from studip_router.executor import execute
 from studip_router.fsutil import Locked, exclusive_lock
 from studip_router.models import Course
 from studip_router.planner import Kind, SkipReason, plan_course, same_time
+from studip_router.schedule import systemd_units
 from studip_router.state import State
 from studip_router.sync import build_plan, execute_plan
 
@@ -375,3 +376,16 @@ def test_courseware_files_are_synced_when_enabled(root: Path, tmp_path: Path) ->
     names = lambda plan: {a.file.name: a.file.folder_path for p in plan.plans for a in p.actions}  # noqa: E731
     assert "Worksheet.pdf" not in names(off)
     assert names(on)["Worksheet.pdf"] == "Courseware/Week 1"
+
+
+def test_client_refuses_to_send_the_password_over_plain_http() -> None:
+    with pytest.raises(ApiError, match="unencrypted"):
+        StudipClient("http://studip.example.edu", "u", "secret")
+
+
+def test_systemd_unit_quotes_paths_with_spaces() -> None:
+    service, _ = systemd_units("/home/j doe/.local/bin/studip", 60, "50%")
+    exec_line = next(line for line in service.splitlines() if line.startswith("ExecStart="))
+    assert exec_line == (
+        'ExecStart="/home/j doe/.local/bin/studip" "--profile" "50%%" "sync" "--notify" "--quiet"'
+    )
