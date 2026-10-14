@@ -4,18 +4,9 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-10-14
 
 First public version.
-
-### Fixed
-- On Linux, a hand-downloaded file with a decomposed (NFD) name was adopted and then
-  seen as deleted on the next sync; the state now keeps the path as it is on disk.
-- The Stud.IP address must use `https://` (plain `http://` only for `localhost`), so the
-  password is never sent unencrypted.
-- `studip doctor` checks the server with the operating system's certificates, like the
-  sync itself, instead of reporting university CAs as unreachable.
-- Background sync on Linux works when the path to `studip` contains spaces.
 
 ### Added
 - Incremental sync via the Stud.IP JSON:API with Basic Auth; password in the OS keychain.
@@ -47,6 +38,10 @@ First public version.
 - Course dates: after each sync, cancelled, moved and re-roomed dates and new exam dates
   are reported (summary, notification, `--json`); `studip dates` and `t` in the UI list
   recent changes and upcoming exams; `sync.watch_dates` turns it off.
+- The Stud.IP address must use `https://` (plain `http://` only for `localhost`), so the
+  password is never sent unencrypted.
 - `studip pdf-password set COURSE`: one shared PDF password per course, kept in the
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
+
+[0.1.0]: https://github.com/nbomers/studip-router/releases/tag/v0.1.0
