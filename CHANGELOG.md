@@ -44,6 +44,9 @@ First public version.
   back-off for failing files, failure notifications and login pause for background
   sync, `folder_type` rules, OS certificate store, opt-in Courseware files,
   standalone-only number padding, recovery of versions after state loss.
+- Course dates: after each sync, cancelled, moved and re-roomed dates and new exam dates
+  are reported (summary, notification, `--json`); `studip dates` and `t` in the UI list
+  recent changes and upcoming exams; `sync.watch_dates` turns it off.
 - `studip pdf-password set COURSE`: one shared PDF password per course, kept in the
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.

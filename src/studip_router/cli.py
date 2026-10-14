@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, is_dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any
@@ -23,11 +23,12 @@ from rich.table import Table
 from . import __version__, auth, doctor, paths, report, schedule
 from .api import ApiError, AuthFailed, StudipClient
 from .config import Config, ConfigError, CourseConfig, load
+from .dates import check_dates, upcoming_exams
 from .executor import unlock_course
 from .fsutil import Locked, exclusive_lock
 from .models import RemoteFile
 from .news import fetch_news, unread
-from .notify import notify, sync_message
+from .notify import dates_message, notify, sync_message
 from .planner import build_router
 from .rename import RenameError
 from .reorganize import apply_reorganize, apply_undo, plan_reorganize, plan_undo
@@ -474,9 +475,15 @@ def sync_cmd(
                 )
                 raise typer.Exit(130) from None
         news_count = _news_after_sync(client, cfg, state, sync_plan) if not dry_run else 0
+        date_changes = (
+            check_dates(client, state, _plan_courses(sync_plan))
+            if cfg.watch_dates and not dry_run
+            else []
+        )
+        sync_plan.warnings += [w for w in client.warnings if w not in sync_plan.warnings]
 
         if OPTS.json:
-            emit_json(report.plan_json(sync_plan, result, dry_run, news_count))
+            emit_json(report.plan_json(sync_plan, result, dry_run, news_count, date_changes))
         else:
             report.print_summary(out, sync_plan, dry_run, result.outcome if result else None)
             if result:
@@ -488,6 +495,7 @@ def sync_cmd(
                     out.print(f"  [yellow]◎[/yellow] merge {m.course}: {m.reason}")
             if news_count:
                 out.print(f"\n[cyan]{news_count} new announcement(s)[/cyan] - `studip news`")
+            report.print_date_changes(out, date_changes)
             if quiet:
                 for name, problem in sync_plan.errors:
                     err.print(f"[red]✗[/red] course {name}: {problem}")
@@ -503,8 +511,14 @@ def sync_cmd(
                 )
             if message:
                 notify("Stud.IP", message)
+            if dates := dates_message([c.text() for c in date_changes]):
+                notify("Stud.IP dates", dates)
         if failed or sync_plan.errors:
             raise typer.Exit(1)
+
+
+def _plan_courses(sync_plan) -> list[tuple[str, str]]:
+    return [(p.course.id, p.course.name or p.course.target) for p in sync_plan.plans]
 
 
 def _news_after_sync(client: StudipClient, cfg: Config, state: State, sync_plan) -> int:
@@ -1033,6 +1047,60 @@ def ignore_remove(query: Annotated[str, typer.Argument(help="File id or name.")]
             raise fail(f"{len(hits)} ignored files match {query!r}")
         state.unignore(hits[0]["file_id"])
     console.print(f"[green]✓[/green] {hits[0]['name']} is synced again.")
+
+
+# -- course dates -----------------------------------------------------------------------
+
+
+@app.command("dates")
+def dates_cmd(
+    config: ConfigOpt = None,
+    offline: Annotated[bool, typer.Option("--offline", help="Do not contact Stud.IP.")] = False,
+    days: Annotated[int, typer.Option("--days", help="Changes found in the last N days.")] = 14,
+) -> None:
+    """Cancelled, moved or re-roomed course dates, and upcoming exams."""
+    cfg = load_config(config)
+    now = datetime.now().astimezone()
+    with State(paths.state_db()) as state:
+        first = not state.all_course_dates()
+        if not offline:
+            courses = [(c.id, c.name or c.target) for c in cfg.courses.values() if not c.exclude]
+            with open_client(cfg) as client:
+                check_dates(client, state, courses, now)
+        changes = [
+            r
+            for r in state.date_changes_since(now - timedelta(days=days))
+            if datetime.fromisoformat(r["start"]) >= now
+        ]
+        exams = upcoming_exams(state, now)
+    if OPTS.json:
+        emit_json(
+            {
+                "changes": [
+                    {k: r[k] for k in ("kind", "start", "text", "detected_at")} for r in changes
+                ],
+                "exams": [
+                    {"course": d.course, "start": d.start, "end": d.end, "location": d.location}
+                    for d in exams
+                ],
+            }
+        )
+        return
+    console.print(f"[bold]Changed dates[/bold] [dim](found in the last {days} days)[/dim]")
+    if first and not offline:
+        console.print("  [dim]Watching your courses from now on; changes show up here.[/dim]")
+    for r in changes:
+        console.print(f"  [yellow]●[/yellow] {r['text']}")
+    if not changes and not first:
+        console.print("  [dim]none[/dim]")
+    console.print("\n[bold]Exams[/bold]")
+    for d in exams:
+        until = (d.start.date() - now.date()).days
+        place = f" · {d.location}" if d.location else ""
+        cancelled = " [red]cancelled[/red]" if d.cancelled else ""
+        console.print(f"  {d.when()}  {d.course}{place}  [dim]in {until} days[/dim]{cancelled}")
+    if not exams:
+        console.print("  [dim]none in Stud.IP yet (dates with the category Klausur/Prüfung)[/dim]")
 
 
 # -- PDF passwords ----------------------------------------------------------------------

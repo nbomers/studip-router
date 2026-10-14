@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import ClassVar
 
@@ -33,6 +33,7 @@ from .. import doctor, paths
 from ..api import ApiError, StudipClient
 from ..config import Config, ConfigError
 from ..config_edit import set_course
+from ..dates import Change, check_dates, upcoming_exams
 from ..fsutil import Locked
 from ..models import RemoteFile
 from ..news import News, fetch_news, unread
@@ -139,6 +140,7 @@ class SyncView(View):
         self.show_skipped = False
         self.running = False
         self.cancel = False
+        self.date_changes: list[Change] = []
 
     def compose(self) -> ComposeResult:
         yield from self.compose_header()
@@ -285,6 +287,11 @@ class SyncView(View):
         try:
             with self.client() as client, State(paths.state_db()) as state:
                 result = execute_plan(self.plan, self.cfg, state, client, on_progress=progress)
+                if self.cfg.watch_dates:
+                    courses = [
+                        (p.course.id, p.course.name or p.course.target) for p in self.plan.plans
+                    ]
+                    self.date_changes = check_dates(client, state, courses)
         except KeyboardInterrupt:
             self.app.call_from_thread(
                 self.status,
@@ -343,6 +350,8 @@ class SyncView(View):
                 log.write(f"[green]✓[/green] merged slides: {m.output}")
         for line in unlocked_lines(result.outcome):
             log.write(line)
+        for change in self.date_changes:
+            log.write(f"[yellow]● date[/yellow] {change.text()}")
         failed = len(result.outcome.failed)
         self.status(
             "[green]✓ Sync finished.[/green]"
@@ -567,6 +576,54 @@ class HistoryView(View):
             self._run("qlmanage", "-p")
         else:
             self.action_open()
+
+
+# -- dates ------------------------------------------------------------------------------
+
+
+class DatesView(View):
+    TITLE = "Dates"
+    HINT = "changed dates of your courses and upcoming exams"
+
+    def compose(self) -> ComposeResult:
+        yield from self.compose_header()
+        yield RichLog(id="dates-log", markup=True, wrap=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.load()
+
+    @work(thread=True, exclusive=True)
+    def load(self) -> None:
+        log = self.query_one(RichLog)
+        now = datetime.now().astimezone()
+        courses = [(c.id, c.name or c.target) for c in self.cfg.courses.values() if not c.exclude]
+        with State(paths.state_db()) as state:
+            try:
+                with self.client() as client:
+                    check_dates(client, state, courses, now)
+            except ApiError as exc:
+                self.app.call_from_thread(
+                    log.write, f"[red]{exc}[/red] [dim](showing saved dates)[/dim]"
+                )
+            changes = [
+                r
+                for r in state.date_changes_since(now - timedelta(days=14))
+                if datetime.fromisoformat(r["start"]) >= now
+            ]
+            exams = upcoming_exams(state, now)
+        lines = ["[b]Changed dates[/b] [dim](last 14 days)[/dim]"]
+        lines += [f"  [yellow]●[/yellow] {r['text']}" for r in changes] or ["  [dim]none[/dim]"]
+        lines += ["", "[b]Exams[/b]"]
+        lines += [
+            f"  {d.when()}  {d.course}"
+            + (f" · {d.location}" if d.location else "")
+            + f"  [dim]in {(d.start.date() - now.date()).days} days[/dim]"
+            + ("  [red]cancelled[/red]" if d.cancelled else "")
+            for d in exams
+        ] or ["  [dim]none in Stud.IP yet[/dim]"]
+        for line in lines:
+            self.app.call_from_thread(log.write, line)
 
 
 # -- news -------------------------------------------------------------------------------

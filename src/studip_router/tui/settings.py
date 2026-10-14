@@ -100,6 +100,13 @@ SECTIONS: list[tuple[str, list[Setting]]] = [
                 ("sync", "follow_renames"),
             ),
             Setting(
+                "watch dates",
+                "report cancelled, moved and re-roomed course dates after a sync",
+                ON_OFF,
+                lambda c: c.watch_dates,
+                ("sync", "watch_dates"),
+            ),
+            Setting(
                 "create folders",
                 "create missing target folders of rules",
                 ON_OFF,

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import respx
 from fake_studip import BASE, COURSE, OTHER, install
-from textual.widgets import DataTable, Input, SelectionList, Static
+from textual.widgets import DataTable, Input, RichLog, SelectionList, Static
 
 from studip_router import paths
 from studip_router.config import load
@@ -241,3 +241,14 @@ async def test_settings_fit_narrow_terminal(course_dir: Path) -> None:
         assert "◂" in text and "▸" in text and "1/8" in text
         await pilot.press("l")
         assert config().ui_theme == "catppuccin-mocha"
+
+
+@respx.mock
+async def test_dates_view_lists_exams(course_dir: Path) -> None:
+    install(respx.mock)
+    app = StudipRouterApp()
+    async with app.run_test(size=(120, 36)) as pilot:
+        await pilot.press("t")
+        log = app.screen.query_one(RichLog)
+        await wait_for(pilot, lambda: any("Aula" in str(line.text) for line in log.lines))
+        assert any("Quantum Cooking" in str(line.text) for line in log.lines)

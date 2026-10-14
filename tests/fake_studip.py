@@ -122,6 +122,7 @@ def install(router: respx.MockRouter) -> None:
         router.get(f"{API}/file-refs/{fid}/content").mock(
             return_value=httpx.Response(200, content=data)
         )
+    install_events(router)
     router.get(f"{API}/courses/{OTHER}/news").mock(return_value=httpx.Response(200, json=_page([])))
     router.get(f"{API}/courses/{COURSE}/news").mock(
         return_value=httpx.Response(
@@ -223,4 +224,42 @@ def install_courseware(router: respx.MockRouter) -> None:
     )
     router.get(f"{API}/file-refs/cw-file/content").mock(
         return_value=httpx.Response(200, content=b"%PDF-cw")
+    )
+
+
+def course_event(
+    eid: str,
+    start: str,
+    *,
+    end: str | None = None,
+    category: str = "Präsenz-Sitzung",
+    location: str = "Room 1",
+    cancelled: bool = False,
+) -> dict:
+    """A course date as the JSON:API delivers it (fields as seen on a real instance)."""
+    return {
+        "type": "course-events",
+        "id": eid,
+        "attributes": {
+            "title": "Lecture: Quantum Cooking",
+            "description": "",
+            "start": start,
+            "end": end or start,
+            "type": 1,
+            "categories": category,
+            "location": location,
+            "is-cancelled": cancelled,
+        },
+    }
+
+
+EVENTS = [
+    course_event("ev-1", "2030-11-04T10:00:00+01:00", end="2030-11-04T12:00:00+01:00"),
+    course_event("ev-exam", "2031-02-10T09:00:00+01:00", category="Klausur", location="Aula"),
+]
+
+
+def install_events(router: respx.MockRouter, events: list[dict] | None = None) -> respx.Route:
+    return router.get(f"{API}/courses/{COURSE}/events").mock(
+        return_value=httpx.Response(200, json=_page(EVENTS if events is None else events))
     )

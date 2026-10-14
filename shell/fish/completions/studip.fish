@@ -9,7 +9,7 @@ function __studip_profiles
     command studip _complete profiles 2>/dev/null
 end
 
-set -l cmds init courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore pdf-password
+set -l cmds init courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore pdf-password dates
 complete -c studip -f
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -s p -l profile -xa '(__studip_profiles)' -d 'Config/state profile'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -l json -d 'Machine-readable output'
@@ -31,6 +31,7 @@ complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a config -d 'Conf
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a rules -d 'Routing rules'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a schedule -d 'Background sync'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a ignore -d 'Files you never want'
+complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a dates -d 'Changed dates and exams'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a pdf-password -d "Unlock a course's PDFs"
 
 # options taking a course
@@ -46,7 +47,8 @@ complete -c studip -n "__fish_seen_subcommand_from sync" -l notify -d 'Desktop n
 complete -c studip -n "__fish_seen_subcommand_from reorganize undo schedule" -s y -l yes -d 'Do not ask'
 complete -c studip -n "__fish_seen_subcommand_from news" -l all -d 'Include read ones'
 complete -c studip -n "__fish_seen_subcommand_from merge" -l force -d 'Download iCloud-only PDFs'
-complete -c studip -n "__fish_seen_subcommand_from status doctor" -l offline -d 'Do not contact Stud.IP'
+complete -c studip -n "__fish_seen_subcommand_from dates" -l days -x -d 'Changes of the last N days'
+complete -c studip -n "__fish_seen_subcommand_from status doctor dates" -l offline -d 'Do not contact Stud.IP'
 complete -c studip -n "__fish_seen_subcommand_from history" -s n -l limit -x -d 'Number of files'
 complete -c studip -n "__fish_seen_subcommand_from init" -l force -d 'Overwrite config'
 

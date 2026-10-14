@@ -53,6 +53,10 @@ courseware = false
 # Desktop notification after background syncs (`studip schedule install`).
 notify = true
 
+# After each sync, compare the course dates with the last check and report
+# cancelled, moved and re-roomed dates and new exam dates (`studip dates`).
+watch_dates = true
+
 # Files never downloaded (in addition to per-course rules).
 [sync.exclude]
 globs = ["*.mp4", "*.mkv"]

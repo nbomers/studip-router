@@ -34,6 +34,16 @@ def notify(title: str, message: str) -> bool:
     return False
 
 
+def dates_message(lines: list[str], limit: int = 3) -> str | None:
+    """One notification for all date changes of a sync."""
+    if not lines:
+        return None
+    shown = lines[:limit]
+    if len(lines) > limit:
+        shown.append(f"and {len(lines) - limit} more - `studip dates`")
+    return "\n".join(shown)
+
+
 def sync_message(new_by_course: dict[str, int], news: int) -> str | None:
     parts = [f"{n} new in {course}" for course, n in sorted(new_by_course.items()) if n]
     if news:

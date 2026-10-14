@@ -10,6 +10,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from .dates import Change, ChangeKind
 from .executor import Outcome
 from .planner import Action, CoursePlan, Kind
 from .sync import CourseEntry, CourseStatus, SyncPlan
@@ -177,7 +178,9 @@ def print_summary(
             console.print(f"  {a.file.name if a.file else a.dest}: {msg}")
 
 
-def plan_json(sync_plan: SyncPlan, result, dry_run: bool, news: int) -> dict:
+def plan_json(
+    sync_plan: SyncPlan, result, dry_run: bool, news: int, date_changes: list | None = None
+) -> dict:
     def action(a: Action) -> dict:
         return {
             "action": a.kind.value,
@@ -200,6 +203,7 @@ def plan_json(sync_plan: SyncPlan, result, dry_run: bool, news: int) -> dict:
         "new_announcements": news,
         "course_errors": [{"course": n, "error": e} for n, e in sync_plan.errors],
         "warnings": sync_plan.warnings,
+        "date_changes": [change_json(c) for c in date_changes or []],
     }
     if result is not None:
         data["failed"] = [
@@ -233,3 +237,23 @@ def unlocked_lines(outcome: Outcome) -> list[str]:
 def print_unlocked(console: Console, outcome: Outcome) -> None:
     for line in unlocked_lines(outcome):
         console.print(f"  {line}")
+
+
+def change_json(change: Change) -> dict:
+    d = change.date
+    return {
+        "course": d.course,
+        "kind": str(change.kind),
+        "start": d.start.isoformat(),
+        "location": d.location,
+        "detail": change.detail,
+    }
+
+
+def print_date_changes(console: Console, changes: list[Change]) -> None:
+    if not changes:
+        return
+    console.print("\n[bold]Changed dates[/bold]")
+    for change in changes:
+        style = "red" if change.kind in (ChangeKind.CANCELLED, ChangeKind.REMOVED) else "yellow"
+        console.print(f"  [{style}]●[/{style}] {change.text()}")

@@ -74,6 +74,7 @@ class Config:
     notify: bool = True
     follow_renames: bool = True
     courseware: bool = False  # also sync files from Courseware pages (more requests)
+    watch_dates: bool = True  # report cancelled, moved and re-roomed course dates
     rename: RenameOptions = field(default_factory=RenameOptions)
     courses: dict[str, CourseConfig] = field(default_factory=dict)
     ui_theme: str = "tokyo-night"
@@ -255,6 +256,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
             "notify",
             "follow_renames",
             "courseware",
+            "watch_dates",
         },
     )
     root = v.get(sync, "root", "sync", str, "", required=True)
@@ -340,6 +342,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         notify=v.get(sync, "notify", "sync", bool, True),
         follow_renames=v.get(sync, "follow_renames", "sync", bool, True),
         courseware=v.get(sync, "courseware", "sync", bool, False),
+        watch_dates=v.get(sync, "watch_dates", "sync", bool, True),
         rename=rename,
         courses=courses,
         ui_theme=v.get(ui, "theme", "ui", str, "tokyo-night"),

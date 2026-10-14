@@ -31,6 +31,7 @@ from .settings import THEMES, SettingsScreen
 from .setup import SetupScreen
 from .views import (
     CoursesView,
+    DatesView,
     DoctorView,
     HistoryView,
     MergeView,
@@ -49,6 +50,7 @@ ACTIONS: list[tuple[str, str, str, Callable[[], Screen]]] = [
     ("p", "Preview", "every file and its target, nothing changes", SyncView),
     ("w", "What's new", "recently synced files: open, reveal, preview", HistoryView),
     ("a", "Announcements", "news from your courses", NewsView),
+    ("t", "Dates", "cancelled or moved dates, upcoming exams", DatesView),
     ("c", "Courses", "turn syncing on/off, give new courses a folder", CoursesView),
     ("r", "Rules", "suggestions, test a file name, your rules", RulesView),
     ("o", "Reorganize", "apply changed rules to synced files (undo: u)", ReorganizeView),
@@ -56,7 +58,7 @@ ACTIONS: list[tuple[str, str, str, Callable[[], Screen]]] = [
     ("comma", "Settings", "sync, file names, auto-sync, theme, account", SettingsScreen),
     ("d", "Doctor", "check config, folders, login and server", DoctorView),
 ]
-NEEDS_LOGIN = {"s", "p", "a", "c", "r"}
+NEEDS_LOGIN = {"s", "p", "a", "c", "r", "t"}
 KEY_LABEL = {"comma": ","}
 
 

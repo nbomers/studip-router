@@ -63,3 +63,28 @@ class RemoteFile:
     downloadable: bool
     content_id: str = ""  # id of the stored file; changes only when the content is replaced
     folder_type: str = ""  # Stud.IP type of the parent folder, e.g. "HomeworkFolder"
+
+
+EXAM_WORDS = ("klausur", "prüfung", "pruefung", "exam")
+
+
+@dataclass(frozen=True)
+class CourseDate:
+    id: str
+    course_id: str
+    course: str
+    start: datetime
+    end: datetime
+    category: str
+    location: str
+    cancelled: bool
+    description: str = ""
+
+    @property
+    def is_exam(self) -> bool:
+        category = self.category.casefold()
+        return any(word in category for word in EXAM_WORDS)
+
+    def when(self) -> str:
+        """Local time, e.g. "Wed 14.10. 10:00"."""
+        return self.start.astimezone().strftime("%a %d.%m. %H:%M")

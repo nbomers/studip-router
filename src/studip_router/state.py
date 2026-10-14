@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+from .models import CourseDate
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -60,6 +63,27 @@ CREATE TABLE IF NOT EXISTS news_seen (
     news_id   TEXT PRIMARY KEY,
     course_id TEXT NOT NULL,
     seen_at   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS course_dates (
+    date_id     TEXT PRIMARY KEY,
+    course_id   TEXT NOT NULL,
+    course      TEXT NOT NULL,
+    start       TEXT NOT NULL,
+    end         TEXT NOT NULL,
+    category    TEXT NOT NULL,
+    location    TEXT NOT NULL,
+    cancelled   INTEGER NOT NULL,
+    description TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS course_dates_course ON course_dates(course_id);
+CREATE TABLE IF NOT EXISTS date_changes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id   TEXT NOT NULL,
+    date_id     TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    start       TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    detected_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS journal (
     run_id INTEGER NOT NULL,
@@ -289,9 +313,70 @@ class State:
             "SELECT * FROM runs WHERE finished_at IS NOT NULL ORDER BY run_id DESC LIMIT 1"
         ).fetchone()
 
+    # -- course dates ----------------------------------------------------------------
+
+    def course_dates(self, course_id: str) -> list[CourseDate]:
+        rows = self._db.execute("SELECT * FROM course_dates WHERE course_id = ?", (course_id,))
+        return [_course_date(r) for r in rows]
+
+    def all_course_dates(self) -> list[CourseDate]:
+        return [_course_date(r) for r in self._db.execute("SELECT * FROM course_dates")]
+
+    def replace_course_dates(self, course_id: str, dates: list[CourseDate]) -> None:
+        self._db.execute("DELETE FROM course_dates WHERE course_id = ?", (course_id,))
+        self._db.executemany(
+            "INSERT OR REPLACE INTO course_dates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    d.id,
+                    d.course_id,
+                    d.course,
+                    d.start.isoformat(),
+                    d.end.isoformat(),
+                    d.category,
+                    d.location,
+                    int(d.cancelled),
+                    d.description,
+                )
+                for d in dates
+            ],
+        )
+        self._db.commit()
+
+    def add_date_changes(self, changes: Iterable[tuple[str, str, str, datetime, str]]) -> None:
+        """(course_id, date_id, kind, start, text) as found by a check."""
+        self._db.executemany(
+            "INSERT INTO date_changes (course_id, date_id, kind, start, text, detected_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            [(c, d, k, s.isoformat(), t, now_iso()) for c, d, k, s, t in changes],
+        )
+        self._db.commit()
+
+    def date_changes_since(self, since: datetime) -> list[sqlite3.Row]:
+        return list(
+            self._db.execute(
+                "SELECT * FROM date_changes WHERE detected_at >= ? ORDER BY start",
+                (since.astimezone(UTC).isoformat(timespec="seconds"),),
+            )
+        )
+
 
 def _record(row: sqlite3.Row) -> FileRecord:
     data = dict(row)
     data["routed_by_default"] = bool(data["routed_by_default"])
     data["gone"] = bool(data.get("gone", 0))
     return FileRecord(**data)
+
+
+def _course_date(row: sqlite3.Row) -> CourseDate:
+    return CourseDate(
+        id=row["date_id"],
+        course_id=row["course_id"],
+        course=row["course"],
+        start=datetime.fromisoformat(row["start"]),
+        end=datetime.fromisoformat(row["end"]),
+        category=row["category"],
+        location=row["location"],
+        cancelled=bool(row["cancelled"]),
+        description=row["description"],
+    )

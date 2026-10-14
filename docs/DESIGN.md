@@ -104,6 +104,9 @@ files(file_id PK, course_id, remote_name, remote_folder_path, chdate, filesize,
 runs(run_id PK, started_at, finished_at, mode, summary)
 journal(run_id, seq, op, src, dst)            -- reorganize/undo, downloads
 generated(path PK, sha256, fingerprint, updated_at)   -- merged PDFs
+course_dates(date_id PK, course_id, course, start, end, category, location,
+             cancelled, description)      -- snapshot of the last date check
+date_changes(id PK, course_id, date_id, kind, start, text, detected_at)
 news_seen(news_id PK, course_id, seen_at)
 ```
 

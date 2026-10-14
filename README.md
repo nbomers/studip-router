@@ -87,6 +87,7 @@ All course names in the screenshots are made up.</sub>
 | **Updates become versions** | a changed file becomes `name_v2.pdf` (configurable). Renames, moves and re-uploads of the *same* content never create copies. |
 | **Robust** | a failing course is reported while all others still sync; messy names, interrupted transfers, HTML error pages, broken ZIPs and iCloud are handled — see [tricky files](#tricky-files). |
 | **Background sync** | with desktop notifications, also about problems; a failed login pauses it so a changed password cannot lock your account. |
+| **Changed dates** | after each sync: cancelled, moved and re-roomed course dates and new exam dates — in the summary and as a notification; `studip dates` lists upcoming exams. |
 | **Locked PDFs** | one shared PDF password per course (keychain) — PDFs locked with it are stored without it; see [FAQ](#faq). |
 | **Extras** | Courseware files (opt-in), announcements, ZIP extraction, merged slide PDFs, never-download list, `--json` output, profiles. |
 
@@ -158,9 +159,10 @@ source checkout.
 | `s` | **Sync now** (summary → confirm) | `r` | Rules: suggestions, test a file name |
 | `p` | Preview every file and its target | `o` | Reorganize synced files (`u` undo) |
 | `w` | What's new: open / reveal / preview | `m` | Merge slides into one PDF |
-| `a` | Announcements | `,` | Settings |
-| `c` | Courses: sync on/off, choose folders | `d` | Doctor: check the setup |
-| `i` | in preview / what's new: never download this file | `?` | all keys |
+| `a` | Announcements | `t` | Dates: changes and exams |
+| `c` | Courses: sync on/off, choose folders | `,` | Settings |
+| `d` | Doctor: check the setup | `?` | all keys |
+| `i` | in preview / what's new: never download this file | | |
 
 `j`/`k` and arrow keys move, `Enter` opens, `Esc` goes back.
 
@@ -264,6 +266,7 @@ Rule sheets
 | `sync.create_missing_dirs` | `false` | create rule target folders that do not exist |
 | `sync.unzip` | `false` | extract `.zip` downloads next to the archive |
 | `sync.notify` | `true` | notification after background syncs |
+| `sync.watch_dates` | `true` | report cancelled, moved and re-roomed dates after a sync |
 | `sync.follow_renames` | `true` | rename the local copy when a file is renamed on Stud.IP |
 | `sync.courseware` | `false` | also sync files from Courseware pages (per course: `courses.<id>.courseware`) |
 | `sync.only_configured_courses` | `true` | `false`: sync every course into a folder named like it |
@@ -293,6 +296,7 @@ From scripts: `studip config set sync.on_update skip`.
 | `studip rules list / test / suggest [--write]` | inspect and create rules |
 | `studip reorganize` / `studip undo` | apply changed rules to synced files / revert |
 | `studip history` / `studip news` | recently synced files / unread announcements |
+| `studip dates [--offline] [--days 14]` | changed course dates and upcoming exams |
 | `studip merge` | merge slide PDFs |
 | `studip schedule install --every 120` / `run-now` / `uninstall` | background sync (opt-in) |
 | `studip ignore add / list / remove` | files you never want |
@@ -410,6 +414,22 @@ or `a` in the courses screen.
 Turn on *courseware* in the settings (or per course in the config).
 `studip doctor` tells you which of your courses use Courseware. Videos are
 skipped by default (*skip videos*).
+
+</details>
+
+<details>
+<summary><b>Which date changes are reported?</b></summary>
+
+After every sync the course dates are compared with the last check:
+**cancelled** (and taking place again), **moved** (new day or time),
+**room changed**, **removed**, and **new exam dates** (category *Klausur* /
+*Prüfung*). Only dates that are still ahead count. The first check of a course
+only remembers its dates, so a new semester starts quietly; a room filled in for
+the first time is no news either.
+
+Background syncs send one notification for all changes. `studip dates` (or `t`)
+shows the changes of the last two weeks and your upcoming exams. Turn it off with
+*watch dates* in the settings.
 
 </details>
 
