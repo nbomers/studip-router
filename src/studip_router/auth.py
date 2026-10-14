@@ -53,3 +53,30 @@ def has_password(base_url: str, username: str) -> bool:
         return bool(keyring.get_password(SERVICE, _account(base_url, username)))
     except keyring.errors.KeyringError:
         return False
+
+
+# -- PDF passwords: one shared password per course, used to unlock its PDFs ---------
+
+
+def _pdf_account(course_id: str) -> str:
+    return f"pdf:{course_id}"
+
+
+def get_pdf_password(course_id: str) -> str | None:
+    """The course's PDF password, or None if none is stored or the keychain is locked."""
+    try:
+        return keyring.get_password(SERVICE, _pdf_account(course_id)) or None
+    except keyring.errors.KeyringError:
+        return None
+
+
+def set_pdf_password(course_id: str, password: str) -> None:
+    keyring.set_password(SERVICE, _pdf_account(course_id), password)
+
+
+def delete_pdf_password(course_id: str) -> bool:
+    try:
+        keyring.delete_password(SERVICE, _pdf_account(course_id))
+    except keyring.errors.PasswordDeleteError:
+        return False
+    return True

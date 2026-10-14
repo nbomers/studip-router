@@ -87,6 +87,7 @@ All course names in the screenshots are made up.</sub>
 | **Updates become versions** | a changed file becomes `name_v2.pdf` (configurable). Renames, moves and re-uploads of the *same* content never create copies. |
 | **Robust** | a failing course is reported while all others still sync; messy names, interrupted transfers, HTML error pages, broken ZIPs and iCloud are handled — see [tricky files](#tricky-files). |
 | **Background sync** | with desktop notifications, also about problems; a failed login pauses it so a changed password cannot lock your account. |
+| **Locked PDFs** | one shared PDF password per course (keychain) — PDFs locked with it are stored without it; see [FAQ](#faq). |
 | **Extras** | Courseware files (opt-in), announcements, ZIP extraction, merged slide PDFs, never-download list, `--json` output, profiles. |
 
 ---
@@ -295,6 +296,7 @@ From scripts: `studip config set sync.on_update skip`.
 | `studip merge` | merge slide PDFs |
 | `studip schedule install --every 120` / `run-now` / `uninstall` | background sync (opt-in) |
 | `studip ignore add / list / remove` | files you never want |
+| `studip pdf-password set / list / remove COURSE` | unlock a course's password-protected PDFs |
 | `studip doctor [--test-notification]` | check config, folders, keychain, server, scheduler |
 | `studip auth login / status / logout` | password in the OS keychain |
 | `studip config path / validate / edit / set` | config file |
@@ -408,6 +410,30 @@ or `a` in the courses screen.
 Turn on *courseware* in the settings (or per course in the config).
 `studip doctor` tells you which of your courses use Courseware. Videos are
 skipped by default (*skip videos*).
+
+</details>
+
+<details>
+<summary><b>A course protects every PDF with the same password.</b></summary>
+
+```bash
+studip pdf-password set "Quantum Cooking"
+```
+
+The password goes into the OS keychain. PDFs of the course synced so far are
+unlocked right away, every new one during the sync — the date stays the Stud.IP
+date, and an identical re-upload still creates no copy.
+
+Left untouched, byte for byte: other files, PDFs without a password, PDFs that
+open without one (print/copy restrictions only), and PDFs locked with a
+**different** password. If the password fits none of them, the course probably
+uses one password per file; then unlocking does not help —
+`studip pdf-password remove COURSE`.
+
+> [!NOTE]
+> Lecturers usually lock PDFs because the material is only licensed for course
+> participants. Unlocking your own copy is fine; do not put the unlocked files in
+> a shared folder.
 
 </details>
 

@@ -207,5 +207,29 @@ def plan_json(sync_plan: SyncPlan, result, dry_run: bool, news: int) -> dict:
             for a, msg in result.outcome.failed
         ]
         data["extracted"] = [str(p) for p in result.outcome.extracted]
+        data["unlocked"] = [str(p) for p in result.outcome.unlocked]
+        data["still_locked"] = [
+            {"file": str(p), "reason": reason} for p, reason in result.outcome.still_locked
+        ]
         data["merged"] = [m.output for m in result.merges if m.written]
     return data
+
+
+def unlocked_lines(outcome: Outcome) -> list[str]:
+    """Rich-markup lines about PDF passwords; empty when nothing happened."""
+    lines = []
+    if outcome.unlocked:
+        lines.append(f"[green]✓[/green] {len(outcome.unlocked)} PDF(s) unlocked")
+    for path, reason in outcome.still_locked:
+        lines.append(f"[yellow]◎[/yellow] still locked: {path.name} ({reason})")
+    if outcome.still_locked and not outcome.unlocked:
+        lines.append(
+            "[dim]The password fits none of these PDFs. If every PDF has its own password, "
+            "unlocking does not help: `studip pdf-password remove COURSE`.[/dim]"
+        )
+    return lines
+
+
+def print_unlocked(console: Console, outcome: Outcome) -> None:
+    for line in unlocked_lines(outcome):
+        console.print(f"  {line}")

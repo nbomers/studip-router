@@ -123,3 +123,20 @@ def test_config_set(setup: Path) -> None:
     assert out["valid"]
     text = Path(paths.config_file()).read_text()
     assert 'on_update = "skip"' in text and "max_size_mb = 500" in text
+
+
+def test_pdf_password_set_list_remove(setup: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stored: dict[str, str] = {}
+    monkeypatch.setattr("studip_router.auth.set_pdf_password", stored.__setitem__)
+    monkeypatch.setattr("studip_router.auth.get_pdf_password", stored.get)
+    monkeypatch.setattr(
+        "studip_router.auth.delete_pdf_password", lambda cid: stored.pop(cid, None) is not None
+    )
+    monkeypatch.setattr("getpass.getpass", lambda prompt: "course-pw")
+
+    result = run("pdf-password", "set", "quantum")
+    assert result.exit_code == 0, result.output
+    assert stored == {COURSE: "course-pw"}
+    assert json.loads(run("--json", "pdf-password", "list").output) == ["Quantum Cooking"]
+    assert "PDF password removed" in run("pdf-password", "remove", "quantum").output
+    assert stored == {}

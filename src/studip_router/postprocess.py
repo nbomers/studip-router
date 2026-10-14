@@ -1,16 +1,18 @@
-"""Steps after downloading: extracting ZIP archives and merging slide PDFs."""
+"""Steps after downloading: extracting ZIP archives, unlocking and merging PDFs."""
 
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import re
 import shutil
 import zipfile
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
-from .fsutil import is_ignored, local_stat, nfc, sha256_file, split_ext
+from .fsutil import atomic_writer, is_ignored, local_stat, nfc, sha256_file, split_ext
 
 MAX_UNZIPPED_BYTES = 4 * 1024**3
 MAX_MEMBERS = 20_000
@@ -85,6 +87,54 @@ def _safe_member_path(name: str) -> PurePosixPath | None:
     if path.parts[0] == "__MACOSX" or is_ignored(path.name):
         return None
     return path
+
+
+# -- unlock PDFs ------------------------------------------------------------------
+
+
+class Unlock(StrEnum):
+    DECRYPTED = "decrypted"
+    NOT_PDF = "not a PDF"
+    NOT_ENCRYPTED = "not encrypted"
+    OPENS_WITHOUT_PASSWORD = "opens without a password"  # only print/copy restrictions
+    WRONG_PASSWORD = "the course PDF password does not fit"
+
+
+def is_pdf(path: Path) -> bool:
+    try:
+        with path.open("rb") as fh:
+            return b"%PDF-" in fh.read(1024)
+    except OSError:
+        return False
+
+
+def unlock_pdf(path: Path, password: str) -> Unlock:
+    """Remove the open password from ``path`` in place, if ``password`` fits.
+
+    Everything else is left untouched byte for byte: other files, PDFs without
+    encryption, PDFs that open without a password (permission flags only) and
+    PDFs that need a different password.
+    """
+    if not is_pdf(path):
+        return Unlock.NOT_PDF
+    from pypdf import PasswordType, PdfReader, PdfWriter  # lazily: only for this feature
+    from pypdf.errors import DependencyError, PyPdfError
+
+    try:
+        reader = PdfReader(path)
+        if not reader.is_encrypted:
+            return Unlock.NOT_ENCRYPTED
+        if reader.decrypt("") != PasswordType.NOT_DECRYPTED:
+            return Unlock.OPENS_WITHOUT_PASSWORD
+        if reader.decrypt(password) == PasswordType.NOT_DECRYPTED:
+            return Unlock.WRONG_PASSWORD
+        buffer = io.BytesIO()  # pypdf needs a seekable stream
+        PdfWriter(clone_from=reader).write(buffer)
+        with atomic_writer(path) as (fh, _):
+            fh.write(buffer.getvalue())
+    except (PyPdfError, DependencyError, ValueError, KeyError) as exc:  # broken PDF, no AES
+        raise PostprocessError(f"{path.name}: could not unlock: {exc}") from exc
+    return Unlock.DECRYPTED
 
 
 # -- merge slides ------------------------------------------------------------------

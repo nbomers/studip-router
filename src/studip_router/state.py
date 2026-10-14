@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS files (
     mime_type          TEXT NOT NULL DEFAULT '',
     description        TEXT NOT NULL DEFAULT '',
     content_id         TEXT NOT NULL DEFAULT '',
-    gone               INTEGER NOT NULL DEFAULT 0
+    gone               INTEGER NOT NULL DEFAULT 0,
+    local_sha256       TEXT
 );
 CREATE TABLE IF NOT EXISTS ignored (
     file_id   TEXT PRIMARY KEY,
@@ -82,7 +83,7 @@ class FileRecord:
     local_path: str  # absolute, as on disk (NFD on some file systems)
     local_size: int
     local_mtime: float
-    sha256: str | None
+    sha256: str | None  # content as downloaded from Stud.IP
     version: int = 1
     rule_id: str | None = None
     routed_by_default: bool = False
@@ -91,6 +92,12 @@ class FileRecord:
     description: str = ""
     content_id: str = ""
     gone: bool = False  # deleted on Stud.IP and already reported
+    local_sha256: str | None = None  # local content if it differs (decrypted PDF)
+
+    @property
+    def local_digest(self) -> str | None:
+        """Hash of the file as we left it on disk."""
+        return self.local_sha256 or self.sha256
 
 
 def now_iso() -> str:
@@ -113,6 +120,7 @@ class State:
             ("description", "TEXT NOT NULL DEFAULT ''"),
             ("content_id", "TEXT NOT NULL DEFAULT ''"),
             ("gone", "INTEGER NOT NULL DEFAULT 0"),
+            ("local_sha256", "TEXT"),
         ):
             if name not in columns:
                 self._db.execute(f"ALTER TABLE files ADD COLUMN {name} {kind}")

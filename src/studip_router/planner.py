@@ -177,9 +177,9 @@ def is_locally_modified(record: FileRecord, st: LocalStat, path: Path) -> bool:
         return False
     if st.size != record.local_size:
         return True
-    if st.dataless or record.sha256 is None:
+    if st.dataless or record.local_digest is None:
         return True  # cannot verify without downloading: assume modified (safe side)
-    return sha256_file(path) != record.sha256
+    return sha256_file(path) != record.local_digest
 
 
 def plan_course(

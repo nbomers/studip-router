@@ -99,7 +99,8 @@ cli.py / tui/   ──► sync.py ──► planner.py ──► executor.py ─
 ```
 files(file_id PK, course_id, remote_name, remote_folder_path, chdate, filesize,
       local_path, local_size, local_mtime, sha256, version, rule_id,
-      routed_by_default, synced_at, mime_type, description)
+      routed_by_default, synced_at, mime_type, description, content_id, gone,
+      local_sha256)                           -- local_sha256: unlocked PDF, else NULL
 runs(run_id PK, started_at, finished_at, mode, summary)
 journal(run_id, seq, op, src, dst)            -- reorganize/undo, downloads
 generated(path PK, sha256, fingerprint, updated_at)   -- merged PDFs

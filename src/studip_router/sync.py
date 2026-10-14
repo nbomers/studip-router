@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
-from . import paths
+from . import auth, paths
 from .api import ApiError, StudipClient
 from .config import Config, CourseConfig
 from .executor import Outcome, execute
@@ -260,10 +260,13 @@ def _execute_locked(
             if todo:
                 if on_course:
                     on_course(plan)
-                part = execute(plan, state, client.download, run_id, on_progress)
+                password = auth.get_pdf_password(plan.course.id)
+                part = execute(plan, state, client.download, run_id, on_progress, password)
                 result.outcome.done += part.done
                 result.outcome.failed += part.failed
                 result.outcome.extracted += part.extracted
+                result.outcome.unlocked += part.unlocked
+                result.outcome.still_locked += part.still_locked
             # report deletions on Stud.IP once, not on every run
             state.mark_gone([r.file_id for r in plan.remote_deleted])
             if plan.reappeared:
@@ -277,6 +280,7 @@ def _execute_locked(
         "new": sum(1 for a in result.outcome.done if a.transfers),
         "adopted": sum(1 for a in result.outcome.done if a.kind is Kind.ADOPT),
         "failed": len(result.outcome.failed),
+        "unlocked": len(result.outcome.unlocked),
         "course_errors": len(sync_plan.errors),
     }
     state.finish_run(run_id, summary)

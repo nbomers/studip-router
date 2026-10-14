@@ -9,7 +9,7 @@ function __studip_profiles
     command studip _complete profiles 2>/dev/null
 end
 
-set -l cmds init courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore
+set -l cmds init courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore pdf-password
 complete -c studip -f
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -s p -l profile -xa '(__studip_profiles)' -d 'Config/state profile'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -l json -d 'Machine-readable output'
@@ -31,6 +31,7 @@ complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a config -d 'Conf
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a rules -d 'Routing rules'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a schedule -d 'Background sync'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a ignore -d 'Files you never want'
+complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a pdf-password -d "Unlock a course's PDFs"
 
 # options taking a course
 for sub in sync reorganize news merge
@@ -53,6 +54,8 @@ complete -c studip -n "__fish_seen_subcommand_from auth; and not __fish_seen_sub
 complete -c studip -n "__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from path validate edit set" -a 'path validate edit set'
 complete -c studip -n "__fish_seen_subcommand_from schedule; and not __fish_seen_subcommand_from install uninstall status run-now" -a 'install uninstall status run-now'
 complete -c studip -n "__fish_seen_subcommand_from ignore; and not __fish_seen_subcommand_from add list remove" -a 'add list remove'
+complete -c studip -n "__fish_seen_subcommand_from pdf-password; and not __fish_seen_subcommand_from set list remove" -a 'set list remove'
+complete -c studip -n "__fish_seen_subcommand_from pdf-password; and __fish_seen_subcommand_from set remove" -xa '(__studip_courses)'
 complete -c studip -n "__fish_seen_subcommand_from doctor" -l test-notification -d 'Send a test notification'
 complete -c studip -n "__fish_seen_subcommand_from schedule; and __fish_seen_subcommand_from install" -l every -x -d 'Minutes'
 complete -c studip -n "__fish_seen_subcommand_from rules; and not __fish_seen_subcommand_from list test suggest" -a 'list test suggest'

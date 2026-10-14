@@ -39,7 +39,7 @@ from ..news import News, fetch_news, unread
 from ..planner import Action, Kind, build_router
 from ..rename import RenameError
 from ..reorganize import Move, apply_reorganize, apply_undo, plan_reorganize, plan_undo
-from ..report import STYLE, SYMBOL, summarize
+from ..report import STYLE, SYMBOL, summarize, unlocked_lines
 from ..state import State
 from ..suggest import Suggestion, suggest_rules
 from ..sync import (
@@ -341,6 +341,8 @@ class SyncView(View):
         for m in result.merges:
             if m.written:
                 log.write(f"[green]✓[/green] merged slides: {m.output}")
+        for line in unlocked_lines(result.outcome):
+            log.write(line)
         failed = len(result.outcome.failed)
         self.status(
             "[green]✓ Sync finished.[/green]"

@@ -23,7 +23,8 @@ from rich.table import Table
 from . import __version__, auth, doctor, paths, report, schedule
 from .api import ApiError, AuthFailed, StudipClient
 from .config import Config, ConfigError, CourseConfig, load
-from .fsutil import Locked
+from .executor import unlock_course
+from .fsutil import Locked, exclusive_lock
 from .models import RemoteFile
 from .news import fetch_news, unread
 from .notify import notify, sync_message
@@ -68,6 +69,11 @@ ignore_app = typer.Typer(
     help="Files you never want (otherwise deleted files come back with the next sync).",
 )
 app.add_typer(ignore_app, name="ignore")
+pdf_app = typer.Typer(
+    no_args_is_help=True,
+    help="Unlock a course's password-protected PDFs (one shared password per course).",
+)
+app.add_typer(pdf_app, name="pdf-password")
 
 console = Console(highlight=False)
 err = Console(stderr=True, highlight=False)
@@ -473,6 +479,8 @@ def sync_cmd(
             emit_json(report.plan_json(sync_plan, result, dry_run, news_count))
         else:
             report.print_summary(out, sync_plan, dry_run, result.outcome if result else None)
+            if result:
+                report.print_unlocked(out, result.outcome)
             for m in result.merges if result else []:
                 if m.written:
                     out.print(f"  [green]✓[/green] merged slides: {m.output} ({m.reason})")
@@ -1025,6 +1033,56 @@ def ignore_remove(query: Annotated[str, typer.Argument(help="File id or name.")]
             raise fail(f"{len(hits)} ignored files match {query!r}")
         state.unignore(hits[0]["file_id"])
     console.print(f"[green]✓[/green] {hits[0]['name']} is synced again.")
+
+
+# -- PDF passwords ----------------------------------------------------------------------
+
+
+@pdf_app.command("set")
+def pdf_password_set(
+    course: Annotated[str, typer.Argument(help="Course ID, title or target (substring).")],
+    config: ConfigOpt = None,
+) -> None:
+    """Store the course's PDF password and unlock the PDFs synced so far.
+
+    From then on every new PDF of the course that is locked with this password
+    is stored without it. PDFs that need another password stay as they are.
+    """
+    cfg = load_config(config)
+    course_cfg = find_course(cfg, course)
+    password = getpass.getpass(f"PDF password for {course_cfg.name or course_cfg.id}: ")
+    if not password:
+        raise fail("no password entered - nothing was stored")
+    auth.set_pdf_password(course_cfg.id, password)
+    try:
+        with exclusive_lock(paths.lock_file()), State(paths.state_db()) as state:
+            outcome = unlock_course(state, course_cfg.id, password)
+    except Locked as exc:
+        raise fail(f"{exc}; the PDFs are unlocked with the next sync instead") from None
+    report.print_unlocked(console, outcome)
+    console.print("[green]✓[/green] Password stored in the keychain; new PDFs are unlocked.")
+
+
+@pdf_app.command("remove")
+def pdf_password_remove(
+    course: Annotated[str, typer.Argument(help="Course ID, title or target (substring).")],
+    config: ConfigOpt = None,
+) -> None:
+    """Forget the course's PDF password (files already unlocked stay unlocked)."""
+    course_cfg = find_course(load_config(config), course)
+    removed = auth.delete_pdf_password(course_cfg.id)
+    console.print("PDF password removed." if removed else "No PDF password was stored.")
+
+
+@pdf_app.command("list")
+def pdf_password_list(config: ConfigOpt = None) -> None:
+    """Courses with a stored PDF password."""
+    cfg = load_config(config)
+    names = [c.name or c.id for c in cfg.courses.values() if auth.get_pdf_password(c.id)]
+    if OPTS.json:
+        emit_json(names)
+        return
+    console.print("\n".join(names) if names else "No course has a PDF password.")
 
 
 @app.command("_complete", hidden=True)

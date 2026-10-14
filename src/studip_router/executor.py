@@ -16,7 +16,7 @@ from .api import ApiError
 from .fsutil import atomic_writer, local_stat, move_no_clobber, sha256_file
 from .models import RemoteFile
 from .planner import Action, CoursePlan, Kind
-from .postprocess import PostprocessError, extract_zip
+from .postprocess import PostprocessError, Unlock, extract_zip, unlock_pdf
 from .state import FileRecord, State
 
 log = logging.getLogger(__name__)
@@ -29,6 +29,8 @@ class Outcome:
     done: list[Action] = field(default_factory=list)
     failed: list[tuple[Action, str]] = field(default_factory=list)
     extracted: list[Path] = field(default_factory=list)
+    unlocked: list[Path] = field(default_factory=list)  # PDF password removed
+    still_locked: list[tuple[Path, str]] = field(default_factory=list)  # kept as downloaded
 
 
 def execute(
@@ -37,13 +39,18 @@ def execute(
     download: Downloader,
     run_id: int,
     on_progress: Callable[[Action], None] | None = None,
+    pdf_password: str | None = None,
 ) -> Outcome:
+    """Apply ``plan``. With ``pdf_password``, new files of the course that are PDFs
+    locked with exactly this password are stored without it."""
     outcome = Outcome()
     for action in plan.actions:
         if action.kind in (Kind.SKIP, Kind.ERROR):
             continue
         try:
             _apply(action, state, download, run_id)
+            if pdf_password and action.kind in UNLOCKS:
+                _unlock(action, state, pdf_password, outcome)
         except (ApiError, OSError) as exc:
             log.error("failed: %s -> %s: %s", _label(action), action.dest, exc)
             outcome.failed.append((action, str(exc)))
@@ -57,6 +64,58 @@ def execute(
             on_progress(action)
         if action.unzips:
             _unzip(action, state, run_id, outcome)
+    return outcome
+
+
+UNLOCKS = (Kind.DOWNLOAD, Kind.NEW_VERSION, Kind.OVERWRITE, Kind.ADOPT)
+
+
+def _unlock(action: Action, state: State, password: str, outcome: Outcome) -> None:
+    """Remove the course's PDF password from a file just written or adopted."""
+    assert action.dest is not None and action.file is not None
+    record = state.get(action.file.id)
+    if record is not None and Path(record.local_path) == action.dest:
+        unlock_record(state, record, password, outcome)
+    # else nothing was written (identical content) or the file is elsewhere
+
+
+def unlock_record(state: State, record: FileRecord, password: str, outcome: Outcome) -> None:
+    """Remove the PDF password from a tracked file, if it is a PDF locked with it.
+
+    The record keeps the hash of the downloaded bytes (to recognise identical
+    re-uploads) and gets the hash of the unlocked file (to detect local edits).
+    """
+    path = Path(record.local_path)
+    st = local_stat(path)
+    if st is None or st.dataless:
+        return  # missing, or only in iCloud: never downloaded just for this
+    try:
+        result = unlock_pdf(path, password)
+    except PostprocessError as exc:
+        log.warning("%s", exc)
+        outcome.still_locked.append((path, str(exc)))
+        return
+    if result is Unlock.WRONG_PASSWORD:
+        log.warning("%s: %s, kept it locked", path, result)
+        outcome.still_locked.append((path, str(result)))
+        return
+    if result is not Unlock.DECRYPTED:
+        return
+    os.utime(path, (st.mtime, st.mtime))
+    record.local_size = path.stat().st_size
+    record.local_mtime = st.mtime
+    record.local_sha256 = sha256_file(path)
+    state.upsert(record)
+    outcome.unlocked.append(path)
+    log.info("unlocked %s", path)
+
+
+def unlock_course(state: State, course_id: str, password: str) -> Outcome:
+    """Unlock the PDFs already synced for a course (after its password was set)."""
+    outcome = Outcome()
+    for record in state.for_course(course_id).values():
+        if record.local_sha256 is None:  # unlocked files are never touched again
+            unlock_record(state, record, password, outcome)
     return outcome
 
 
@@ -107,6 +166,7 @@ def _apply(action: Action, state: State, download: Downloader, run_id: int) -> N
             previous.local_mtime,
             previous.sha256,
             previous.version,
+            previous.local_sha256,
         )
         return
 
@@ -123,6 +183,7 @@ def _apply(action: Action, state: State, download: Downloader, run_id: int) -> N
             previous.local_mtime,
             previous.sha256,
             previous.version,
+            previous.local_sha256,
         )
         log.info("rename %s -> %s", previous.local_path, action.dest)
         return
@@ -156,6 +217,7 @@ def _apply(action: Action, state: State, download: Downloader, run_id: int) -> N
             previous.local_mtime,
             previous.sha256,
             previous.version,
+            previous.local_sha256,
         )
         return
     mtime = file.chdate.timestamp()
@@ -175,8 +237,9 @@ def _save(
     mtime: float,
     sha: str | None,
     version: int,
+    local_sha: str | None = None,
 ) -> None:
-    state.upsert(_record(action, file, path, size, mtime, sha, version))
+    state.upsert(_record(action, file, path, size, mtime, sha, version, local_sha))
     previous = action.previous
     if previous is not None and previous.file_id != file.id:  # re-upload replaced it
         state.delete_file_record(previous.file_id)
@@ -264,6 +327,7 @@ def _record(
     mtime: float,
     sha: str | None,
     version: int,
+    local_sha: str | None = None,
 ) -> FileRecord:
     route = action.route
     previous = action.previous
@@ -286,6 +350,7 @@ def _record(
         mime_type=file.mime_type,
         description=file.description,
         content_id=file.content_id,
+        local_sha256=local_sha,
     )
 
 
