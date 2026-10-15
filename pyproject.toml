@@ -26,7 +26,7 @@ classifiers = [
 # crash handler overrides a private method, see tui/app.py).
 dependencies = [
     "httpx>=0.27,<1",
-    "typer>=0.12,<1",
+    "typer>=0.13,<1",
     "platformdirs>=4.0,<5",
     "keyring>=25.0,<26",
     "pypdf[crypto]>=5,<7",

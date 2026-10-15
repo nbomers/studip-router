@@ -49,6 +49,21 @@ AUTO_SYNC = [
 ]
 
 
+# Settings that can cost files or create many folders: switching them on asks first.
+RISKY: dict[tuple[tuple[str, ...], Any], tuple[str, str]] = {
+    (("sync", "on_update"), "overwrite"): (
+        "Replace changed files instead of keeping both?",
+        "When a lecturer updates a file, your copy is replaced and the old version is "
+        "gone. Copies you edited are still kept (the update goes next to them as _v2). "
+        "If you write notes into PDFs, keep 'keep both'.",
+    ),
+    (("sync", "create_missing_dirs"), True): (
+        "Create missing rule target folders?",
+        "A typo in a rule's target then creates a new folder instead of being reported.",
+    ),
+}
+
+
 @dataclass
 class Setting:
     label: str
@@ -450,6 +465,20 @@ class SettingsScreen(Screen):
         if setting.parse is not None:
             self._edit_text(row)
             return
+        risky = RISKY.get((setting.keys, value))
+        if risky is not None:
+            question, detail = risky
+
+            def confirmed(ok: bool | None) -> None:
+                if ok:
+                    self._save(row, value)
+
+            self.app.push_screen(ConfirmScreen(question, detail), confirmed)
+            return
+        self._save(row, value)
+
+    def _save(self, row: SettingRow, value: Any) -> None:
+        setting = row.setting
         cfg: Config = self.app.cfg  # type: ignore[attr-defined]
         try:
             new_cfg = set_value(cfg.path, setting.keys, setting.to_config(cfg, value))

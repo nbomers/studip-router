@@ -27,13 +27,17 @@ Only the latest release (and `main`) gets fixes. Update with
 - Course PDF passwords (`studip pdf-password`) are kept in the OS keychain only, like
   the Stud.IP password.
 - Credentials are only sent over HTTPS (plain HTTP only to `localhost`) and only to the
-  configured Stud.IP host; redirects to other hosts do not receive them. TLS
+  configured Stud.IP host; redirects to other hosts do not receive them, and
+  redirects to plain HTTP are refused. TLS
   certificates are always checked (with the operating system's certificate store).
 - A rejected login is not repeated: one attempt per run, and background sync pauses
   until `studip auth login`.
 - Archives are extracted with path checks (no ZIP slip, no absolute paths or drive
   letters), file names made safe, and size, entry-count and compression-ratio limits.
 - The state database and log are readable only by the user.
+- Text from Stud.IP (titles, file names, announcements) is never interpreted as
+  terminal markup or links; downloads are stopped when far bigger than announced or
+  than the size limit; endless or repeating pagination is stopped.
 - The only host contacted is the configured Stud.IP (no telemetry, no update checks).
 
 ## In scope

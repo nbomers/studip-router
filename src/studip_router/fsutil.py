@@ -22,7 +22,9 @@ from typing import BinaryIO
 SF_DATALESS = getattr(stat, "SF_DATALESS", 0x40000000)
 IGNORED_NAMES = {".DS_Store", "Icon\r"}
 IGNORED_SUFFIXES = (".part", ".tmp", ".icloud")
-_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+# Control characters, and bidi controls that make "Lösung\u202efdp.exe" show as
+# "Lösungexe.pdf" (U+200E/F, U+202A-E, U+2066-9).
+_CONTROL = re.compile(r"[\x00-\x1f\x7f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 # Not allowed on Windows/OneDrive and not synced by iCloud for Windows; on macOS
 # a ":" shows up as "/" in Finder. Replaced when names are made portable.
 _NON_PORTABLE = re.compile(r'[<>"\\|?*]')

@@ -64,6 +64,8 @@ def test_locked_pdf_is_unlocked_in_place(tmp_path: Path) -> None:
         (pdf(user_password=""), Unlock.OPENS_WITHOUT_PASSWORD),  # print/copy limits only
         (b"PK\x03\x04 not a pdf", Unlock.NOT_PDF),
     ],
+    # stable ids: the encrypted PDFs differ on every collection (pytest-xdist needs equal ids)
+    ids=["other-password", "not-encrypted", "permissions-only", "not-a-pdf"],
 )
 def test_other_files_stay_byte_for_byte(tmp_path: Path, content: bytes, expected: Unlock) -> None:
     path = tmp_path / "a.pdf"

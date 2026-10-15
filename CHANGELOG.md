@@ -6,7 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+- Text from Stud.IP is shown as text: titles, file and folder names and announcements
+  were read as terminal markup, so an announcement with `[/b]` crashed `studip news`
+  and the announcement view, a file name could crash the sync preview, and
+  `[link=URL]text[/link]` showed a clickable link whose visible text could pretend
+  to be the university's address.
+- A download far bigger than announced (more than 10 % or 1 MB) or than the size
+  limit (`sync.exclude.max_size_mb`) is stopped while it arrives; before, it was
+  written in full and even accepted once two transfers agreed.
+- Pagination stops after 1000 pages or when the server repeats a page, and every
+  record is used once (no `name_2.pdf` copies of the same file).
+- Redirects to plain `http://` are refused (only `https`, or `http` to localhost).
+- Bidi control characters are removed from file names.
+
+### Fixed
+- The lowest supported typer version is 0.13 (0.12 could not start any command);
+  CI now also tests the lowest allowed versions of all dependencies.
+
 ### Changed
+- Switching on `overwrite` for changed files, or creating missing rule folders, asks
+  for confirmation in the settings screen.
 - Automatic routing and rule suggestions treat Stud.IP folders named like
   `Notebooks` / `notebook-03` (Jupyter notebooks) as exercises: their files go to the
   course's exercise folder (`Übungen`, `Exercises`, …) instead of the default folder.
