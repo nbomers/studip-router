@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-15
+
 ### Fixed
 - A file only re-described or moved on Stud.IP (same content) kept its folder but
   was recorded with the new rule, so `studip reorganize` never offered to move it;
@@ -167,10 +169,8 @@ First public version.
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
 
-[0.2.0]: https://github.com/nbomers/studip-router/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/nbomers/studip-router/releases/tag/v0.1.0
-
-[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/nbomers/studip-router/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/nbomers/studip-router/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/nbomers/studip-router/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nbomers/studip-router/compare/v0.1.0...v0.2.0
