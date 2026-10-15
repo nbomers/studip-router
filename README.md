@@ -81,7 +81,7 @@ All course names in the screenshots are made up.</sub>
 | **One key to sync** | run `studip`, press `s`, confirm the summary. |
 | **Incremental** | only new or changed files are downloaded; a second run does nothing. |
 | **Rule-based routing** | per course, first match wins: Stud.IP folder, folder type, file name (glob/regex), extension, MIME type, size, date, description. |
-| **Automatic routing** | a file no rule matches still lands in the right folder when its Stud.IP folder says what it is (`Übungen`, `Tutorium`, `Folien`, `Slides`, `Vorlesung`, …) — also for folders created mid-semester. |
+| **Automatic routing** | a file no rule matches still lands in the right folder when its Stud.IP folder says what it is (`Übungen`, `Tutorium`, `Notebooks`, `Folien`, `Slides`, `Vorlesung`, …) — also for folders created mid-semester. |
 | **Rule suggestions** | understand German and English folder names on both sides (`Übungsblätter`, `Homework`, `Tutorium …` → your `Exercises`/`Übungen`/… folder) — including courses with one folder per session. |
 | **Renaming** | templates with regex groups (`Blatt (\d+)` → `Exercise_{1:02}{ext}`), zero padding, umlauts, spaces, prefixes. |
 | **Settings screen** | every option on one page, change with ←/→ (or `h`/`l`), saved immediately — comments in your config file are kept. |
@@ -449,7 +449,7 @@ Found a security problem? See [SECURITY.md](https://github.com/nbomers/studip-ro
 That's the point: targets are whatever folders you have. `studip init`, the rule
 suggestions and automatic routing detect them (German and English, with or
 without umlauts) and never pick archive folders like `old` or `Archiv`. Files
-whose Stud.IP folder says nothing clear (`Tag 1`, `Notebooks`) go to the default
+whose Stud.IP folder says nothing clear (`Tag 1`, `Material`) go to the default
 folder; add a rule for those.
 
 </details>

@@ -7,7 +7,7 @@ import pytest
 from conftest import COURSE_ID, remote
 
 from studip_router.config import load
-from studip_router.suggest import suggest_rules
+from studip_router.suggest import auto_target, suggest_rules
 from studip_router.tomlwrite import append_blocks, rule_block
 
 
@@ -141,3 +141,43 @@ def test_nested_remote_folders(tmp_path: Path) -> None:
     (course / "Folien").mkdir(parents=True)
     [s] = suggest_rules([remote("x.pdf", folder="Material/Vorlesungsfolien/Teil 1")], course)
     assert s.rule["match"]["folder"] == "Material/Vorlesungsfolien*"
+
+
+@pytest.mark.parametrize(
+    "folder", ["Notebooks", "notebooks", "Notebook", "Material/Notebooks/Woche 1", "notebook-03"]
+)
+def test_notebook_folders_go_to_the_exercise_folder(folder: str) -> None:
+    assert auto_target(folder, ["Folien", "Übungen", "Sonstiges"]) == ("exercises", "Übungen")
+
+
+def test_notebooks_without_an_exercise_folder_stay_with_the_default() -> None:
+    assert auto_target("Notebooks", ["Folien", "Sonstiges"]) is None
+
+
+def test_material_says_nothing() -> None:
+    assert auto_target("Material", ["Folien", "Übungen", "Klausur"]) is None
+
+
+def test_a_rule_still_wins_over_notebook_routing(tmp_path: Path) -> None:
+    from studip_router.config import parse
+    from studip_router.planner import build_router
+
+    (tmp_path / "K" / "Übungen").mkdir(parents=True)
+    (tmp_path / "K" / "Code").mkdir()
+    cfg = parse(
+        {
+            "server": {"base_url": "https://studip.example.edu", "username": "x"},
+            "sync": {"root": str(tmp_path)},
+            "courses": {
+                "c1": {
+                    "target": "K",
+                    "rules": [{"id": "nb", "match": {"folder": "Notebooks*"}, "target": "Code"}],
+                }
+            },
+        },
+        Path("c.toml"),
+    )
+    route = build_router(cfg, cfg.courses["c1"])(remote("a.ipynb", folder="Notebooks"))
+    assert (route.subdir, route.rule_id) == ("Code", "nb")
+    other = build_router(cfg, cfg.courses["c1"])(remote("b.ipynb", folder="Lecture Notebooks"))
+    assert (other.subdir, other.rule_id) == ("Übungen", "auto:exercises")
