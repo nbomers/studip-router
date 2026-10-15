@@ -345,7 +345,7 @@ Rule sheets
 | `sync.default_target` | `"Sonstiges"` | folder for files no rule matches (`init` detects yours) |
 | `sync.course_folders` | your structure / `Folien, Übungen, Klausur, Sonstiges` | subfolders of every course folder the setup or `c` creates |
 | `sync.create_missing_dirs` | `false` | create rule target folders that do not exist (the default folder is always created) |
-| `sync.unzip` | `false` | extract `.zip` downloads next to the archive |
+| `sync.unzip` | `false` | extract `.zip` downloads into a folder named like them and remove the archive (fetched again only when it changes) |
 | `sync.notify` | `true` | notification after background syncs |
 | `sync.auto_route` | `true` | no rule matches: use the Stud.IP folder name (Übung, Folien, …) before the default folder |
 | `sync.watch_dates` | `true` | report cancelled, moved and re-roomed dates after a sync |

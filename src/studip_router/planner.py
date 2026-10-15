@@ -27,6 +27,7 @@ from .fsutil import (
     with_suffix_number,
 )
 from .models import RemoteFile
+from .postprocess import extracted_instead, unzip_target
 from .rename import RenameError, target_name
 from .rules import first_match
 from .state import FileRecord
@@ -281,7 +282,10 @@ def plan_course(
         if (
             old is not None
             and old.file_id not in replaced
-            and local_stat(Path(old.local_path)) is not None
+            and (
+                local_stat(Path(old.local_path)) is not None
+                or extracted_instead(Path(old.local_path))
+            )
         ):
             replaced.add(old.file_id)  # deleted and uploaded again: a new version of it
             record = old
@@ -440,7 +444,10 @@ def _plan_known(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
     path = Path(record.local_path)
     st = local_stat(path)  # stat() never pulls a file out of iCloud
     if st is None:
-        _plan_missing(ctx, file, record)
+        if extracted_instead(path):
+            _plan_extracted(ctx, file, record)
+        else:
+            _plan_missing(ctx, file, record)
         return
     same_file = record.file_id == file.id
     if same_file and same_time(record.chdate, file.chdate) and record.filesize == file.size:
@@ -546,6 +553,59 @@ def _plan_known(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
     )
 
 
+def _plan_extracted(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
+    """An archive was extracted and removed: fetch it again only if it changed.
+
+    A changed archive becomes a new version ("Blatt_v2.zip" -> "Blatt_v2/"), so the
+    extracted folder, which may hold the user's own work, is never touched.
+    """
+    plan = ctx.plan
+    same_file = record.file_id == file.id
+    same_content = record.filesize == file.size and (
+        same_time(record.chdate, file.chdate)
+        or (bool(record.content_id) and record.content_id == file.content_id)
+    )
+    if same_file and same_content:
+        plan.unchanged += 1
+        return
+    path = Path(record.local_path)
+    if ctx.cfg.on_update == "skip":
+        plan.actions.append(
+            Action(
+                Kind.SKIP,
+                plan.course.id,
+                file,
+                dest=path,
+                previous=record,
+                reason=SkipReason.UPDATE_SKIPPED,
+            )
+        )
+        return
+    try:
+        route = ctx.route_file(file)
+    except RenameError:
+        route = None
+    version = record.version + 1
+    base = _version_base(path, record.version)
+    while ctx.claims.taken(dest := with_suffix_number(base, version, "_v{n}")) or (
+        unzip_target(dest).exists()
+    ):
+        version += 1
+    ctx.claims.claim(dest)
+    plan.actions.append(
+        Action(
+            Kind.NEW_VERSION,
+            plan.course.id,
+            file,
+            dest=dest,
+            route=route,
+            previous=record,
+            version=version,
+            note=("" if same_file else "uploaded again on Stud.IP; ") + "archive changed",
+        )
+    )
+
+
 def _plan_missing(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
     """A tracked file is gone locally: follow it if it was moved, else download it again."""
     path = Path(record.local_path)
@@ -572,12 +632,17 @@ def _plan_missing(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
     if version > 1 and not base.exists() and not ctx.claims.taken(base):
         path, version = base, 1  # the original is gone too: restore under its own name
         ctx.claims.claim(base)
+    try:
+        route = ctx.route_file(file)  # only for unzip: the file is restored where it was
+    except RenameError:
+        route = None
     ctx.plan.actions.append(
         Action(
             Kind.DOWNLOAD,
             ctx.plan.course.id,
             file,
             dest=path,
+            route=route,
             previous=record,
             version=version,
             note="deleted locally, restoring",

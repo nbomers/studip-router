@@ -13,7 +13,14 @@ from pathlib import Path
 import httpx
 
 from .api import ApiError, AuthFailed
-from .fsutil import atomic_writer, local_stat, move_no_clobber, sha256_file
+from .fsutil import (
+    atomic_writer,
+    fsync_dir,
+    local_stat,
+    move_no_clobber,
+    path_key,
+    sha256_file,
+)
 from .models import RemoteFile
 from .planner import Action, CoursePlan, Kind, is_locally_modified
 from .postprocess import PostprocessError, Unlock, extract_zip, unlock_pdf
@@ -148,6 +155,12 @@ def _unzip(action: Action, state: State, run_id: int, outcome: Outcome) -> None:
         state.journal(run_id, "unzip", str(folder), src=str(action.dest))
         outcome.extracted.append(folder)
         log.info("unzip %s -> %s", action.dest, folder)
+        # The folder replaces the archive; the planner knows not to fetch it again.
+        try:
+            action.dest.unlink()
+            fsync_dir(action.dest.parent)
+        except OSError as exc:
+            log.warning("could not remove %s after extracting: %s", action.dest, exc)
 
 
 def _apply(
@@ -431,11 +444,15 @@ def _record(
 ) -> FileRecord:
     route = action.route
     previous = action.previous
-    # Which rule placed the file where it lies. REFRESH and MOVE leave it in its
-    # folder, so the old placement stays; otherwise reorganize would never learn
-    # that the current rules want it elsewhere.
+    # Which rule placed the file where it lies. REFRESH, MOVE and restoring a deleted
+    # file leave it in its folder, so the old placement stays; otherwise reorganize
+    # would never learn that the current rules want it elsewhere.
     placement: _Placement | None = None
-    if previous is not None and (action.kind in (Kind.REFRESH, Kind.MOVE) or route is None):
+    if previous is not None and (
+        action.kind in (Kind.REFRESH, Kind.MOVE)
+        or route is None
+        or path_key(path.parent) == path_key(Path(previous.local_path).parent)
+    ):
         placement = _Placement(previous.rule_id, previous.routed_by_default)
     elif route is not None:
         placement = _Placement(route.rule_id, route.by_default)

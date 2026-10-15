@@ -18,6 +18,7 @@ from .config import Config
 from .fsutil import exclusive_lock, move_no_clobber, nfc, path_key, with_suffix_number
 from .models import RemoteFile
 from .planner import build_router
+from .postprocess import extracted_instead
 from .rename import RenameError
 from .state import FileRecord, State
 
@@ -58,6 +59,8 @@ def plan_reorganize(cfg: Config, state: State, course_id: str | None = None) -> 
         course_dir = cfg.course_dir(course)
         for record in sorted(state.for_course(cid).values(), key=lambda r: r.local_path):
             src = Path(record.local_path)
+            if extracted_instead(src):
+                continue  # only its extracted folder is left; that one is the user's
             try:
                 route = route_file(_remote_from(record))
             except RenameError as exc:

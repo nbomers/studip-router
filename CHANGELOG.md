@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- With `unzip` on, the archive is removed after extracting it and not downloaded
+  again: the extracted folder stands in for it. Only a changed archive is fetched
+  again, as a new version next to the old folder ("Blatt_v2/"), so notes in the
+  extracted folder are never overwritten. Archives extracted by older versions can
+  simply be deleted by hand. Deleting the folder as well restores and re-extracts it.
+
 ## [0.2.3] - 2026-10-15
 
 ### Fixed

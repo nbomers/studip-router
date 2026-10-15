@@ -40,6 +40,15 @@ def unzip_target(zip_path: Path) -> Path:
     return zip_path.with_name(split_ext(zip_path.name)[0])
 
 
+def extracted_instead(zip_path: Path) -> bool:
+    """True if an archive was extracted and then removed: its folder stands in for it."""
+    return (
+        zip_path.suffix.lower() == ".zip"
+        and not zip_path.exists()
+        and unzip_target(zip_path).is_dir()
+    )
+
+
 def extract_zip(zip_path: Path) -> Path | None:
     """Extract next to the archive into a folder named like it.
 
