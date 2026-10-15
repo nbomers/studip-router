@@ -92,7 +92,8 @@ async def test_settings_change_values_and_keep_comments(course_dir: Path) -> Non
         await pilot.press("comma")
         assert isinstance(app.screen, SettingsScreen)
         rows = list(app.screen.query(SettingRow))
-        assert rows[0].has_focus and rows[0].setting.label == "semester"
+        assert rows[0].has_focus and rows[0].setting.label == "course folders in"
+        next(r for r in rows if r.setting.label == "semester").focus()
         await pilot.press("l")  # current -> all
         assert config().semester == "all"
         await pilot.press("j", "l")  # changed files: version -> overwrite
@@ -171,11 +172,13 @@ async def test_rules_suggest_and_test(course_dir: Path) -> None:
 @respx.mock
 async def test_first_run_setup(root: Path, monkeypatch) -> None:
     install(respx.mock)
+    monkeypatch.setenv("HOME", str(root.parent))  # the folder search starts here
     stored = {}
     monkeypatch.setattr(
         "studip_router.auth.set_password", lambda url, user, pw: stored.update(pw=pw)
     )
     (root / "Quantum Cooking" / "Misc").mkdir(parents=True)
+    (root / "Quantum Cooking" / "Slides").mkdir()
     app = StudipRouterApp()
     async with app.run_test(size=(120, 50)) as pilot:
         assert isinstance(app.screen, SetupScreen)
@@ -183,21 +186,66 @@ async def test_first_run_setup(root: Path, monkeypatch) -> None:
             ("url", "studip.example.edu"),
             ("username", "jdoe"),
             ("password", "pw"),
-            ("root", str(root)),
         ):
             app.screen.query_one(f"#{field}", Input).value = value
         await pilot.click("#connect")
+        await wait_for(pilot, lambda: app.screen.query_one("#step2").display)
+        # found the folder that holds a course folder
+        assert app.screen.query_one("#root", Input).value == "~/uni"
+        await pilot.click("#next")
         selection = app.screen.query_one(SelectionList)
         await wait_for(pilot, lambda: selection.option_count == 2)
         assert selection.selected == [0]  # only the course with a matching folder
         assert app.screen.query_one("#default-target", Input).value == "Misc"
+        assert app.screen.query_one("#course-folders", Input).value == "Misc, Slides"
         await pilot.click("#save")
         await wait_for(pilot, lambda: isinstance(app.screen, HomeScreen))
         cfg = config()
         assert cfg.courses[COURSE].target == "Quantum Cooking"
         assert cfg.courses[OTHER].exclude and cfg.default_target == "Misc"
+        assert cfg.course_folders == ("Misc", "Slides")
         assert stored == {"pw": "pw"}
         assert "pw" not in Path(paths.config_file()).read_text()
+
+
+@respx.mock
+async def test_first_run_setup_from_scratch(tmp_path: Path, monkeypatch) -> None:
+    install(respx.mock)
+    home = tmp_path / "home"
+    (home / "Documents").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr("studip_router.auth.set_password", lambda *a: None)
+    app = StudipRouterApp()
+    async with app.run_test(size=(120, 50)) as pilot:
+        for field, value in (
+            ("url", "studip.example.edu"),
+            ("username", "jdoe"),
+            ("password", "pw"),
+        ):
+            app.screen.query_one(f"#{field}", Input).value = value
+        await pilot.click("#connect")
+        await wait_for(pilot, lambda: app.screen.query_one("#step2").display)
+        new = home / "Documents" / "Uni" / "WiSe 2026-27"
+        assert app.screen.query_one("#root", Input).value == "~/Documents/Uni/WiSe 2026-27"
+        await pilot.click("#next")
+        selection = app.screen.query_one(SelectionList)
+        await wait_for(pilot, lambda: selection.option_count == 2)
+        assert selection.selected == [0, 1]  # nothing exists yet: all courses
+        assert app.screen.query_one("#course-folders", Input).value == (
+            "Folien, Übungen, Klausur, Sonstiges"
+        )
+        await pilot.click("#save")
+        await wait_for(pilot, lambda: isinstance(app.screen, ConfirmScreen))
+        await pilot.press("y")
+        await wait_for(pilot, lambda: isinstance(app.screen, HomeScreen))
+        course = new / "Introduction to Quantum Cooking"
+        assert sorted(p.name for p in course.iterdir()) == [
+            "Folien",
+            "Klausur",
+            "Sonstiges",
+            "Übungen",
+        ]
+        assert config().root == new
 
 
 async def test_invalid_config_shows_problem(course_dir: Path) -> None:
@@ -271,3 +319,21 @@ async def test_courses_can_create_a_new_course_folder(course_dir: Path, root: Pa
         await pilot.press(*["down"] * keys.index(NEW_FOLDER), "enter")
         assert (root / "Underwater Basket Weaving").is_dir()
         assert config().courses[OTHER].target == "Underwater Basket Weaving"
+
+
+async def test_settings_edit_folders_as_text(course_dir: Path) -> None:
+    app = StudipRouterApp()
+    async with app.run_test(size=(120, 50)) as pilot:
+        await pilot.press("comma")
+        rows = list(app.screen.query(SettingRow))
+        next(r for r in rows if r.setting.label == "new course gets").focus()
+        await pilot.press("enter")
+        field = app.screen.query_one("#text", Input)
+        field.value = "Folien, Übungen"
+        await pilot.press("enter")
+        assert config().course_folders == ("Folien", "Übungen")
+        next(r for r in rows if r.setting.label == "default folder").focus()
+        await pilot.press("enter")
+        app.screen.query_one("#text", Input).value = "../escape"
+        await pilot.press("enter")  # invalid: not saved, config unchanged
+        assert config().default_target == "Sonstiges"

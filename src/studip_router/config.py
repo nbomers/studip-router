@@ -35,6 +35,9 @@ class ExcludeConfig:
     folders: tuple[str, ...] = ()  # globs on Stud.IP folder names, any level
 
 
+# Subfolders of a new course folder: automatic routing finds them by name.
+DEFAULT_COURSE_FOLDERS = ("Folien", "Übungen", "Klausur", "Sonstiges")
+
 # Stud.IP creates these when Courseware is imported: page images, logos, "blob[12]".
 DEFAULT_EXCLUDED_FOLDERS = ("CoursewareImport*",)
 
@@ -83,6 +86,7 @@ class Config:
     courseware: bool = False  # also sync files from Courseware pages (more requests)
     watch_dates: bool = True  # report cancelled, moved and re-roomed course dates
     auto_route: bool = True  # no rule matches: use the Stud.IP folder name (Übung, Folien...)
+    course_folders: tuple[str, ...] = DEFAULT_COURSE_FOLDERS  # subfolders of new course folders
     rename: RenameOptions = field(default_factory=RenameOptions)
     courses: dict[str, CourseConfig] = field(default_factory=dict)
     ui_theme: str = "tokyo-night"
@@ -269,9 +273,15 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
             "courseware",
             "watch_dates",
             "auto_route",
+            "course_folders",
         },
     )
     root = v.get(sync, "root", "sync", str, "", required=True)
+    folders = v.str_list(sync, "course_folders", "sync")
+    course_folders = tuple(
+        v.rel_path(f, "sync.course_folders", False)
+        for f in (DEFAULT_COURSE_FOLDERS if folders is None else folders)
+    )
     default_target = v.rel_path(
         v.get(sync, "default_target", "sync", str, "Sonstiges"), "sync.default_target", False
     )
@@ -356,6 +366,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         courseware=v.get(sync, "courseware", "sync", bool, False),
         watch_dates=v.get(sync, "watch_dates", "sync", bool, True),
         auto_route=v.get(sync, "auto_route", "sync", bool, True),
+        course_folders=course_folders,
         rename=rename,
         courses=courses,
         ui_theme=v.get(ui, "theme", "ui", str, "tokyo-night"),

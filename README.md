@@ -44,7 +44,7 @@ All course names in the screenshots are made up.</sub>
 
 1. [Terms in one sentence](#terms-in-one-sentence)
 2. [Features](#features)
-3. [Quick start](#quick-start)
+3. [Quick start](#quick-start) · [Defaults](#defaults-and-how-to-change-them)
 4. [Requirements](#requirements) · [Installation](#installation)
 5. [Usage](#usage)
 6. [Where files go](#where-files-go) · [Configuration](#configuration)
@@ -105,11 +105,26 @@ uv tool install git+https://github.com/nbomers/studip-router
 studip
 ```
 
-The first start opens a short setup: Stud.IP address, username, password
-(stored in your OS keychain), and the folder that contains your course folders.
-It matches your courses to your folders, then you are on the home screen.
+The first start opens a setup in three steps. Every field is prefilled with a
+good guess, so usually you only press Enter:
 
-**Recommended first steps:** `r` → add the suggested rules → `p` to check → `s` to sync.
+| Step | Asks for | Prefilled with |
+|---|---|---|
+| **1/3** | Stud.IP address, username, password | — (the password goes to the OS keychain) |
+| **2/3** | where your course folders live | the folder that **already contains most of your courses** — searched in iCloud Drive, Documents, Desktop, Dropbox, OneDrive, Google Drive, Nextcloud. Nothing found: a new `iCloud Drive/Uni/WiSe 2026-27` (without iCloud: `~/Documents/Uni/…`) |
+| **3/3** | which courses to sync, the subfolders of new course folders, the default folder | the courses that already have a folder (all of them when starting fresh); the subfolders your existing course folders share — otherwise `Folien, Übungen, Klausur, Sonstiges` |
+
+Missing folders are created after one confirmation, each course folder with the
+same subfolders. Because their names say what they hold, files land in the right
+one from the first sync on — no rules needed.
+
+<p align="center">
+  <img src="docs/screenshots/setup-folders.svg" width="49%" alt="Setup step 2: the folder that already holds your courses is suggested first">
+  <img src="docs/screenshots/setup-courses.svg" width="49%" alt="Setup step 3: courses, subfolders of new course folders, default folder">
+</p>
+
+**Then:** `p` shows where every file would go, `s` syncs. `studip init` is the
+same setup in the terminal.
 
 <sub>One block, one command: the copy icon takes exactly one call.</sub>
 
@@ -214,6 +229,28 @@ Setup, add the suggested rules, see exactly what would happen, do it.
 
 ---
 
+## Defaults and how to change them
+
+| What | Default | Change it |
+|---|---|---|
+| Folder with your course folders | found by the setup | settings (`,`) → *course folders in* · `sync.root` |
+| Subfolders of a new course folder | your existing structure, else `Folien, Übungen, Klausur, Sonstiges` | settings → *new course gets* · `sync.course_folders` |
+| Files nothing places | `Sonstiges` (created when needed) | settings → *default folder* · `sync.default_target` |
+| Sorting by Stud.IP folder name (`Übungen` → your exercise folder, …) | on | settings → *auto-route* · `sync.auto_route` |
+| Your own routing and renaming | none needed | `r` (suggestions, test a name) · `[[courses.<id>.rules]]` |
+| New course mid-semester | listed as *new* | `c` → pick a folder or *+ new folder* |
+| Videos, files > 200 MB, Courseware import images | skipped | settings → *skip videos*, *size limit* · `sync.exclude` |
+| Changed file on Stud.IP | kept next to the old one as `_v2` | settings → *changed files* · `sync.on_update` |
+| File names | as on Stud.IP, numbers padded (`1` → `01`) | settings → *names* · `[rename]` |
+| Reports changed course dates | on | settings → *watch dates* · `sync.watch_dates` |
+| Background sync | off | settings → *auto-sync* · `studip schedule install` |
+
+In the settings screen `h`/`l` switches options and **Enter edits a text value**;
+every change is saved at once. The config file (`e` in the settings,
+`studip config edit`) has the same keys, with comments kept.
+
+---
+
 ## Where files go
 
 ```text
@@ -294,6 +331,7 @@ Rule sheets
 | `sync.on_update` | `"version"` | changed remote file: `version` (`_v2`), `overwrite`, `skip` |
 | `sync.on_conflict` | `"suffix"` | two files, same name: `suffix` (`_2`), `skip`, `error` |
 | `sync.default_target` | `"Sonstiges"` | folder for files no rule matches (`init` detects yours) |
+| `sync.course_folders` | your structure / `Folien, Übungen, Klausur, Sonstiges` | subfolders of every course folder the setup or `c` creates |
 | `sync.create_missing_dirs` | `false` | create rule target folders that do not exist (the default folder is always created) |
 | `sync.unzip` | `false` | extract `.zip` downloads next to the archive |
 | `sync.notify` | `true` | notification after background syncs |

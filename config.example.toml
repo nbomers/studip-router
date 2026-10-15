@@ -37,6 +37,10 @@ on_conflict = "suffix"
 # Where files go that no rule matches (relative to each course folder).
 default_target = "Sonstiges"
 
+# Subfolders of every course folder the setup or the courses screen creates.
+# Names that say what they hold let automatic routing fill them.
+course_folders = ["Folien", "Übungen", "Klausur", "Sonstiges"]
+
 # Create missing target folders? Off by default: a missing folder is reported.
 create_missing_dirs = false
 

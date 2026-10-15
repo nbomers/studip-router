@@ -22,7 +22,7 @@ from rich.table import Table
 
 from . import __version__, auth, doctor, paths, report, schedule
 from .api import ApiError, AuthFailed, StudipClient
-from .config import Config, ConfigError, CourseConfig, load
+from .config import DEFAULT_COURSE_FOLDERS, Config, ConfigError, CourseConfig, load
 from .dates import check_dates, upcoming_exams
 from .executor import unlock_course
 from .fsutil import Locked, exclusive_lock
@@ -45,8 +45,15 @@ from .sync import (
 from .tomlwrite import append_blocks, rule_block
 from .wizard import (
     CourseChoice,
+    course_folder_name,
+    create_course_folder,
+    detect_course_folders,
     detect_default_target,
+    display_path,
+    find_roots,
+    home_path,
     local_course_folders,
+    new_root,
     propose_target,
     render_config,
 )
@@ -291,8 +298,10 @@ def init_cmd(
     path = paths.config_file()
     if path.exists() and not force:
         raise fail(f"{path} exists; edit it with `studip config edit` or use --force")
-    console.print("[bold]studip-router setup[/bold]\n")
-    base_url = Prompt.ask("Stud.IP URL", default="https://studip.example.edu").rstrip("/")
+    console.print("[bold]studip-router setup[/bold]  [dim]Enter accepts the suggestion[/dim]\n")
+    base_url = Prompt.ask("Stud.IP address of your university").strip().rstrip("/")
+    if base_url and not base_url.startswith(("https://", "http://")):
+        base_url = "https://" + base_url
     username = Prompt.ask("Username")
     password = getpass.getpass("Password (stored in the keychain): ")
     try:
@@ -302,43 +311,70 @@ def init_cmd(
             courses = [c for c in client.courses(me["id"]) if c.runs_in(semester)]
     except ApiError as exc:
         raise fail(str(exc), 3) from None
+    courses.sort(key=lambda c: c.title.casefold())
     console.print(f"[green]✓[/green] Login works. {len(courses)} courses in {semester.title}.\n")
-    root = Prompt.ask(
-        "Folder that contains your course folders", default=str(Path("~/Uni").expanduser())
+
+    home = Path.home()
+    with console.status("Looking for your course folders..."):
+        roots = find_roots([c.title for c in courses], home)
+    options = [r.path for r in roots]
+    fresh = new_root(semester.title, home)
+    if fresh not in options:
+        options.append(fresh)
+    console.print("[bold]Where do your course folders live?[/bold]")
+    for i, option in enumerate(options, 1):
+        found = next((r for r in roots if r.path == option), None)
+        label = found.label(home, len(courses)) if found else display_path(option, home) + "  (new)"
+        console.print(f"  {i}  {label}")
+    answer = Prompt.ask("Number or a path", default="1").strip()
+    root_path = (
+        options[int(answer) - 1]
+        if answer.isdigit() and 0 < int(answer) <= len(options)
+        else Path(answer).expanduser()
     )
-    root_path = Path(root).expanduser()
+    root = home_path(root_path, home)
+
     folders = local_course_folders(root_path)
+    proposals = [propose_target(c.title, folders) for c in courses]
+    fresh_start = not any(proposals)
+    console.print(
+        "\n[bold]Which courses should be synced?[/bold] [dim]Enter keeps the suggestion, "
+        "'-' skips a course, any other text is the folder name.[/dim]"
+    )
     choices = []
-    for course in sorted(courses, key=lambda c: c.title.casefold()):
-        proposal = propose_target(course.title, folders) or ""
-        answer = Prompt.ask(
-            f"[bold]{course.title}[/bold]\n  target folder ('-' to exclude)",
-            default=proposal or "-",
-        )
+    for course, proposal in zip(courses, proposals, strict=True):
+        suggestion = proposal or (course_folder_name(course.title) if fresh_start else "-")
+        target = Prompt.ask(f"  [bold]{course.title}[/bold]", default=suggestion).strip()
         choices.append(
             CourseChoice(
-                course.id,
-                course.title,
-                course.semester_title,
-                None if answer.strip() == "-" else answer.strip(),
+                course.id, course.title, course.semester_title, None if target == "-" else target
             )
         )
     course_dirs = [root_path / c.target for c in choices if c.target]
-    detected = detect_default_target(course_dirs)
-    default_target = Prompt.ask(
-        "Folder for files no rule matches (inside each course folder)",
-        default=detected or "_unsorted",
+    template = detect_course_folders([d for d in course_dirs if d.is_dir()]) or (
+        DEFAULT_COURSE_FOLDERS
     )
-    text = render_config(base_url, username, root, choices, default_target)
+    template = tuple(
+        p.strip()
+        for p in Prompt.ask(
+            "\nSubfolders of new course folders (comma separated)", default=", ".join(template)
+        ).split(",")
+        if p.strip()
+    )
+    detected = detect_default_target([d for d in course_dirs if d.is_dir()])
+    default_target = Prompt.ask(
+        "Folder for files that no rule and no folder name places",
+        default=detected or ("Sonstiges" if "Sonstiges" in template else template[-1]),
+    )
+    text = render_config(base_url, username, root, choices, default_target, template)
     missing = [d for d in course_dirs if not d.is_dir()]
     if missing and Confirm.ask(
-        f"Create {len(missing)} missing course folder(s)? "
-        + ", ".join(d.name for d in missing[:5])
-        + (" ..." if len(missing) > 5 else ""),
+        f"Create {len(missing)} course folder(s) in {display_path(root_path, home)}, "
+        f"each with {', '.join(template)}?",
         default=True,
     ):
         for d in missing:
-            d.mkdir(parents=True, exist_ok=True)
+            create_course_folder(root_path, d.name, template)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         shutil.copy2(path, path.with_name(path.name + ".bak"))

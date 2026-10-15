@@ -34,7 +34,7 @@ from ..api import ApiError, StudipClient
 from ..config import Config, ConfigError
 from ..config_edit import set_course
 from ..dates import Change, check_dates, upcoming_exams
-from ..fsutil import Locked, sanitize_filename
+from ..fsutil import Locked
 from ..models import RemoteFile
 from ..news import News, fetch_news, unread
 from ..planner import Action, Kind, build_router
@@ -61,7 +61,12 @@ from ..sync import (
     run_merges,
 )
 from ..tomlwrite import append_blocks, rule_block
-from ..wizard import local_course_folders, propose_target
+from ..wizard import (
+    course_folder_name,
+    create_course_folder,
+    local_course_folders,
+    propose_target,
+)
 from .widgets import ChoiceScreen, ConfirmScreen
 
 
@@ -487,7 +492,7 @@ class CoursesView(View):
         choices: list[tuple[str, str]] = [
             (f, f"{f}  [dim](suggested)[/dim]" if f == proposal else f) for f in ordered
         ]
-        new_folder = sanitize_filename(entry.course.title)
+        new_folder = course_folder_name(entry.course.title)
         if new_folder not in folders:
             choices.append((NEW_FOLDER, f"[green]+ new folder[/green] {new_folder}"))
         choices.append((EXCLUDE, "[dim]don't sync this course[/dim]"))
@@ -500,7 +505,7 @@ class CoursesView(View):
                 return
             if folder == NEW_FOLDER:
                 try:
-                    (self.cfg.root / new_folder).mkdir(parents=True, exist_ok=True)
+                    create_course_folder(self.cfg.root, new_folder, self.cfg.course_folders)
                 except OSError as exc:
                     self.notify(f"Folder not created: {exc}", severity="error")
                     return

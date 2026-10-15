@@ -168,18 +168,28 @@ def test_sync_hints_at_reorganize_after_a_rule_change(setup: Path) -> None:
 
 
 @respx.mock
-def test_init_offers_to_create_missing_course_folders(
+def test_init_finds_folders_and_creates_new_course_folders(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     install(respx.mock)
-    root = tmp_path / "Uni"
-    root.mkdir()
-    answers = iter([BASE, "jdoe", str(root), "Quantum Cooking", "-", "Sonstiges"])
+    home = tmp_path / "home"
+    root = home / "Documents" / "Uni"
+    (root / "Old Course" / "Folien").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    # url, username, root (1 = best guess), two courses (new folder, skip), template, default
+    answers = iter(
+        ["studip.example.edu", "jdoe", "1", "Quantum Cooking", "-", "Folien, Übungen", "Sonstiges"]
+    )
     monkeypatch.setattr("studip_router.cli.Prompt.ask", lambda *a, **k: next(answers))
     monkeypatch.setattr("studip_router.cli.Confirm.ask", lambda *a, **k: True)
     monkeypatch.setattr("getpass.getpass", lambda prompt: "pw")
     monkeypatch.setattr("studip_router.auth.set_password", lambda *a: None)
     result = run("init")
     assert result.exit_code == 0, result.output
-    assert (root / "Quantum Cooking").is_dir()
-    assert not (root / "Underwater Basket Weaving").exists()  # excluded with "-"
+    assert "~/Documents/Uni" in result.output  # found by its name
+    assert sorted(p.name for p in (root / "Quantum Cooking").iterdir()) == ["Folien", "Übungen"]
+    assert not (root / "Underwater Basket Weaving").exists()  # skipped with "-"
+    from studip_router.config import load
+
+    cfg = load(Path(paths.config_file()))
+    assert cfg.base_url == BASE and cfg.course_folders == ("Folien", "Übungen")

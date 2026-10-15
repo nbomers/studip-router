@@ -15,6 +15,13 @@ All notable changes to this project are documented here. The format follows
   (`studip reorganize`); files moved by hand are not counted.
 - `studip init` offers to create missing course folders, like the setup in the UI;
   the courses screen (`c`) can create a folder for a new course (*+ new folder*).
+- Setup in three steps with good guesses: it finds the folder that already holds
+  most of your course folders (iCloud Drive, Documents, Desktop, Dropbox, OneDrive,
+  Google Drive, Nextcloud) or proposes `iCloud Drive/Uni/<semester>`; new course
+  folders get the subfolders your existing ones share (default
+  `Folien, Übungen, Klausur, Sonstiges`, `sync.course_folders`); the same in `studip init`.
+- Settings: *course folders in*, *new course gets* and *default folder* are edited
+  with Enter; README section "Defaults and how to change them".
 - `sync.exclude.folders` (globs on Stud.IP folder names); by default the
   `CoursewareImport*` folders Stud.IP creates when Courseware is imported are skipped.
 

@@ -25,7 +25,7 @@ from textual.widgets import Footer, Static
 from .. import auth, paths, schedule
 from ..config import Config, ConfigError
 from ..config_edit import set_value
-from .widgets import ConfirmScreen
+from .widgets import ConfirmScreen, TextScreen
 
 THEMES = [
     "tokyo-night",
@@ -57,6 +57,17 @@ class Setting:
     keys: tuple[str, ...] = ()
     to_config: Callable[[Config, Any], Any] = field(default=lambda _cfg, v: v)
     special: str = ""  # handled by the screen instead of a plain config write
+    parse: Callable[[str], Any] | None = None  # free text (Enter edits) instead of options
+
+
+def _home(path: Any) -> str:
+    text = str(path)
+    home = os.path.expanduser("~")
+    return "~" + text[len(home) :] if text.startswith(home) else text
+
+
+def _list(text: str) -> list[str]:
+    return [p.strip() for p in text.split(",") if p.strip()]
 
 
 ON_OFF = [(True, "on"), (False, "off")]
@@ -68,6 +79,35 @@ def _videos(cfg: Config, on: bool) -> list[str]:
 
 
 SECTIONS: list[tuple[str, list[Setting]]] = [
+    (
+        "folders",
+        [
+            Setting(
+                "course folders in",
+                "the folder that holds one folder per course · Enter to change",
+                [],
+                lambda c: _home(c.root),
+                ("sync", "root"),
+                parse=str,
+            ),
+            Setting(
+                "new course gets",
+                "subfolders of a new course folder (c → + new folder) · Enter to change",
+                [],
+                lambda c: ", ".join(c.course_folders),
+                ("sync", "course_folders"),
+                parse=_list,
+            ),
+            Setting(
+                "default folder",
+                "for files that no rule and no folder name places · Enter to change",
+                [],
+                lambda c: c.default_target,
+                ("sync", "default_target"),
+                parse=str,
+            ),
+        ],
+    ),
     (
         "sync",
         [
@@ -251,6 +291,7 @@ class SettingRow(Widget, can_focus=True):
     BINDINGS: ClassVar = [
         Binding("left,h", "move(-1)", "←", show=False),
         Binding("right,l", "move(1)", "→", show=False),
+        Binding("enter", "move(1)", "Change", show=False),
     ]
 
     class Changed(Message):
@@ -280,6 +321,11 @@ class SettingRow(Widget, can_focus=True):
         text.append("▸ " if focused else "  ", style=f"bold {accent}" if focused else "")
         text.append(f"{self.setting.label:<18}", style="bold" if focused else "")
         self._spans = []
+        if self.setting.parse is not None:  # free text
+            text.append(f" {self.value} ", style=f"bold black on {accent}" if focused else "bold")
+            self._spans = [(len(text) - len(str(self.value)) - 2, len(text), "<edit>")]
+            text.append(f"\n    {self.setting.help}", style="dim italic")
+            return text
         full = sum(len(label) + 3 for _, label in self.setting.options)
         if full > max(self.size.width - 24, 20):  # too wide: show "◂ value ▸" instead
             index = self._index()
@@ -311,6 +357,9 @@ class SettingRow(Widget, can_focus=True):
         return text
 
     def action_move(self, step: int) -> None:
+        if self.setting.parse is not None:
+            self.post_message(self.Changed(self, "<edit>"))
+            return
         options = self.setting.options
         index = self._index()
         new = options[(index + step) % len(options)][0] if index >= 0 else options[0][0]
@@ -322,7 +371,9 @@ class SettingRow(Widget, can_focus=True):
         for start, end, value in self._spans:
             if not start <= event.x < end:
                 continue
-            if value == "<prev>":
+            if value == "<edit>":
+                self.action_move(1)
+            elif value == "<prev>":
                 self.action_move(-1)
             elif value == "<next>":
                 self.action_move(1)
@@ -394,6 +445,9 @@ class SettingsScreen(Screen):
         if setting.special == "schedule":
             self._change_schedule(row, value)
             return
+        if setting.parse is not None:
+            self._edit_text(row)
+            return
         cfg: Config = self.app.cfg  # type: ignore[attr-defined]
         try:
             new_cfg = set_value(cfg.path, setting.keys, setting.to_config(cfg, value))
@@ -404,6 +458,23 @@ class SettingsScreen(Screen):
         row.set_value(value)
         if setting.special == "theme":
             self.app.theme = value
+
+    def _edit_text(self, row: SettingRow) -> None:
+        setting = row.setting
+        cfg: Config = self.app.cfg  # type: ignore[attr-defined]
+
+        def save(text: str | None) -> None:
+            if text is None or setting.parse is None:
+                return
+            try:
+                new_cfg = set_value(cfg.path, setting.keys, setting.parse(text))
+            except (ConfigError, OSError) as exc:
+                self.notify(f"Not saved: {exc}", severity="error")
+                return
+            self.app.cfg = new_cfg  # type: ignore[attr-defined]
+            row.set_value(setting.current(new_cfg))
+
+        self.app.push_screen(TextScreen(setting.label, str(row.value), setting.help), save)
 
     def _change_schedule(self, row: SettingRow, minutes: int) -> None:
         def apply(ok: bool | None) -> None:

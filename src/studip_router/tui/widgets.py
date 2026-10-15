@@ -72,6 +72,32 @@ class PasswordScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class TextScreen(ModalScreen[str | None]):
+    """Edit one line of text; Enter saves, Esc cancels."""
+
+    BINDINGS: ClassVar = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, title: str, value: str, detail: str = "") -> None:
+        super().__init__()
+        self.title_text = title
+        self.value = value
+        self.detail = detail
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog"):
+            yield Label(f"[b]{self.title_text}[/b]")
+            if self.detail:
+                yield Label(self.detail, classes="dim")
+            yield Input(self.value, id="text")
+
+    @on(Input.Submitted)
+    def submitted(self, event: Input.Submitted) -> None:
+        self.dismiss(event.value.strip() or None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class ChoiceScreen(ModalScreen[Any]):
     """Pick one of several values; j/k or arrows, Enter selects, Esc cancels."""
 
