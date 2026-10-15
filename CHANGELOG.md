@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-15
+
 ### Security
 - The terminal UI no longer prints the password when it crashes: crash reports are
   rendered without local variables, and the two realistic causes are now ordinary
@@ -41,6 +43,8 @@ All notable changes to this project are documented here. The format follows
   fsync; merged PDFs are written atomically.
 
 ### Added
+- Releases are published to PyPI (`uv tool install studip-router`), built and
+  uploaded by GitHub Actions with Trusted Publishing.
 - `studip doctor` checks the keychain, lists course targets outside the root and does
   not test the login while auto-sync is paused.
 - README: exit codes, uninstall, terms of use, privacy, headless use; `mypy` in CI.
@@ -111,5 +115,10 @@ First public version.
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
 
+[0.2.0]: https://github.com/nbomers/studip-router/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/nbomers/studip-router/releases/tag/v0.1.0
+
+[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/nbomers/studip-router/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nbomers/studip-router/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nbomers/studip-router/releases/tag/v0.1.0
