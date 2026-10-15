@@ -4,9 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-10-15
 
 ### Added
+- Setup in three steps with good guesses: it finds the folder that already holds
+  most of your course folders (iCloud Drive, Documents, Desktop, Dropbox, OneDrive,
+  Google Drive, Nextcloud) or proposes `iCloud Drive/Uni/<semester>`; new course
+  folders get the subfolders your existing ones share (default
+  `Folien, Übungen, Klausur, Sonstiges`, `sync.course_folders`); the same in `studip init`.
+- Settings: *course folders in*, *new course gets* and *default folder* are edited
+  with Enter; README section "Defaults and how to change them".
 - Automatic routing: a file that no rule matches goes to the local folder its Stud.IP
   folder name points to (`Übungen`, `Tutorium`, `Folien`, `Slides`, `Vorlesung`, …)
   instead of the default folder; rules always win; `sync.auto_route` turns it off.
@@ -15,13 +22,6 @@ All notable changes to this project are documented here. The format follows
   (`studip reorganize`); files moved by hand are not counted.
 - `studip init` offers to create missing course folders, like the setup in the UI;
   the courses screen (`c`) can create a folder for a new course (*+ new folder*).
-- Setup in three steps with good guesses: it finds the folder that already holds
-  most of your course folders (iCloud Drive, Documents, Desktop, Dropbox, OneDrive,
-  Google Drive, Nextcloud) or proposes `iCloud Drive/Uni/<semester>`; new course
-  folders get the subfolders your existing ones share (default
-  `Folien, Übungen, Klausur, Sonstiges`, `sync.course_folders`); the same in `studip init`.
-- Settings: *course folders in*, *new course gets* and *default folder* are edited
-  with Enter; README section "Defaults and how to change them".
 - `sync.exclude.folders` (globs on Stud.IP folder names); by default the
   `CoursewareImport*` folders Stud.IP creates when Courseware is imported are skipped.
 
@@ -70,5 +70,5 @@ First public version.
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
 
-[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/nbomers/studip-router/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nbomers/studip-router/releases/tag/v0.1.0
