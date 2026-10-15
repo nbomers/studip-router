@@ -220,6 +220,17 @@ def test_unsafe_course_targets_are_rejected(tmp_path: Path, target: str) -> None
         parse(_raw(str(tmp_path), target=target), Path("c.toml"))
 
 
+def test_system_folder_behind_a_symlink_is_rejected(tmp_path: Path) -> None:
+    # like /etc -> /private/etc on macOS: the link itself is outside the list
+    link = tmp_path / "etc-link"
+    link.symlink_to("/etc")
+    with pytest.raises(ConfigError, match=r"sync\.root"):
+        parse(_raw(str(link)), Path("c.toml"))
+    from studip_router.config import unsafe_folder
+
+    assert unsafe_folder("/private/etc/x") is not None
+
+
 def test_absolute_target_outside_the_root_is_allowed(tmp_path: Path) -> None:
     cfg = parse(_raw(str(tmp_path / "a"), target=str(tmp_path / "b")), Path("c.toml"))
     assert cfg.course_dir(cfg.courses["c1"]) == tmp_path / "b"

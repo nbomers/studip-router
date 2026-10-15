@@ -139,6 +139,7 @@ _SYSTEM_DIRS = (  # not /var, /private, /opt: temp folders and Homebrew live the
     "/System",
     "/Library",
     "/Applications",
+    "/private/etc",  # macOS: /etc is a symlink to it
 )
 
 
@@ -156,9 +157,11 @@ def unsafe_folder(value: str) -> str | None:
         return "must not be the file system root"
     if resolved in (home, home.resolve()):
         return "must not be your home folder itself; use a folder inside it"
-    for system in _SYSTEM_DIRS:
-        if resolved == Path(system) or Path(system) in resolved.parents:
-            return f"must not be inside the system folder {system}"
+    # Both spellings: symlinks differ per OS (on macOS /etc -> /private/etc).
+    for candidate in (path, resolved):
+        for system in _SYSTEM_DIRS:
+            if candidate == Path(system) or Path(system) in candidate.parents:
+                return f"must not be inside the system folder {system}"
     return None
 
 
