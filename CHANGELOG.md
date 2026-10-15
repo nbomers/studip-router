@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-15
+
 ### Changed
 - With `unzip` on, the archive is removed after extracting it and not downloaded
   again: the extracted folder stands in for it. Only a changed archive is fetched
@@ -176,7 +178,8 @@ First public version.
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
 
-[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/nbomers/studip-router/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/nbomers/studip-router/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/nbomers/studip-router/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/nbomers/studip-router/compare/v0.2.0...v0.2.1
