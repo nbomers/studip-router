@@ -40,6 +40,9 @@ DEFAULT_COURSE_FOLDERS = ("Folien", "Übungen", "Klausur", "Sonstiges")
 
 # Stud.IP creates these when Courseware is imported: page images, logos, "blob[12]".
 DEFAULT_EXCLUDED_FOLDERS = ("CoursewareImport*",)
+DEFAULT_EXCLUDE = ExcludeConfig(
+    mime=("video/*",), max_size_mb=200, folders=DEFAULT_EXCLUDED_FOLDERS
+)
 
 
 @dataclass(frozen=True)
@@ -77,9 +80,7 @@ class Config:
     on_conflict: str = "suffix"
     default_target: str = "Sonstiges"
     create_missing_dirs: bool = False
-    exclude: ExcludeConfig = ExcludeConfig(
-        mime=("video/*",), max_size_mb=200, folders=DEFAULT_EXCLUDED_FOLDERS
-    )
+    exclude: ExcludeConfig = DEFAULT_EXCLUDE
     unzip: bool = False
     notify: bool = True
     follow_renames: bool = True
@@ -122,6 +123,46 @@ class Config:
 
 def nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
+
+
+# Places a sync must never write into directly (a typo like root = "/" or "~").
+_SYSTEM_DIRS = (  # not /var, /private, /opt: temp folders and Homebrew live there
+    "/bin",
+    "/boot",
+    "/dev",
+    "/etc",
+    "/lib",
+    "/proc",
+    "/sbin",
+    "/sys",
+    "/usr",
+    "/System",
+    "/Library",
+    "/Applications",
+    "/private/etc",  # macOS: /etc is a symlink to it
+)
+
+
+def unsafe_folder(value: str) -> str | None:
+    """Why ``value`` must not be a sync root or course folder, or None if it is fine."""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        return None
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError):
+        resolved = path
+    home = Path.home()
+    if resolved == Path(resolved.anchor):
+        return "must not be the file system root"
+    if resolved in (home, home.resolve()):
+        return "must not be your home folder itself; use a folder inside it"
+    # Both spellings: symlinks differ per OS (on macOS /etc -> /private/etc).
+    for candidate in (path, resolved):
+        for system in _SYSTEM_DIRS:
+            if candidate == Path(system) or Path(system) in candidate.parents:
+                return f"must not be inside the system folder {system}"
+    return None
 
 
 class _Validator:
@@ -277,6 +318,10 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         },
     )
     root = v.get(sync, "root", "sync", str, "", required=True)
+    if root.strip() and (problem := unsafe_folder(nfc(root.strip()))):
+        v.problems.append(f"sync.root: {problem}")
+    elif "root" in sync and not root.strip():
+        v.problems.append("sync.root: must not be empty")
     folders = v.str_list(sync, "course_folders", "sync")
     course_folders = tuple(
         v.rel_path(f, "sync.course_folders", False)
@@ -285,8 +330,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
     default_target = v.rel_path(
         v.get(sync, "default_target", "sync", str, "Sonstiges"), "sync.default_target", False
     )
-    defaults = Config.__dataclass_fields__["exclude"].default
-    global_exclude = v.exclude(sync.get("exclude", {}), "sync.exclude", defaults)
+    global_exclude = v.exclude(sync.get("exclude", {}), "sync.exclude", DEFAULT_EXCLUDE)
 
     rename = v.rename(top.get("rename", {}), "rename", RenameOptions())
 
@@ -315,6 +359,9 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         target = v.get(course, "target", where, str, "", required=not excluded)
         if target:
             target = v.rel_path(target, f"{where}.target", allow_absolute=True)
+            # absolute targets (outside the root) are allowed, but never "/", "~" or /etc
+            if problem := unsafe_folder(target):
+                v.problems.append(f"{where}.target: {problem}")
         course_default = v.get(course, "default_target", where, str)
         if course_default is not None:
             course_default = v.rel_path(course_default, f"{where}.default_target", False)

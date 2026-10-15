@@ -275,6 +275,9 @@ def _execute_locked(
         result.interrupted = True
         state.finish_run(run_id, {"interrupted": True})
         raise
+    except ApiError as exc:  # login rejected mid-run: stop instead of failing every file
+        state.finish_run(run_id, {"aborted": str(exc)})
+        raise
     result.merges = run_merges(cfg, state, [p.course for p in sync_plan.plans])
     summary = {
         "new": sum(1 for a in result.outcome.done if a.transfers),

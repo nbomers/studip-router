@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
 
-from .api import StudipClient
+from .api import AuthFailed, StudipClient
 from .models import CourseDate
 from .state import State
 
@@ -41,10 +41,14 @@ class Change:
 
 
 def _parse_dt(value: str | None) -> datetime | None:
+    """Aware datetime; a time without offset is taken as local time."""
     try:
-        return datetime.fromisoformat(value) if value else None
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
     except ValueError:
         return None
+    if parsed is not None and parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return parsed
 
 
 def fetch_dates(client: StudipClient, course_id: str, course_title: str) -> list[CourseDate]:
@@ -121,6 +125,8 @@ def check_dates(
     for course_id, title in courses:
         try:
             new = fetch_dates(client, course_id, title)
+        except AuthFailed:
+            raise  # a rejected login is not retried for every course
         except Exception as exc:  # dates are extra: never fail the sync because of them
             log.warning("dates of %s not checked: %s", title, exc, exc_info=True)
             client.warnings.append(f"{title}: dates not checked ({exc})")

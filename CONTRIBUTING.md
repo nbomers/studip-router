@@ -8,7 +8,7 @@ Thanks for helping! Bug reports with `studip doctor` output (remove anything per
 git clone https://github.com/nbomers/studip-router && cd studip-router
 uv sync                      # creates .venv with dev dependencies
 uv run pytest
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check . && uv run ruff format --check . && uv run mypy
 uv run studip --help
 ```
 

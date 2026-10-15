@@ -42,6 +42,7 @@ def run_checks(*, offline: bool = False) -> Iterator[Check]:
     active = [c for c in cfg.courses.values() if not c.exclude]
     yield Check("config", Level.OK, f"{cfg.path} ({len(active)} active courses)")
     yield from _check_paths(cfg)
+    yield from _check_keychain()
     yield from _check_state()
     yield from _check_install()
     yield from _check_paused()
@@ -65,6 +66,10 @@ def _check_paths(cfg: Config) -> Iterator[Check]:
             continue
         directory = cfg.course_dir(course)
         label = course.name or course.target
+        if cfg.root not in directory.parents and directory != cfg.root:
+            yield Check(
+                f"course {label}", Level.INFO, f"target {directory} is outside the root folder"
+            )
         if not directory.is_dir():
             yield Check(f"course {label}", Level.FAIL, f"target {directory} does not exist")
             continue
@@ -103,6 +108,17 @@ def _check_paths(cfg: Config) -> Iterator[Check]:
             f"root is in iCloud Drive; {evicted} file(s) currently only in the cloud "
             "(they are never downloaded just for comparison)",
         )
+
+
+def _check_keychain() -> Iterator[Check]:
+    if os.environ.get("STUDIP_ROUTER_PASSWORD"):
+        yield Check("keychain", Level.INFO, "password taken from STUDIP_ROUTER_PASSWORD")
+        return
+    problem = auth.keychain_problem()
+    if problem:
+        yield Check("keychain", Level.FAIL, problem)
+    else:
+        yield Check("keychain", Level.OK, "OS keychain available")
 
 
 def _check_state() -> Iterator[Check]:
@@ -177,6 +193,10 @@ def _check_server(cfg: Config) -> Iterator[Check]:
         )
         return
     yield Check("server", Level.OK, f"{cfg.base_url} JSON:API reachable")
+    if paths.auth_pause_file().exists():
+        # another login attempt with a password that already failed could lock the account
+        yield Check("login", Level.WARN, "not tested while auto-sync is paused (studip auth login)")
+        return
     if not auth.has_password(cfg.base_url, cfg.username):
         yield Check("login", Level.FAIL, "no password stored; run `studip auth login`")
         return
@@ -189,15 +209,22 @@ def _check_server(cfg: Config) -> Iterator[Check]:
     except (ApiError, auth.AuthError) as exc:
         yield Check("login", Level.FAIL, str(exc))
         return
+    except Exception as exc:  # unexpected answer: report, never crash the checks
+        yield Check("login", Level.FAIL, f"unexpected answer from Stud.IP ({type(exc).__name__})")
+        return
     yield Check("login", Level.OK, f"as {cfg.username}; current semester: {sem.title}")
-    with StudipClient(
-        cfg.base_url, cfg.username, auth.get_password(cfg.base_url, cfg.username)
-    ) as client:
-        courseware = [
-            c.name or c.target
-            for c in cfg.courses.values()
-            if not c.exclude and client.courseware_units(c.id)
-        ]
+    try:
+        with StudipClient(
+            cfg.base_url, cfg.username, auth.get_password(cfg.base_url, cfg.username)
+        ) as client:
+            courseware = [
+                c.name or c.target
+                for c in cfg.courses.values()
+                if not c.exclude and client.courseware_units(c.id)
+            ]
+    except (ApiError, auth.AuthError) as exc:
+        yield Check("courseware", Level.WARN, f"not checked: {exc}")
+        return
     if courseware:
         yield Check(
             "courseware",

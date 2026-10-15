@@ -9,7 +9,7 @@
 [Troubleshooting](#troubleshooting)
 
 [![CI](https://github.com/nbomers/studip-router/actions/workflows/ci.yml/badge.svg)](https://github.com/nbomers/studip-router/actions/workflows/ci.yml)
-[![Python 3.11 | 3.14](https://img.shields.io/badge/python-3.11%20%7C%203.14-3776ab?logo=python&logoColor=white)](#installation)
+[![Python 3.11–3.14](https://img.shields.io/badge/python-3.11--3.14-3776ab?logo=python&logoColor=white)](#installation)
 [![macOS | Linux](https://img.shields.io/badge/os-macOS%20%7C%20Linux-555555)](#requirements)
 [![License MIT](https://img.shields.io/badge/License-MIT-2e7d32)](LICENSE)
 [![Never deletes](https://img.shields.io/badge/deletes-never-1565c0)](#how-it-stays-safe)
@@ -69,7 +69,7 @@ All course names in the screenshots are made up.</sub>
 | **Suggestion** | A rule the tool proposes by comparing Stud.IP folder names with your local folder names (German and English). |
 | **Adopt** | A file you already downloaded by hand is *recorded* instead of downloaded a second time. |
 | **Version** | A file that changed on Stud.IP is saved as `name_v2.pdf` next to the old one; nothing is replaced. |
-| **Dry run** | Shows exactly what a sync would do without touching anything — it uses the same planner as the real run. |
+| **Dry run** | Shows exactly what a sync would do without touching any of your files — it uses the same planner as the real run. |
 | **Profile** | A separate config and state, e.g. for a second university (`--profile NAME`). |
 
 ---
@@ -132,7 +132,12 @@ same setup in the terminal.
 
 ## Requirements
 
-- Python 3.11+, macOS or Linux. Windows should work but is untested.
+- Python 3.11+, macOS or Linux. **Windows is not supported** (not tested; background
+  sync and notifications do not exist there).
+- An OS keychain: macOS Keychain, or a Secret Service keyring on Linux (GNOME
+  Keyring, KWallet). On servers, WSL or containers without one, set
+  `STUDIP_ROUTER_PASSWORD` instead (see [Headless use](#troubleshooting)); the
+  password is never stored in a file.
 - A Stud.IP instance with the **JSON:API enabled** and **username/password login**
   (local or LDAP accounts). Check: `https://<your-studip>/jsonapi.php/v1/discovery`
   must open in a browser.
@@ -146,6 +151,11 @@ same setup in the terminal.
 |---|---|---|
 | [uv](https://docs.astral.sh/uv/) | `uv tool install git+https://github.com/nbomers/studip-router` | `uv tool upgrade studip-router` |
 | [pipx](https://pipx.pypa.io/) | `pipx install git+https://github.com/nbomers/studip-router` | `pipx upgrade studip-router` |
+
+These commands install the newest state of `main`. For a fixed, reproducible
+version append a release tag, e.g.
+`uv tool install git+https://github.com/nbomers/studip-router@v0.2.0`
+([releases and changes](CHANGELOG.md)).
 
 > [!TIP]
 > Working on the code? Avoid an editable install from an iCloud/Dropbox folder for
@@ -264,7 +274,7 @@ every change is saved at once. The config file (`e` in the settings,
 
 | Folder | Where it comes from | Created automatically? |
 |---|---|---|
-| **Root** (`sync.root`) | asked in the setup; nothing is synced outside it | the setup in the UI expects an existing folder; `studip init` creates it together with the course folders |
+| **Root** (`sync.root`) | asked in the setup; files go into the course folders inside it (unless you give a course an absolute target). `/`, your home folder itself and system folders are refused | the setup in the UI expects an existing folder; `studip init` creates it together with the course folders |
 | **Course folder** | the setup matches each course to an existing folder in the root | the setup (UI and `studip init`) offers to create missing ones; for a new course choose *+ new folder* under `c`. A course folder that disappears later is an error (renamed or moved?), never silently recreated |
 | **Default folder** (`Sonstiges`) | files that no rule and no folder name places | **yes**, the first time a file needs it |
 | **Rule targets** | `target` of your rules | no: a missing one is an error, so a typo never creates folders. `sync.create_missing_dirs = true` creates them |
@@ -385,11 +395,13 @@ university), `--json` (machine-readable output for scripts, Raycast, Alfred, …
 | Promise | How |
 |---|---|
 | **Nothing is ever deleted** | files removed on Stud.IP are only reported. |
-| **Nothing is overwritten unnoticed** | name clashes get a suffix, updates become `_v2`; `overwrite` mode never replaces a file you edited (size/mtime/hash check against the state). |
-| **Dry run == real run** | both use the same planner; the real run only executes the plan. |
-| **Downloads are atomic** | `name.part`, fsync, rename. Ctrl-C leaves no partial files. |
-| **Your password stays put** | only in the OS keychain — never in the config, state, logs or output. |
+| **Nothing is overwritten unnoticed** | name clashes get a suffix, updates become `_v2`; `overwrite` mode never replaces a file you edited (size/mtime/hash check against the state, repeated right before the file is replaced, so an edit made while the preview is open is kept too). |
+| **Dry run == real run** | both use the same planner; the real run only executes the plan and re-checks every file before it writes. A dry run touches none of your files (it only creates the state database and log). |
+| **Downloads are atomic** | `name.part`, fsync, rename, fsync of the folder. Ctrl-C leaves no partial files. |
+| **Your password stays put** | only in the OS keychain (or `STUDIP_ROUTER_PASSWORD`) — never in the config, state, logs or output; crash reports of the UI show no variable values. A rejected login stops at the first attempt and pauses auto-sync, so a wrong password cannot lock your account. |
 | **Config edits are checked** | settings screen and rule suggestions validate before writing; the first change keeps a `config.toml.bak`. |
+| **Private files** | state database and log (course names, paths) are readable only by you (`0600`, folder `0700`). |
+| **Stays on your machine** | the only server contacted is your `server.base_url`; no telemetry, no update checks. |
 
 Found a security problem? See [SECURITY.md](SECURITY.md).
 
@@ -415,7 +427,7 @@ Found a security problem? See [SECURITY.md](SECURITY.md).
 | Stud.IP reports a wrong size | accepted once two downloads agree |
 | one file fails | the others continue; the failed one is retried next sync |
 | files only in iCloud (also old `.name.icloud` placeholders) | never downloaded just to compare |
-| ZIPs with garbled umlaut names, ZIP-slip, ZIP bombs | names repaired, unsafe archives refused |
+| ZIPs with garbled umlaut names, ZIP-slip, ZIP bombs | names repaired and made safe, unsafe archives refused (more than 1 GiB, 20 000 entries or a compression ratio above 200:1) |
 | `H2O`, `Python3`, `IPv6`, `A4`, `2x2` | left alone by number padding (only standalone numbers are padded) |
 | renamed / moved / re-uploaded on Stud.IP | followed; identical content is never stored twice |
 | two syncs at once (auto-sync + manual) | the second one stops with a message instead of racing |
@@ -448,6 +460,10 @@ in the course folder is recorded instead. A same-named file with different
 content that you fetched this semester is treated as an older version: the new
 one goes next to it as `_v2`.
 
+Limit: a hand-downloaded file with the same name **and** the same size is not
+compared byte by byte (that would mean downloading it). If you keep an unrelated
+file under exactly the remote name, rename it before the first sync.
+
 </details>
 
 <details>
@@ -475,7 +491,7 @@ Courses you set up keep syncing (retake exams, late solutions) until you switch
 them off under `c`. Courses of the next semester show up as "new" a few weeks
 before it starts. For a new semester folder, point `sync.root` to it
 (`studip config set sync.root "~/Uni/Semester 6"`) or give courses absolute
-targets. Older semesters: `studip sync --semester "SoSe 2026"`, `--semester all`,
+targets (they may lie outside the root; `studip doctor` lists them). Older semesters: `studip sync --semester "SoSe 2026"`, `--semester all`,
 or `a` in the courses screen.
 
 </details>
@@ -560,9 +576,40 @@ uses one password per file; then unlocking does not help —
 | background sync cannot read the password | `studip schedule run-now` and choose *Always Allow* when macOS asks for keychain access (again after `uv tool upgrade`) |
 | a course is listed under "could not be read" | usually a temporary Stud.IP problem; the other courses were synced, the log has details |
 | config errors | `studip config validate` names the exact key, e.g. `courses.<id>.rules[2].match.name_regex` |
+| `keychain not accessible` | no OS keychain (server, WSL, container): install and unlock a Secret Service keyring, or set `STUDIP_ROUTER_PASSWORD` for headless use (never put it in a file others can read) |
+| `Stud.IP sent text/html instead of JSON` | your university logs in via SSO, shows a maintenance page, or has the JSON:API disabled |
+| `state … is damaged` | rename the state file as the message says and sync again; files on disk are recognised, nothing is downloaded twice |
 | anything else | `studip doctor`, then the log at `~/.local/state/studip-router/studip-router.log` |
 
 ---
+
+## Exit codes and JSON
+
+For scripts: `0` success, `1` some files or courses failed, `2` invalid config or
+arguments, `3` login or keychain problem, `4` damaged state database, `75` another
+run is in progress, `130` interrupted. With `--json`, errors are printed as
+`{"error": "..."}`; the other fields of `--json` output may still grow, but existing
+ones are kept.
+
+## Uninstall
+
+```bash
+studip schedule uninstall          # background job (per profile: --profile NAME)
+studip auth logout                 # Stud.IP password from the keychain
+studip pdf-password list           # then `studip pdf-password remove COURSE` for each
+uv tool uninstall studip-router    # or: pipx uninstall studip-router
+rm -r ~/.config/studip-router ~/.local/state/studip-router
+```
+
+Your course folders and downloaded files are never touched.
+
+## Terms of use
+
+The tool logs in with your own account and only reads what you can see in the
+browser. Check whether your university's terms of use allow automated access; keep
+the background interval reasonable (at least 15 minutes is enforced, 2 hours is the
+default). Licensed course material stays licensed after it is downloaded or
+unlocked.
 
 ## Development
 

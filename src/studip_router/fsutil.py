@@ -7,12 +7,13 @@ import html
 import os
 import re
 import secrets
+import shutil
 import stat
 import sys
 import time
 import unicodedata
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -178,6 +179,7 @@ def split_ext(name: str) -> tuple[str, str]:
 
 
 _PART = re.compile(r"\.[0-9a-f]{8}\.part$")
+_UNZIP_TMP = re.compile(r"^\..+\.[a-z0-9_]{8}\.unzip$")  # tempfile.mkdtemp in extract_zip
 
 
 def part_path(dest: Path) -> Path:
@@ -188,20 +190,24 @@ def part_path(dest: Path) -> Path:
 
 def cleanup_stale_parts(directory: Path, older_than: float = 24 * 3600) -> list[Path]:
     """Remove temp files this tool left behind (crash, power loss). Only our pattern."""
-    removed = []
+    removed: list[Path] = []
     try:
         entries = list(os.scandir(directory))
     except OSError:
         return removed
     now = time.time()
     for entry in entries:
-        if _PART.search(entry.name) and entry.is_file(follow_symlinks=False):
-            try:
-                if now - entry.stat().st_mtime > older_than:
-                    os.unlink(entry.path)
-                    removed.append(Path(entry.path))
-            except OSError:
-                pass
+        try:
+            if now - entry.stat(follow_symlinks=False).st_mtime <= older_than:
+                continue
+            if _PART.search(entry.name) and entry.is_file(follow_symlinks=False):
+                os.unlink(entry.path)
+                removed.append(Path(entry.path))
+            elif _UNZIP_TMP.match(entry.name) and entry.is_dir(follow_symlinks=False):
+                shutil.rmtree(entry.path)  # an extraction interrupted by a crash
+                removed.append(Path(entry.path))
+        except OSError:
+            pass
     return removed
 
 
@@ -237,10 +243,27 @@ def atomic_writer(
             tmp.unlink(missing_ok=True)
             return
         os.replace(tmp, dest)
+        fsync_dir(dest.parent)
     except BaseException:
         fh.close()
         tmp.unlink(missing_ok=True)
         raise
+
+
+def fsync_dir(directory: Path) -> None:
+    """Persist a rename in ``directory`` (POSIX); best effort elsewhere."""
+    if sys.platform == "win32":
+        return
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass  # some file systems (e.g. network shares) do not support it
+    finally:
+        os.close(fd)
 
 
 def move_no_clobber(src: Path, dst: Path) -> None:
@@ -267,6 +290,9 @@ def exclusive_lock(path: Path) -> Iterator[None]:
     """Process-wide lock so two syncs (e.g. scheduler + manual) never run at once."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fh = path.open("a+")
+    if sys.platform != "win32":
+        with suppress(OSError):
+            os.chmod(path, 0o600)
     try:
         if sys.platform == "win32":
             import msvcrt

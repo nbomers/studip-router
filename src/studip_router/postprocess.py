@@ -7,15 +7,26 @@ import io
 import os
 import re
 import shutil
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
-from .fsutil import atomic_writer, is_ignored, local_stat, nfc, sha256_file, split_ext
+from .fsutil import (
+    atomic_writer,
+    fsync_dir,
+    is_ignored,
+    local_stat,
+    nfc,
+    sanitize_filename,
+    sha256_file,
+    split_ext,
+)
 
-MAX_UNZIPPED_BYTES = 4 * 1024**3
+MAX_UNZIPPED_BYTES = 1024**3  # 1 GiB extracted per archive
 MAX_MEMBERS = 20_000
+MAX_RATIO = 200  # extracted/compressed per member; zip bombs reach 1000:1 and more
 
 
 class PostprocessError(Exception):
@@ -39,8 +50,8 @@ def extract_zip(zip_path: Path) -> Path | None:
     target = unzip_target(zip_path)
     if target.exists():
         return None
-    tmp = target.with_name(target.name + ".unzip-tmp")
-    shutil.rmtree(tmp, ignore_errors=True)
+    # A fresh, uniquely named folder: nothing that already exists is ever removed.
+    tmp = Path(tempfile.mkdtemp(prefix=f".{target.name[:40]}.", suffix=".unzip", dir=target.parent))
     try:
         with zipfile.ZipFile(zip_path) as archive:
             members = [m for m in archive.infolist() if not m.is_dir()]
@@ -49,15 +60,33 @@ def extract_zip(zip_path: Path) -> Path | None:
             if sum(m.file_size for m in members) > MAX_UNZIPPED_BYTES:
                 raise PostprocessError(f"{zip_path.name}: archive too large when extracted")
             for member in members:
+                if member.file_size > 1 << 20 and member.file_size > MAX_RATIO * max(
+                    member.compress_size, 1
+                ):
+                    raise PostprocessError(
+                        f"{zip_path.name}: suspicious compression ratio (zip bomb?)"
+                    )
+            written: set[str] = set()
+            for member in members:
                 rel = _safe_member_path(member_name(member))
                 if rel is None:
                     continue
                 dest = tmp.joinpath(*rel.parts)
+                key = nfc(str(dest)).casefold()
+                if key in written:  # "A.txt" and "a.txt": keep both
+                    stem, ext = split_ext(dest.name)
+                    n = 2
+                    while (k := nfc(str(dest.with_name(f"{stem}_{n}{ext}"))).casefold()) in written:
+                        n += 1
+                    dest, key = dest.with_name(f"{stem}_{n}{ext}"), k
+                written.add(key)
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(member) as src, dest.open("wb") as out:
+                with archive.open(member) as src, dest.open("xb") as out:
                     shutil.copyfileobj(src, out, 1 << 20)
-        tmp.mkdir(exist_ok=True)  # empty archives still yield a folder
-        os.replace(tmp, target)
+        if target.exists():  # appeared meanwhile: never merge into it
+            raise PostprocessError(f"{target.name} appeared while extracting")
+        os.rename(tmp, target)
+        fsync_dir(target.parent)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
@@ -80,13 +109,24 @@ def member_name(info: zipfile.ZipInfo) -> str:
 
 
 def _safe_member_path(name: str) -> PurePosixPath | None:
-    """Reject absolute paths and '..' (zip slip); drop macOS metadata."""
+    """Reject absolute paths, drive letters and '..' (zip slip); drop macOS metadata.
+
+    Every path component is made a safe file name (control characters, ":" ...).
+    """
     path = PurePosixPath(nfc(name.replace("\\", "/")))
-    if path.is_absolute() or ".." in path.parts or not path.parts:
+    if (
+        path.is_absolute()
+        or ".." in path.parts
+        or not path.parts
+        or re.match(r"^[A-Za-z]:", path.parts[0])
+    ):
         raise PostprocessError(f"unsafe path in archive: {name!r}")
     if path.parts[0] == "__MACOSX" or is_ignored(path.name):
         return None
-    return path
+    parts = [p for p in path.parts if p not in ("", ".")]
+    if not parts:
+        return None
+    return PurePosixPath(*(sanitize_filename(p) for p in parts))
 
 
 # -- unlock PDFs ------------------------------------------------------------------
@@ -134,6 +174,19 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
             fh.write(buffer.getvalue())
     except (PyPdfError, DependencyError, ValueError, KeyError) as exc:  # broken PDF, no AES
         raise PostprocessError(f"{path.name}: could not unlock: {exc}") from exc
+    except (
+        MemoryError,
+        RecursionError,
+        ArithmeticError,
+        LookupError,
+        TypeError,
+        AttributeError,
+        AssertionError,
+        OSError,
+    ) as exc:  # malformed PDFs hit pypdf bugs
+        raise PostprocessError(
+            f"{path.name}: could not unlock ({type(exc).__name__}), kept as downloaded"
+        ) from exc
     return Unlock.DECRYPTED
 
 
@@ -232,11 +285,8 @@ def merge_pdfs(
     writer = PdfWriter()
     for pdf in inputs:
         writer.append(str(pdf), outline_item=split_ext(pdf.name)[0])
-    tmp = output.with_name(output.name + ".part")
-    try:
-        with tmp.open("wb") as fh:
-            writer.write(fh)
-        os.replace(tmp, output)
-    finally:
-        tmp.unlink(missing_ok=True)
-    return MergeResult(output, inputs, True), sha256_file(output), fingerprint
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    with atomic_writer(output) as (fh, digest):  # unique temp name, fsync, replace
+        fh.write(buffer.getvalue())
+    return MergeResult(output, inputs, True), digest(), fingerprint

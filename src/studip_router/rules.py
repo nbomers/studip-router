@@ -160,7 +160,9 @@ def check_template(template: str, regex: re.Pattern[str] | None) -> str | None:
     except ValueError as exc:
         return f"invalid template: {exc}"
     for field in fields:
-        key = field.split(".")[0].split("[")[0]
+        if "." in field or "[" in field:
+            return f"{{{field}}}: attribute and index access is not allowed in templates"
+        key = field
         if key not in allowed:
             hint = " (add a capture group to name_regex)" if key.isdigit() else ""
             return f"unknown template variable {{{key}}}{hint}"

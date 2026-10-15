@@ -38,9 +38,9 @@ STOPWORDS = {
     "innen",
     "informatikerinnen",
     "a",
-    "i",
-    "ii",
 }
+# Course numbers ("Analysis I", "Mathe 2") tell courses apart: they must agree.
+_NUMBER = re.compile(r"^(?:\d+|[ivx]+)$")
 
 
 def _tokens(text: str) -> list[str]:
@@ -52,12 +52,25 @@ def _token_match(a: str, b: str) -> bool:
     return a == b or (len(a) > 4 and len(b) > 4 and SequenceMatcher(None, a, b).ratio() > 0.85)
 
 
+def _numbers(tokens: list[str]) -> set[str]:
+    roman = {"i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6"}
+    return {roman.get(t, t.lstrip("0") or "0") for t in tokens if _NUMBER.match(t)}
+
+
 def score(title: str, folder: str) -> float:
-    """Share of the folder's words found in the course title (fuzzy, typo tolerant)."""
+    """Share of the folder's words found in the course title (fuzzy, typo tolerant).
+
+    A number in the folder name must agree: "Analysis II" never matches the folder
+    "Analysis I" (last semester's course), but still matches "Analysis".
+    """
     folder_tokens = _tokens(folder)
     title_tokens = _tokens(title)
     if not folder_tokens or not title_tokens:
         return 0.0
+    if (numbers := _numbers(folder_tokens)) and numbers != _numbers(title_tokens):
+        return 0.0
+    folder_tokens = [t for t in folder_tokens if not _NUMBER.match(t)] or folder_tokens
+    title_tokens = [t for t in title_tokens if not _NUMBER.match(t)] or title_tokens
     hits = sum(1 for f in folder_tokens if any(_token_match(f, t) for t in title_tokens))
     return hits / len(folder_tokens)
 

@@ -12,7 +12,8 @@ base_url = "https://studip.example.edu"
 username = "jdoe"
 
 [sync]
-# Folder that contains your course folders. "~" is expanded.
+# Folder that contains your course folders. "~" is expanded. "/", your home folder
+# itself and system folders (/etc, /usr, ...) are refused.
 root = "~/Uni/Semester 5"
 
 # Which courses to look at: "current", "all", or a title such as "WiSe 2026/27".
