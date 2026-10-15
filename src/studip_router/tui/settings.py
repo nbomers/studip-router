@@ -226,7 +226,7 @@ SECTIONS: list[tuple[str, list[Setting]]] = [
             ),
             Setting(
                 "unzip archives",
-                "extract .zip files next to the archive",
+                "extract .zip files into a folder, remove the archive",
                 ON_OFF,
                 lambda c: c.unzip,
                 ("sync", "unzip"),

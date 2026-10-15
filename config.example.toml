@@ -45,7 +45,8 @@ course_folders = ["Folien", "Übungen", "Klausur", "Sonstiges"]
 # Create missing target folders? Off by default: a missing folder is reported.
 create_missing_dirs = false
 
-# Extract downloaded .zip archives into a folder next to them (archive is kept).
+# Extract downloaded .zip archives into a folder named like them and remove the
+# archive; it is downloaded again only when it changes on Stud.IP.
 unzip = false
 
 # A file renamed on Stud.IP is renamed locally too (only if you did not edit it).
