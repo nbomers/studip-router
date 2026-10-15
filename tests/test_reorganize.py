@@ -74,3 +74,26 @@ def test_reorganize_never_overwrites(root: Path, state) -> None:
     assert move.problem == "target already exists"
     assert apply_reorganize([move], state) == (0, [])
     assert (course / "Uebungen" / "Uebung_01.pdf").read_bytes() == b"mine"
+
+
+def test_reorganize_moves_files_that_now_route_by_folder_name(root: Path, state) -> None:
+    """Synced into the default folder by an older version, moved once auto-routing exists."""
+    course = root / "Example Course"
+    old = parse(
+        {
+            "server": {"base_url": "https://studip.example.edu", "username": "jdoe"},
+            "sync": {"root": str(root), "auto_route": False},
+            "courses": {COURSE_ID: {"target": "Example Course"}},
+        },
+        Path("c.toml"),
+    )
+    files = [remote("00_Overview.pdf", folder="Slides"), remote("Orga.pdf")]
+    execute(plan_course(old, old.courses[COURSE_ID], files, {}), state, FakeDownloads(), run_id=1)
+    assert (course / "Sonstiges" / "00_Overview.pdf").exists()
+
+    moves = plan_reorganize(_cfg(root, []), state)
+    assert [(m.src.name, m.dst.parent.name, m.rule_id, m.problem) for m in moves] == [
+        ("00_Overview.pdf", "Skript : Alle Folien", "auto:slides", "")
+    ]
+    apply_reorganize(moves, state)
+    assert (course / "Skript : Alle Folien" / "00_Overview.pdf").exists()
