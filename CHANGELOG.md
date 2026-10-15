@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Automatic routing: a file that no rule matches goes to the local folder its Stud.IP
+  folder name points to (`Übungen`, `Tutorium`, `Folien`, `Slides`, `Vorlesung`, …)
+  instead of the default folder; rules always win; `sync.auto_route` turns it off.
+- `sync.exclude.folders` (globs on Stud.IP folder names); by default the
+  `CoursewareImport*` folders Stud.IP creates when Courseware is imported are skipped.
+
 ## [0.1.0] - 2026-10-14
 
 First public version.
@@ -44,4 +53,5 @@ First public version.
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
 
+[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/nbomers/studip-router/releases/tag/v0.1.0

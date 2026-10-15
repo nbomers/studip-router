@@ -53,6 +53,11 @@ courseware = false
 # Desktop notification after background syncs (`studip schedule install`).
 notify = true
 
+# A file that no rule matches goes to the local folder its Stud.IP folder name
+# points to ("Übungen", "Tutorium", "Folien", "Slides", "Vorlesung", ...) when
+# that is clear; otherwise to default_target. Your rules always win.
+auto_route = true
+
 # After each sync, compare the course dates with the last check and report
 # cancelled, moved and re-roomed dates and new exam dates (`studip dates`).
 watch_dates = true
@@ -62,6 +67,9 @@ watch_dates = true
 globs = ["*.mp4", "*.mkv"]
 mime = ["video/*"]
 max_size_mb = 200            # override once with `studip sync --include-large`
+# Stud.IP folders to skip (globs, any level). Default: the images Stud.IP
+# creates when Courseware is imported. `folders = []` syncs them too.
+folders = ["CoursewareImport*"]
 
 # Default renaming, applied after rule templates. Per course: [courses.<id>.rename]
 [rename]

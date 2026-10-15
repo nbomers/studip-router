@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from conftest import COURSE_ID, remote
+from conftest import COURSE_ID, make_config, remote
 
 from studip_router.config import ConfigError, parse
-from studip_router.planner import Kind, build_router, plan_course
+from studip_router.planner import Kind, SkipReason, build_router, exclusion_reason, plan_course
 from studip_router.rename import RenameError, RenameOptions, normalise, target_name
 from studip_router.rules import parse_rules
 
@@ -199,3 +200,61 @@ def test_folder_type_rule(root: Path) -> None:
     route = build_router(cfg, cfg.courses[COURSE_ID])
     assert route(replace(remote("my.pdf"), folder_type="HomeworkFolder")).skip
     assert not route(replace(remote("x.pdf"), folder_type="StandardFolder")).skip
+
+
+# -- automatic routing by Stud.IP folder name ------------------------------------------
+
+
+def _auto_cfg(root: Path, **sync: object):
+    for sub in ("Uebungen", "Skript : Alle Folien", "Klausur", "Sonstiges"):
+        (root / "Example Course" / sub).mkdir(parents=True, exist_ok=True)
+    return make_config(root, **sync)
+
+
+@pytest.mark.parametrize(
+    ("folder", "target"),
+    [
+        ("Slides", "Skript : Alle Folien"),
+        ("Vorlesungsfolien", "Skript : Alle Folien"),
+        ("Unterlagen zur Übung", "Uebungen"),
+        ("Tutorium MI 16-18 Uhr", "Uebungen"),
+        ("Material/Übungsblätter", "Uebungen"),
+        ("Loesung", "Uebungen"),  # no own solutions folder: with the exercises
+        ("Tag 1", "Sonstiges"),  # unclear: default folder, never a guess
+        ("", "Sonstiges"),
+    ],
+)
+def test_files_without_rule_follow_the_folder_name(
+    tmp_path: Path, folder: str, target: str
+) -> None:
+    cfg = _auto_cfg(tmp_path)
+    route = build_router(cfg, cfg.courses[COURSE_ID])(remote("x.pdf", folder=folder))
+    assert route.subdir == target
+    assert route.by_default == (target == "Sonstiges")
+
+
+def test_rules_win_over_automatic_routing(tmp_path: Path) -> None:
+    cfg = _auto_cfg(tmp_path)
+    rules, problems = parse_rules(
+        [{"id": "all", "match": {"folder": "Slides"}, "target": "Klausur"}], "rules"
+    )
+    assert problems == []
+    course = replace(cfg.courses[COURSE_ID], rules=rules)
+    assert build_router(cfg, course)(remote("x.pdf", folder="Slides")).rule_id == "all"
+
+
+def test_automatic_routing_can_be_turned_off(tmp_path: Path) -> None:
+    cfg = _auto_cfg(tmp_path, auto_route=False)
+    route = build_router(cfg, cfg.courses[COURSE_ID])(remote("x.pdf", folder="Slides"))
+    assert route.subdir == "Sonstiges" and route.by_default
+
+
+def test_courseware_import_folders_are_skipped_by_default(tmp_path: Path) -> None:
+    cfg = _auto_cfg(tmp_path)
+    excludes = cfg.course_exclude(cfg.courses[COURSE_ID])
+    junk = remote("blob[131]", folder="CoursewareImport 14.10.2026, 07:58:45 458/Unknown")
+    assert exclusion_reason(junk, excludes) is SkipReason.EXCLUDED
+    assert exclusion_reason(remote("x.pdf", folder="Folien"), excludes) is None
+    # and it can be switched off
+    cfg = make_config(tmp_path, exclude={"folders": []})
+    assert exclusion_reason(junk, cfg.course_exclude(cfg.courses[COURSE_ID])) is None

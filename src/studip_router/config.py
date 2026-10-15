@@ -32,6 +32,11 @@ class ExcludeConfig:
     globs: tuple[str, ...] = ()
     mime: tuple[str, ...] = ()
     max_size_mb: float | None = None
+    folders: tuple[str, ...] = ()  # globs on Stud.IP folder names, any level
+
+
+# Stud.IP creates these when Courseware is imported: page images, logos, "blob[12]".
+DEFAULT_EXCLUDED_FOLDERS = ("CoursewareImport*",)
 
 
 @dataclass(frozen=True)
@@ -69,12 +74,15 @@ class Config:
     on_conflict: str = "suffix"
     default_target: str = "Sonstiges"
     create_missing_dirs: bool = False
-    exclude: ExcludeConfig = ExcludeConfig(mime=("video/*",), max_size_mb=200)
+    exclude: ExcludeConfig = ExcludeConfig(
+        mime=("video/*",), max_size_mb=200, folders=DEFAULT_EXCLUDED_FOLDERS
+    )
     unzip: bool = False
     notify: bool = True
     follow_renames: bool = True
     courseware: bool = False  # also sync files from Courseware pages (more requests)
     watch_dates: bool = True  # report cancelled, moved and re-roomed course dates
+    auto_route: bool = True  # no rule matches: use the Stud.IP folder name (Übung, Folien...)
     rename: RenameOptions = field(default_factory=RenameOptions)
     courses: dict[str, CourseConfig] = field(default_factory=dict)
     ui_theme: str = "tokyo-night"
@@ -104,6 +112,7 @@ class Config:
             max_size_mb=own.max_size_mb
             if own.max_size_mb is not None
             else self.exclude.max_size_mb,
+            folders=self.exclude.folders + own.folders,
         )
 
 
@@ -200,16 +209,18 @@ class _Validator:
         return base.merged(values)
 
     def exclude(self, data: Any, where: str, base: ExcludeConfig) -> ExcludeConfig:
-        data = self.table(data, where, {"globs", "mime", "max_size_mb"})
+        data = self.table(data, where, {"globs", "mime", "max_size_mb", "folders"})
         size = self.get(data, "max_size_mb", where, (int, float), base.max_size_mb)
         if size is not None and size < 0:
             self.problems.append(f"{where}.max_size_mb: must be 0 (no limit) or positive")
         globs = self.str_list(data, "globs", where)
         mime = self.str_list(data, "mime", where)
+        folders = self.str_list(data, "folders", where)
         return ExcludeConfig(
             globs=base.globs if globs is None else globs,
             mime=base.mime if mime is None else mime,
             max_size_mb=size,
+            folders=base.folders if folders is None else folders,
         )
 
 
@@ -257,6 +268,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
             "follow_renames",
             "courseware",
             "watch_dates",
+            "auto_route",
         },
     )
     root = v.get(sync, "root", "sync", str, "", required=True)
@@ -343,6 +355,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         follow_renames=v.get(sync, "follow_renames", "sync", bool, True),
         courseware=v.get(sync, "courseware", "sync", bool, False),
         watch_dates=v.get(sync, "watch_dates", "sync", bool, True),
+        auto_route=v.get(sync, "auto_route", "sync", bool, True),
         rename=rename,
         courses=courses,
         ui_theme=v.get(ui, "theme", "ui", str, "tokyo-night"),

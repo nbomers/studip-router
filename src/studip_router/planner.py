@@ -30,6 +30,7 @@ from .models import RemoteFile
 from .rename import RenameError, target_name
 from .rules import first_match
 from .state import FileRecord
+from .suggest import auto_target, local_subdirs
 
 
 class Kind(StrEnum):
@@ -121,11 +122,15 @@ def build_router(cfg: Config, course: CourseConfig, semester: str = "") -> Route
     options = cfg.course_rename(course)
     unzip = cfg.course_unzip(course)
     label = course.name or course.target
+    subdirs = local_subdirs(cfg.course_dir(course)) if cfg.auto_route else []
 
     def route(file: RemoteFile) -> Route:
         rule, regex_match = first_match(course.rules, file)
         if rule is None:
             name = target_name(file, None, options)
+            if found := auto_target(file.folder_path, subdirs):
+                category, target = found
+                return Route(target, name, rule_id=f"auto:{category}", unzip=unzip)
             return Route(default_target, name, by_default=True, unzip=unzip)
         if rule.skip:
             return Route(
@@ -155,6 +160,9 @@ def exclusion_reason(file: RemoteFile, rules: ExcludeConfig) -> SkipReason | Non
         return SkipReason.EXCLUDED
     if rules.max_size_mb and file.size > rules.max_size_mb * 1024 * 1024:  # 0: no limit
         return SkipReason.TOO_LARGE
+    folders = [nfc(p).casefold() for p in file.folder_path.split("/") if p]
+    if any(fnmatch.fnmatchcase(f, nfc(g).casefold()) for f in folders for g in rules.folders):
+        return SkipReason.EXCLUDED
     return None
 
 

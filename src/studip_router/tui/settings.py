@@ -100,6 +100,13 @@ SECTIONS: list[tuple[str, list[Setting]]] = [
                 ("sync", "follow_renames"),
             ),
             Setting(
+                "auto-route",
+                "no rule matches: use the Stud.IP folder name (Übung, Folien, ...)",
+                ON_OFF,
+                lambda c: c.auto_route,
+                ("sync", "auto_route"),
+            ),
+            Setting(
                 "watch dates",
                 "report cancelled, moved and re-roomed course dates after a sync",
                 ON_OFF,

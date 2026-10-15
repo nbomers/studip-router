@@ -64,6 +64,7 @@ All course names in the screenshots are made up.</sub>
 | **Root** | The folder that contains your course folders, e.g. `~/Uni/Semester 5` (`sync.root`). |
 | **Target** | Where a course or a rule puts its files, relative to the root or the course folder. |
 | **Rule** | A per-course *if this file looks like X, put it into folder Y and name it Z*. **First match wins.** |
+| **Auto-route** | No rule matches, but the Stud.IP folder name is clear (`Übungen`, `Slides`, …): the file goes to your matching folder. |
 | **Default folder** | Where files go that no rule matches (`sync.default_target`, e.g. `Sonstiges`). |
 | **Suggestion** | A rule the tool proposes by comparing Stud.IP folder names with your local folder names (German and English). |
 | **Adopt** | A file you already downloaded by hand is *recorded* instead of downloaded a second time. |
@@ -80,6 +81,7 @@ All course names in the screenshots are made up.</sub>
 | **One key to sync** | run `studip`, press `s`, confirm the summary. |
 | **Incremental** | only new or changed files are downloaded; a second run does nothing. |
 | **Rule-based routing** | per course, first match wins: Stud.IP folder, folder type, file name (glob/regex), extension, MIME type, size, date, description. |
+| **Automatic routing** | a file no rule matches still lands in the right folder when its Stud.IP folder says what it is (`Übungen`, `Tutorium`, `Folien`, `Slides`, `Vorlesung`, …) — also for folders created mid-semester. |
 | **Rule suggestions** | understand German and English folder names on both sides (`Übungsblätter`, `Homework`, `Tutorium …` → your `Exercises`/`Übungen`/… folder) — including courses with one folder per session. |
 | **Renaming** | templates with regex groups (`Blatt (\d+)` → `Exercise_{1:02}{ext}`), zero padding, umlauts, spaces, prefixes. |
 | **Settings screen** | every option on one page, change with ←/→ (or `h`/`l`), saved immediately — comments in your config file are kept. |
@@ -266,11 +268,12 @@ Rule sheets
 | `sync.create_missing_dirs` | `false` | create rule target folders that do not exist |
 | `sync.unzip` | `false` | extract `.zip` downloads next to the archive |
 | `sync.notify` | `true` | notification after background syncs |
+| `sync.auto_route` | `true` | no rule matches: use the Stud.IP folder name (Übung, Folien, …) before the default folder |
 | `sync.watch_dates` | `true` | report cancelled, moved and re-roomed dates after a sync |
 | `sync.follow_renames` | `true` | rename the local copy when a file is renamed on Stud.IP |
 | `sync.courseware` | `false` | also sync files from Courseware pages (per course: `courses.<id>.courseware`) |
 | `sync.only_configured_courses` | `true` | `false`: sync every course into a folder named like it |
-| `sync.exclude` | videos, > 200 MB | `globs`, `mime`, `max_size_mb` (`0` = no limit) |
+| `sync.exclude` | videos, > 200 MB, `CoursewareImport*` folders | `globs`, `mime`, `max_size_mb` (`0` = no limit), `folders` |
 | `rename.pad_numbers` | `2` | `lecture-1` → `lecture-01`; `0` disables |
 | `rename.spaces` / `umlauts` / `lowercase` | keep | `_` or `-` / `transliterate` / `true` |
 | `rename.portable` | `true` | replace `: * ? " < > \|` (Windows, OneDrive, iCloud) |
@@ -362,9 +365,11 @@ Found a security problem? See [SECURITY.md](SECURITY.md).
 <details>
 <summary><b>My folders have different names than in the examples.</b></summary>
 
-That's the point: targets are whatever folders you have. `studip init` and the
-rule suggestions detect them (German and English, with or without umlauts) and
-never pick archive folders like `old` or `Archiv`.
+That's the point: targets are whatever folders you have. `studip init`, the rule
+suggestions and automatic routing detect them (German and English, with or
+without umlauts) and never pick archive folders like `old` or `Archiv`. Files
+whose Stud.IP folder says nothing clear (`Tag 1`, `Notebooks`) go to the default
+folder; add a rule for those.
 
 </details>
 

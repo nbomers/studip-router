@@ -42,7 +42,14 @@ def test_dry_run_then_sync_then_noop(setup: Path) -> None:
     assert dry.exit_code == 0, dry.output
     data = json.loads(dry.output)
     dests = sorted(Path(a["dest"]).relative_to(setup).as_posix() for a in data["actions"])
-    assert dests == ["Sonstiges/Orga.pdf", "Sonstiges/lecture-01.pdf", "Uebungen/Uebung_03.pdf"]
+    # "Folien" has no rule but its name says slides: routed automatically
+    assert dests == [
+        "Skript : Alle Folien/lecture-01.pdf",
+        "Sonstiges/Orga.pdf",
+        "Uebungen/Uebung_03.pdf",
+    ]
+    rules = {Path(a["dest"]).name: a["rule"] for a in data["actions"]}
+    assert rules["lecture-01.pdf"] == "auto:slides" and rules["Orga.pdf"] is None
     assert [c["id"] for c in data["unconfigured_courses"]] == [OTHER]
     assert not (setup / "Uebungen" / "Uebung_03.pdf").exists()
 
@@ -60,7 +67,7 @@ def test_status_lists_default_routed_and_unconfigured(setup: Path) -> None:
     install(respx.mock)
     run("sync")
     data = json.loads(run("--json", "status").output)
-    assert len(data["default_routed"]) == 2
+    assert len(data["default_routed"]) == 1  # Orga.pdf; the slides were routed by folder name
     assert data["unconfigured_courses"][0]["title"] == "Underwater Basket Weaving"
 
 

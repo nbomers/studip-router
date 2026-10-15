@@ -131,6 +131,23 @@ def _category(text: str) -> str | None:
     return None
 
 
+def folder_category(folder_path: str) -> str | None:
+    """Category of the first of the top three Stud.IP folders whose name reveals one."""
+    for part in [p for p in folder_path.split("/") if p][:3]:
+        if (category := _category(part)) is not None:
+            return category
+    return None
+
+
+def auto_target(folder_path: str, subdirs: list[str]) -> tuple[str, str] | None:
+    """(category, local folder) for a file without a matching rule, if both are clear."""
+    category = folder_category(folder_path)
+    if category is None:
+        return None
+    target = _local_target(category, subdirs)
+    return (category, target) if target is not None else None
+
+
 def local_category_dirs(subdirs: list[str], category: str) -> list[str]:
     """Local folders for ``category``, best first; archive folders are never offered."""
     keywords = LOCAL_KEYWORDS[category]
