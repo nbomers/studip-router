@@ -1,6 +1,6 @@
 [project]
 name = "studip-router"
-version = "0.2.2"
+version = "0.2.3"
 description = "Sync Stud.IP course files into your own folder structure, with per-course routing and renaming rules."
 readme = "README.md"
 license = "MIT"
