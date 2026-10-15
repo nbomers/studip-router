@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from conftest import COURSE_ID, FakeDownloads, make_config, remote
 from studip_router.config import Config
 from studip_router.executor import execute
 from studip_router.planner import Kind, SkipReason, plan_course
+from studip_router.rules import parse_rules
 from studip_router.state import State
 
 
@@ -184,7 +186,22 @@ def test_exclusions(cfg: Config, state: State) -> None:
     assert _kinds(_plan(cfg, state, files[1:2], include_large=True)) == [Kind.DOWNLOAD]
 
 
-def test_missing_target_dir_is_an_error_by_default(root: Path, state: State) -> None:
+def test_missing_default_folder_is_created(root: Path, state: State) -> None:
+    cfg = make_config(root, default_target="_inbox")
+    plan = _sync(cfg, state, [remote("a.pdf"), remote("b.pdf")])
+    assert _kinds(plan) == [Kind.MKDIR, Kind.DOWNLOAD, Kind.DOWNLOAD]
+    assert (root / "Example Course" / "_inbox" / "b.pdf").exists()
+
+
+def test_missing_rule_target_is_an_error_by_default(root: Path, state: State) -> None:
+    cfg = make_config(root)
+    course = cfg.courses[COURSE_ID]
+    rules, _ = parse_rules([{"id": "typo", "match": {"name_glob": "*"}, "target": "Ubungen"}], "r")
+    plan = plan_course(cfg, replace(course, rules=rules), [remote("a.pdf")], {})
+    assert _kinds(plan) == [Kind.ERROR]  # a typo never creates a folder
+
+
+def test_finder_spelling_of_the_default_folder_is_not_created(root: Path, state: State) -> None:
     cfg = make_config(root, default_target="Skript / Alle Folien")
     plan = _plan(cfg, state, [remote("a.pdf")])
     assert _kinds(plan) == [Kind.ERROR]

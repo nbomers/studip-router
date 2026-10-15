@@ -257,3 +257,10 @@ def print_date_changes(console: Console, changes: list[Change]) -> None:
     for change in changes:
         style = "red" if change.kind in (ChangeKind.CANCELLED, ChangeKind.REMOVED) else "yellow"
         console.print(f"  [{style}]●[/{style}] {change.text()}")
+
+
+def reorganize_hint(count: int) -> str:
+    return (
+        f"[yellow]{count} synced file(s)[/yellow] are not where your rules put them now "
+        "- `studip reorganize --dry-run` shows them, `studip reorganize` moves them (o in the UI)"
+    )

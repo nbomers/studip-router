@@ -25,6 +25,7 @@ from .. import __version__, auth, paths
 from ..api import ApiError, AuthFailed, StudipClient
 from ..config import Config, ConfigError, load
 from ..news import fetch_news, unread
+from ..reorganize import pending_moves
 from ..state import State
 from ..sync import CourseStatus, list_courses, resolve_semester
 from .settings import THEMES, SettingsScreen
@@ -149,6 +150,7 @@ class HomeScreen(Screen):
             last = state.last_run()
             tracked = len(state.all())
             default_routed = len(state.default_routed())
+            to_move = len(pending_moves(cfg, state))
         last_summary: dict = {}
         if last and last["summary"]:
             with contextlib.suppress(ValueError):
@@ -160,6 +162,7 @@ class HomeScreen(Screen):
         cards["files"].update(f"[b]{tracked}[/b] synced\n[dim]{courses}[/dim]")
         self._local = {
             "default_routed": default_routed,
+            "to_move": to_move,
             "failed": int(last_summary.get("failed", 0) or 0),
             "course_errors": int(last_summary.get("course_errors", 0) or 0),
             "paused": paths.auth_pause_file().exists(),
@@ -194,6 +197,8 @@ class HomeScreen(Screen):
             todo.append(f"[red]{local['course_errors']} course(s) failed[/red] [dim](p)[/dim]")
         if local["failed"]:
             todo.append(f"[red]{local['failed']} file(s) failed[/red] [dim](p)[/dim]")
+        if local["to_move"]:
+            todo.append(f"[yellow]{local['to_move']} file(s) to reorganize[/yellow] [dim](o)[/dim]")
         if local["default_routed"]:
             todo.append(f"{local['default_routed']} in default folder [dim](r)[/dim]")
         self.query_one("#card-todo", Static).update(

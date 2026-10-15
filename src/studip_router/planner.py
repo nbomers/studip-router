@@ -625,7 +625,11 @@ def _ensure_dir(
 ) -> bool:
     if directory.is_dir() or path_key(directory) in planned:
         return True
-    if cfg.create_missing_dirs:
+    default = cfg.course_default_target(plan.course)
+    # The default folder is the tool's own catch-all and is created when needed,
+    # unless its name is a Finder spelling ("A / B") that would nest wrong folders.
+    is_default = path_key(directory) == path_key(plan.course_dir / default) and " / " not in default
+    if cfg.create_missing_dirs or is_default:
         planned.add(path_key(directory))
         plan.actions.append(Action(Kind.MKDIR, plan.course.id, dest=directory))
         return True

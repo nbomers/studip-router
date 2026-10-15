@@ -34,13 +34,20 @@ from ..api import ApiError, StudipClient
 from ..config import Config, ConfigError
 from ..config_edit import set_course
 from ..dates import Change, check_dates, upcoming_exams
-from ..fsutil import Locked
+from ..fsutil import Locked, sanitize_filename
 from ..models import RemoteFile
 from ..news import News, fetch_news, unread
 from ..planner import Action, Kind, build_router
 from ..rename import RenameError
-from ..reorganize import Move, apply_reorganize, apply_undo, plan_reorganize, plan_undo
-from ..report import STYLE, SYMBOL, summarize, unlocked_lines
+from ..reorganize import (
+    Move,
+    apply_reorganize,
+    apply_undo,
+    pending_moves,
+    plan_reorganize,
+    plan_undo,
+)
+from ..report import STYLE, SYMBOL, reorganize_hint, summarize, unlocked_lines
 from ..state import State
 from ..suggest import Suggestion, suggest_rules
 from ..sync import (
@@ -352,6 +359,10 @@ class SyncView(View):
             log.write(line)
         for change in self.date_changes:
             log.write(f"[yellow]● date[/yellow] {change.text()}")
+        with State(paths.state_db()) as state:
+            to_move = len(pending_moves(self.cfg, state))
+        if to_move:
+            log.write(reorganize_hint(to_move))
         failed = len(result.outcome.failed)
         self.status(
             "[green]✓ Sync finished.[/green]"
@@ -476,6 +487,9 @@ class CoursesView(View):
         choices: list[tuple[str, str]] = [
             (f, f"{f}  [dim](suggested)[/dim]" if f == proposal else f) for f in ordered
         ]
+        new_folder = sanitize_filename(entry.course.title)
+        if new_folder not in folders:
+            choices.append((NEW_FOLDER, f"[green]+ new folder[/green] {new_folder}"))
         choices.append((EXCLUDE, "[dim]don't sync this course[/dim]"))
 
         def chosen(folder: str | None) -> None:
@@ -483,8 +497,15 @@ class CoursesView(View):
                 return
             if folder == EXCLUDE:
                 self._save(entry.course.id, name=entry.course.title, exclude=True)
-            else:
-                self._save(entry.course.id, name=entry.course.title, target=folder, exclude=None)
+                return
+            if folder == NEW_FOLDER:
+                try:
+                    (self.cfg.root / new_folder).mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    self.notify(f"Folder not created: {exc}", severity="error")
+                    return
+                folder = new_folder
+            self._save(entry.course.id, name=entry.course.title, target=folder, exclude=None)
 
         self.app.push_screen(
             ChoiceScreen(f"Folder for “{entry.course.title}”", choices, f"inside {self.cfg.root}"),
@@ -498,6 +519,7 @@ class CoursesView(View):
 
 
 EXCLUDE = "\0exclude"  # cannot be a folder name
+NEW_FOLDER = "\0new"
 
 
 # -- history ----------------------------------------------------------------------------

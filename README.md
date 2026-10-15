@@ -47,7 +47,7 @@ All course names in the screenshots are made up.</sub>
 3. [Quick start](#quick-start)
 4. [Requirements](#requirements) · [Installation](#installation)
 5. [Usage](#usage)
-6. [Configuration](#configuration)
+6. [Where files go](#where-files-go) · [Configuration](#configuration)
 7. [Command reference](#command-reference)
 8. [How it stays safe](#how-it-stays-safe)
 9. [Tricky files](#tricky-files)
@@ -214,6 +214,34 @@ Setup, add the suggested rules, see exactly what would happen, do it.
 
 ---
 
+## Where files go
+
+```text
+~/Uni/Semester 5/                  sync.root — you pick it in the setup
+├── Quantum Cooking/               one folder per course (its target)
+│   ├── Exercises/                 by a rule, or automatically from a Stud.IP
+│   ├── Slides/                    folder name like "Übungen" or "Folien"
+│   └── Sonstiges/                 everything else (sync.default_target)
+└── Underwater Basket Weaving/
+```
+
+| Folder | Where it comes from | Created automatically? |
+|---|---|---|
+| **Root** (`sync.root`) | asked in the setup; nothing is synced outside it | the setup in the UI expects an existing folder; `studip init` creates it together with the course folders |
+| **Course folder** | the setup matches each course to an existing folder in the root | the setup (UI and `studip init`) offers to create missing ones; for a new course choose *+ new folder* under `c`. A course folder that disappears later is an error (renamed or moved?), never silently recreated |
+| **Default folder** (`Sonstiges`) | files that no rule and no folder name places | **yes**, the first time a file needs it |
+| **Rule targets** | `target` of your rules | no: a missing one is an error, so a typo never creates folders. `sync.create_missing_dirs = true` creates them |
+| **Automatic targets** | your existing folders whose names match (`Übungen`, `Folien`, …) | never needed: only existing folders are used |
+
+Courses you never set up are not synced, unless you set
+`sync.only_configured_courses = false`: then each gets a folder named like the
+course, created automatically.
+
+Config, state and log stay **outside** your course folders (also on macOS):
+`~/.config/studip-router/config.toml` and `~/.local/state/studip-router/`.
+
+---
+
 ## Configuration
 
 The config lives at `~/.config/studip-router/config.toml` (`studip config path`).
@@ -252,9 +280,10 @@ Rule sheets
 ```
 
 > [!TIP]
-> **Changed your rules after syncing?** `studip reorganize --dry-run` shows how
-> synced files would move, `studip reorganize` moves them, `studip undo` moves
-> them back.
+> **Changed your rules after syncing?** A sync never moves files that are already
+> there; it tells you when some are no longer where your rules put them (also on
+> the home screen). `studip reorganize --dry-run` shows how they would move,
+> `studip reorganize` moves them, `studip undo` moves them back.
 
 <details>
 <summary><b>Settings reference</b></summary>
@@ -265,7 +294,7 @@ Rule sheets
 | `sync.on_update` | `"version"` | changed remote file: `version` (`_v2`), `overwrite`, `skip` |
 | `sync.on_conflict` | `"suffix"` | two files, same name: `suffix` (`_2`), `skip`, `error` |
 | `sync.default_target` | `"Sonstiges"` | folder for files no rule matches (`init` detects yours) |
-| `sync.create_missing_dirs` | `false` | create rule target folders that do not exist |
+| `sync.create_missing_dirs` | `false` | create rule target folders that do not exist (the default folder is always created) |
 | `sync.unzip` | `false` | extract `.zip` downloads next to the archive |
 | `sync.notify` | `true` | notification after background syncs |
 | `sync.auto_route` | `true` | no rule matches: use the Stud.IP folder name (Übung, Folien, …) before the default folder |
@@ -484,7 +513,8 @@ uses one password per file; then unlocking does not help —
 |---|---|
 | `authentication failed (HTTP 401)` | `studip auth login` (or `L` in settings); your account needs a Stud.IP password, not SSO-only |
 | `JSON:API not available (HTTP 404)` | the JSON:API is disabled at your university; ask the Stud.IP admins |
-| `target folder does not exist` | create it, fix the rule target, or turn on *create folders* in the settings |
+| `target folder does not exist` | a rule points to a folder that is missing: create it, fix the rule target, or turn on *create folders* in the settings |
+| `course folder does not exist` | the course folder was renamed or moved: point `target` to it (`c` in the UI) or create it |
 | `received an HTML page instead of the file` | log in to Stud.IP in the browser and check the file is accessible |
 | `another studip-router run is in progress` | auto-sync is running right now; try again in a minute |
 | `auto-sync paused after a failed login` | `studip auth login` (or `L` in the settings) resumes it |

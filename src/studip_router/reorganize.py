@@ -75,12 +75,37 @@ def plan_reorganize(cfg: Config, state: State, course_id: str | None = None) -> 
                 problem = "source missing (moved by hand?)"
             elif dst.exists() or path_key(dst) in claimed:
                 problem = "target already exists"
-            elif not dst.parent.is_dir() and not cfg.create_missing_dirs:
+            elif (
+                not dst.parent.is_dir()
+                and not cfg.create_missing_dirs
+                and (
+                    path_key(dst.parent) != path_key(course_dir / cfg.course_default_target(course))
+                    or " / " in cfg.course_default_target(course)
+                )
+            ):
                 problem = "target folder does not exist"
             if not problem:
                 claimed.add(path_key(dst))
             moves.append(Move(record, src, dst, route.rule_id, route.by_default, problem))
     return moves
+
+
+def pending_moves(cfg: Config, state: State) -> list[Move]:
+    """Synced files that the current rules or automatic routing would put elsewhere.
+
+    Only files whose routing changed since they were placed count: a file moved
+    by hand while its rule stayed the same was the user's choice, not a hint.
+    """
+    try:
+        moves = plan_reorganize(cfg, state)
+    except OSError:
+        return []
+    return [
+        m
+        for m in moves
+        if not m.problem
+        and (m.rule_id != m.record.rule_id or m.by_default != m.record.routed_by_default)
+    ]
 
 
 def apply_reorganize(moves: list[Move], state: State) -> tuple[int, list[tuple[Move, str]]]:

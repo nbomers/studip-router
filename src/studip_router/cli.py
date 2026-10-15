@@ -31,7 +31,7 @@ from .news import fetch_news, unread
 from .notify import dates_message, notify, sync_message
 from .planner import build_router
 from .rename import RenameError
-from .reorganize import apply_reorganize, apply_undo, plan_reorganize, plan_undo
+from .reorganize import apply_reorganize, apply_undo, pending_moves, plan_reorganize, plan_undo
 from .state import State
 from .suggest import suggest_rules
 from .sync import (
@@ -330,13 +330,15 @@ def init_cmd(
         default=detected or "_unsorted",
     )
     text = render_config(base_url, username, root, choices, default_target)
-    missing = [d for d in course_dirs if not (d / default_target).is_dir()]
-    if missing:
-        console.print(
-            f"[yellow]Note:[/yellow] {len(missing)} course folder(s) have no "
-            f"'{default_target}' folder yet; create them or enable "
-            "create_missing_dirs."
-        )
+    missing = [d for d in course_dirs if not d.is_dir()]
+    if missing and Confirm.ask(
+        f"Create {len(missing)} missing course folder(s)? "
+        + ", ".join(d.name for d in missing[:5])
+        + (" ..." if len(missing) > 5 else ""),
+        default=True,
+    ):
+        for d in missing:
+            d.mkdir(parents=True, exist_ok=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         shutil.copy2(path, path.with_name(path.name + ".bak"))
@@ -481,9 +483,12 @@ def sync_cmd(
             else []
         )
         sync_plan.warnings += [w for w in client.warnings if w not in sync_plan.warnings]
+        to_move = len(pending_moves(cfg, state)) if not dry_run else 0
 
         if OPTS.json:
-            emit_json(report.plan_json(sync_plan, result, dry_run, news_count, date_changes))
+            data = report.plan_json(sync_plan, result, dry_run, news_count, date_changes)
+            data["reorganize_pending"] = to_move
+            emit_json(data)
         else:
             report.print_summary(out, sync_plan, dry_run, result.outcome if result else None)
             if result:
@@ -496,6 +501,8 @@ def sync_cmd(
             if news_count:
                 out.print(f"\n[cyan]{news_count} new announcement(s)[/cyan] - `studip news`")
             report.print_date_changes(out, date_changes)
+            if to_move:
+                out.print(f"\n{report.reorganize_hint(to_move)}")
             if quiet:
                 for name, problem in sync_plan.errors:
                     err.print(f"[red]✗[/red] course {name}: {problem}")
@@ -544,6 +551,7 @@ def status_cmd(
     with State(paths.state_db()) as state:
         last = state.last_run()
         default_routed = state.default_routed()
+        to_move = pending_moves(cfg, state)
     unconfigured: list[dict] = []
     if not offline:
         try:
@@ -565,6 +573,7 @@ def status_cmd(
             for r in default_routed
         ],
         "unconfigured_courses": unconfigured,
+        "reorganize_pending": [{"from": str(m.src), "to": str(m.dst)} for m in to_move],
     }
     if OPTS.json:
         emit_json(data)
@@ -584,7 +593,9 @@ def status_cmd(
         )
         for r in default_routed:
             console.print(f"  {r.local_path}  [dim]← {r.remote_folder_path}/{r.remote_name}[/dim]")
-    if not unconfigured and not default_routed:
+    if to_move:
+        console.print(f"\n{report.reorganize_hint(len(to_move))}")
+    if not unconfigured and not default_routed and not to_move:
         console.print("[green]✓[/green] Nothing to do.")
 
 

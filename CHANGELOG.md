@@ -10,8 +10,18 @@ All notable changes to this project are documented here. The format follows
 - Automatic routing: a file that no rule matches goes to the local folder its Stud.IP
   folder name points to (`Übungen`, `Tutorium`, `Folien`, `Slides`, `Vorlesung`, …)
   instead of the default folder; rules always win; `sync.auto_route` turns it off.
+- A sync (summary, `--json`), `studip status` and the home screen point out synced
+  files that changed rules or automatic routing would now put elsewhere
+  (`studip reorganize`); files moved by hand are not counted.
+- `studip init` offers to create missing course folders, like the setup in the UI;
+  the courses screen (`c`) can create a folder for a new course (*+ new folder*).
 - `sync.exclude.folders` (globs on Stud.IP folder names); by default the
   `CoursewareImport*` folders Stud.IP creates when Courseware is imported are skipped.
+
+### Changed
+- The default folder (`Sonstiges`) is created when a file needs it, instead of every
+  file of a course failing with "target folder does not exist"; rule targets still
+  need `create_missing_dirs`.
 
 ## [0.1.0] - 2026-10-14
 

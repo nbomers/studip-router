@@ -60,6 +60,7 @@ def test_dry_run_then_sync_then_noop(setup: Path) -> None:
 
     again = json.loads(run("--json", "sync").output)
     assert again["actions"] == [] and again["summary"] == {"unchanged": 3}
+    assert again["reorganize_pending"] == 0
 
 
 @respx.mock
@@ -147,3 +148,38 @@ def test_pdf_password_set_list_remove(setup: Path, monkeypatch: pytest.MonkeyPat
     assert json.loads(run("--json", "pdf-password", "list").output) == ["Quantum Cooking"]
     assert "PDF password removed" in run("pdf-password", "remove", "quantum").output
     assert stored == {}
+
+
+@respx.mock
+def test_sync_hints_at_reorganize_after_a_rule_change(setup: Path) -> None:
+    install(respx.mock)
+    run("sync")
+    cfg = Path(paths.config_file())
+    cfg.write_text(
+        cfg.read_text()
+        + f"[[courses.{COURSE}.rules]]\nid = 'orga'\nmatch = {{ name_glob = 'Orga*' }}\n"
+        "target = 'Uebungen'\n"
+    )
+    out = run("sync").output
+    assert "1 synced file(s)" in out and "studip reorganize" in out
+    assert json.loads(run("--json", "status").output)["reorganize_pending"][0]["to"].endswith(
+        "Uebungen/Orga.pdf"
+    )
+
+
+@respx.mock
+def test_init_offers_to_create_missing_course_folders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(respx.mock)
+    root = tmp_path / "Uni"
+    root.mkdir()
+    answers = iter([BASE, "jdoe", str(root), "Quantum Cooking", "-", "Sonstiges"])
+    monkeypatch.setattr("studip_router.cli.Prompt.ask", lambda *a, **k: next(answers))
+    monkeypatch.setattr("studip_router.cli.Confirm.ask", lambda *a, **k: True)
+    monkeypatch.setattr("getpass.getpass", lambda prompt: "pw")
+    monkeypatch.setattr("studip_router.auth.set_password", lambda *a: None)
+    result = run("init")
+    assert result.exit_code == 0, result.output
+    assert (root / "Quantum Cooking").is_dir()
+    assert not (root / "Underwater Basket Weaving").exists()  # excluded with "-"

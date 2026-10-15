@@ -12,6 +12,7 @@ from studip_router.config import load
 from studip_router.tui import ChoiceScreen, ConfirmScreen, HomeScreen, StudipRouterApp
 from studip_router.tui.settings import SettingRow, SettingsScreen
 from studip_router.tui.setup import SetupScreen
+from studip_router.tui.views import NEW_FOLDER
 from studip_router.tui.widgets import HelpScreen
 
 
@@ -252,3 +253,21 @@ async def test_dates_view_lists_exams(course_dir: Path) -> None:
         log = app.screen.query_one(RichLog)
         await wait_for(pilot, lambda: any("Aula" in str(line.text) for line in log.lines))
         assert any("Quantum Cooking" in str(line.text) for line in log.lines)
+
+
+@respx.mock
+async def test_courses_can_create_a_new_course_folder(course_dir: Path, root: Path) -> None:
+    install(respx.mock)
+    app = StudipRouterApp()
+    async with app.run_test(size=(120, 36)) as pilot:
+        await pilot.press("c")
+        table = app.screen.query_one(DataTable)
+        await wait_for(pilot, lambda: table.row_count == 2)
+        titles = [e.course.title for e in app.screen.entries]
+        table.move_cursor(row=titles.index("Underwater Basket Weaving"))
+        await pilot.press("space")
+        assert isinstance(app.screen, ChoiceScreen)
+        keys = [key for key, _ in app.screen.choices]
+        await pilot.press(*["down"] * keys.index(NEW_FOLDER), "enter")
+        assert (root / "Underwater Basket Weaving").is_dir()
+        assert config().courses[OTHER].target == "Underwater Basket Weaving"

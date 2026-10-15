@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from conftest import COURSE_ID, FakeDownloads, remote
@@ -97,3 +98,23 @@ def test_reorganize_moves_files_that_now_route_by_folder_name(root: Path, state)
     ]
     apply_reorganize(moves, state)
     assert (course / "Skript : Alle Folien" / "00_Overview.pdf").exists()
+
+
+def test_pending_moves_only_count_changed_routing(root: Path, state) -> None:
+    from studip_router.reorganize import pending_moves
+
+    course = root / "Example Course"
+    cfg = _cfg(root, SHEETS)
+    files = [remote("Blatt 1.pdf"), remote("notes.pdf")]
+    execute(plan_course(cfg, cfg.courses[COURSE_ID], files, {}), state, FakeDownloads(), run_id=1)
+    assert pending_moves(cfg, state) == []
+
+    # moved by hand while the rule stayed the same: the user's choice, no hint
+    (course / "Uebungen" / "Uebung_01.pdf").rename(course / "Sonstiges" / "Uebung_01.pdf")
+    record = state.get("file-Blatt 1.pdf")
+    state.upsert(replace(record, local_path=str(course / "Sonstiges" / "Uebung_01.pdf")))
+    assert pending_moves(cfg, state) == []
+
+    # a new rule now claims notes.pdf: that is a hint
+    notes = [{"id": "notes", "match": {"name_glob": "notes*"}, "target": "Uebungen"}]
+    assert [m.src.name for m in pending_moves(_cfg(root, SHEETS + notes), state)] == ["notes.pdf"]
