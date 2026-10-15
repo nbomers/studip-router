@@ -262,6 +262,12 @@ class HomeScreen(Screen):
 
 
 class StudipRouterApp(App):
+    """The terminal UI.
+
+    Crash tracebacks are printed without local variables: they could contain the
+    Stud.IP or a PDF password (Textual shows locals by default).
+    """
+
     TITLE = "studip-router"
     CSS = """
     Screen { background: $background; }
@@ -381,12 +387,29 @@ class StudipRouterApp(App):
             except ApiError as exc:
                 self.notify(str(exc), severity="error")
                 return
-            auth.set_password(cfg.base_url, cfg.username, password)
+            try:
+                auth.set_password(cfg.base_url, cfg.username, password)
+            except auth.AuthError as exc:
+                self.notify(str(exc), severity="error", timeout=20)
+                return
             paths.auth_pause_file().unlink(missing_ok=True)  # resume auto-sync
             self.refresh_home(remote_changed=True)
             then()
 
         self.push_screen(PasswordScreen(cfg, error), got)
+
+    def _fatal_error(self) -> None:
+        """Like Textual's own handler, but never renders local variables."""
+        import rich
+        from rich.segment import Segments
+        from rich.traceback import Traceback
+
+        self.bell()
+        traceback = Traceback(show_locals=False, width=None, suppress=[rich])
+        self._exit_renderables.append(
+            Segments(self.console.render(traceback, self.console.options))
+        )
+        self._close_messages_no_wait()
 
 
 def run_tui() -> None:

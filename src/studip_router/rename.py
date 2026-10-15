@@ -46,7 +46,12 @@ class _Formatter(string.Formatter):
             value = int(value)
         return super().format_field(value, format_spec)
 
-    def get_value(self, key: int | str, args: Any, kwargs: dict[str, Any]) -> Any:
+    def get_field(self, field_name: str, args: Any, kwargs: Any) -> Any:
+        if "." in field_name or "[" in field_name:  # no {orig_name.__class__} tricks
+            raise RenameError(f"attribute and index access is not allowed: {{{field_name}}}")
+        return super().get_field(field_name, args, kwargs)
+
+    def get_value(self, key: int | str, args: Any, kwargs: Any) -> Any:
         if isinstance(key, int):
             key = str(key)
         if key not in kwargs:

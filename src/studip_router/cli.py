@@ -32,7 +32,7 @@ from .notify import dates_message, notify, sync_message
 from .planner import build_router
 from .rename import RenameError
 from .reorganize import apply_reorganize, apply_undo, pending_moves, plan_reorganize, plan_undo
-from .state import State
+from .state import State, StateError
 from .suggest import suggest_rules
 from .sync import (
     CourseStatus,
@@ -201,7 +201,10 @@ def auth_login(config: ConfigOpt = None) -> None:
         raise fail(f"{exc} - nothing was stored", 3) from None
     except ApiError as exc:
         raise fail(str(exc)) from None
-    auth.set_password(cfg.base_url, cfg.username, password)
+    try:
+        auth.set_password(cfg.base_url, cfg.username, password)
+    except auth.AuthError as exc:
+        raise fail(f"{exc} - nothing was stored", 3) from None
     paths.auth_pause_file().unlink(missing_ok=True)  # resume auto-sync
     console.print(
         f"[green]✓[/green] Logged in as {me['name'] or cfg.username}; "
@@ -227,7 +230,10 @@ def auth_status(config: ConfigOpt = None) -> None:
 def auth_logout(config: ConfigOpt = None) -> None:
     """Remove the stored password from the keychain."""
     cfg = load_config(config)
-    removed = auth.delete_password(cfg.base_url, cfg.username)
+    try:
+        removed = auth.delete_password(cfg.base_url, cfg.username)
+    except auth.AuthError as exc:
+        raise fail(str(exc), 3) from None
     console.print("Password removed." if removed else "No password was stored.")
 
 
@@ -371,15 +377,18 @@ def init_cmd(
     if missing and Confirm.ask(
         f"Create {len(missing)} course folder(s) in {display_path(root_path, home)}, "
         f"each with {', '.join(template)}?",
-        default=True,
+        default=True,  # type: ignore[arg-type]  # rich's stub types `default` too narrowly
     ):
         for d in missing:
             create_course_folder(root_path, d.name, template)
+    try:  # first, so a missing keychain leaves no half-finished setup behind
+        auth.set_password(base_url, username, password)
+    except auth.AuthError as exc:
+        raise fail(f"{exc} - the config was not written", 3) from None
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         shutil.copy2(path, path.with_name(path.name + ".bak"))
     path.write_text(text, encoding="utf-8")
-    auth.set_password(base_url, username, password)
     console.print(f"\n[green]✓[/green] Wrote {path}")
     console.print(
         "Next: [bold]studip rules suggest --write[/bold], then [bold]studip sync --dry-run[/bold]."
@@ -474,13 +483,7 @@ def sync_cmd(
                     include_large=include_large,
                 )
         except AuthFailed as exc:
-            pause.parent.mkdir(parents=True, exist_ok=True)
-            pause.write_text("login failed\n")
-            if background:
-                notify(
-                    "studip-router",
-                    "Stud.IP login failed - auto-sync paused. Run `studip auth login`.",
-                )
+            _pause_auto_sync(background)
             raise fail(f"{exc}; auto-sync is paused until `studip auth login`", 3) from None
         except ApiError as exc:
             if background:
@@ -501,11 +504,15 @@ def sync_cmd(
                     client,
                     on_course=lambda p: out.print(f"[bold]{p.course.name or p.course.id}[/bold]"),
                     on_progress=lambda a: out.print(
-                        f"  [{report.STYLE[a.kind]}]{report.SYMBOL[a.kind]}[/] {a.dest.name}"
+                        f"  [{report.STYLE[a.kind]}]{report.SYMBOL[a.kind]}[/] "
+                        + (a.dest.name if a.dest else "")
                     ),
                 )
             except Locked as exc:
                 raise fail(f"{exc} - try again in a moment", 75) from None
+            except AuthFailed as exc:
+                _pause_auto_sync(background)
+                raise fail(f"{exc}; auto-sync is paused until `studip auth login`", 3) from None
             except KeyboardInterrupt:
                 err.print(
                     "\n[yellow]Interrupted.[/yellow] Finished files are recorded, no "
@@ -558,6 +565,15 @@ def sync_cmd(
                 notify("Stud.IP dates", dates)
         if failed or sync_plan.errors:
             raise typer.Exit(1)
+
+
+def _pause_auto_sync(background: bool) -> None:
+    """A rejected login pauses auto-sync, so a changed password cannot lock the account."""
+    pause = paths.auth_pause_file()
+    pause.parent.mkdir(parents=True, exist_ok=True)
+    pause.write_text("login failed\n")
+    if background:
+        notify("studip-router", "Stud.IP login failed - auto-sync paused. Run `studip auth login`.")
 
 
 def _plan_courses(sync_plan) -> list[tuple[str, str]]:
@@ -748,6 +764,8 @@ def rules_suggest(
         for c in targets:
             try:
                 files = client.files(c.id)
+            except AuthFailed as exc:  # do not repeat a rejected login for every course
+                raise fail(str(exc), 3) from None
             except ApiError as exc:
                 err.print(f"[yellow]{c.name}: {exc}[/yellow]")
                 continue
@@ -896,6 +914,8 @@ def news_cmd(
         for c in courses:
             try:
                 items += fetch_news(client, c.id, c.name or c.target)
+            except AuthFailed as exc:  # do not repeat a rejected login for every course
+                raise fail(str(exc), 3) from None
             except ApiError as exc:
                 err.print(f"[yellow]{c.name}: {exc}[/yellow]")
         shown = items if show_all else unread(state, items)
@@ -1062,15 +1082,18 @@ def ignore_add(
             if r.file_id == query or q in r.remote_name.casefold()
         ]
         if not hits:
-            with open_client(cfg) as client:
-                for c in cfg.courses.values():
-                    if c.exclude:
-                        continue
-                    hits += [
-                        (f.id, c.id, f.name)
-                        for f in client.files(c.id)
-                        if f.id == query or q in f.name.casefold()
-                    ]
+            try:
+                with open_client(cfg) as client:
+                    for c in cfg.courses.values():
+                        if c.exclude:
+                            continue
+                        hits += [
+                            (f.id, c.id, f.name)
+                            for f in client.files(c.id)
+                            if f.id == query or q in f.name.casefold()
+                        ]
+            except ApiError as exc:  # stops at the first error, also a rejected login
+                raise fail(str(exc), 3 if isinstance(exc, AuthFailed) else 1) from None
         if len(hits) != 1:
             names = "\n  ".join(f"{fid}  {name}" for fid, _, name in hits[:20])
             raise fail(
@@ -1112,8 +1135,12 @@ def dates_cmd(
         first = not state.all_course_dates()
         if not offline:
             courses = [(c.id, c.name or c.target) for c in cfg.courses.values() if not c.exclude]
-            with open_client(cfg) as client:
-                check_dates(client, state, courses, now)
+            try:
+                with open_client(cfg) as client:
+                    check_dates(client, state, courses, now)
+            except ApiError as exc:
+                code = 3 if isinstance(exc, AuthFailed) else 1
+                raise fail(f"{exc} (use --offline for the saved dates)", code) from None
         changes = [
             r
             for r in state.date_changes_since(now - timedelta(days=days))
@@ -1168,7 +1195,10 @@ def pdf_password_set(
     password = getpass.getpass(f"PDF password for {course_cfg.name or course_cfg.id}: ")
     if not password:
         raise fail("no password entered - nothing was stored")
-    auth.set_pdf_password(course_cfg.id, password)
+    try:
+        auth.set_pdf_password(course_cfg.id, password)
+    except auth.AuthError as exc:
+        raise fail(f"{exc} - nothing was stored", 3) from None
     try:
         with exclusive_lock(paths.lock_file()), State(paths.state_db()) as state:
             outcome = unlock_course(state, course_cfg.id, password)
@@ -1185,7 +1215,10 @@ def pdf_password_remove(
 ) -> None:
     """Forget the course's PDF password (files already unlocked stay unlocked)."""
     course_cfg = find_course(load_config(config), course)
-    removed = auth.delete_pdf_password(course_cfg.id)
+    try:
+        removed = auth.delete_pdf_password(course_cfg.id)
+    except auth.AuthError as exc:
+        raise fail(str(exc), 3) from None
     console.print("PDF password removed." if removed else "No PDF password was stored.")
 
 
@@ -1225,4 +1258,13 @@ def tui_cmd() -> None:
 
 
 def main() -> None:
-    app()
+    """Entry point; expected problems end with a message and exit code, no traceback."""
+    try:
+        app()
+    except (StateError, auth.AuthError) as exc:
+        code = 3 if isinstance(exc, auth.AuthError) else 4
+        if OPTS.json:
+            emit_json({"error": str(exc)})
+        else:
+            err.print(f"[red]Error:[/red] {exc}")
+        sys.exit(code)

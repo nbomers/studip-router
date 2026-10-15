@@ -77,6 +77,46 @@ def rel(path: Path, base: Path) -> str:
         return str(path)
 
 
+# File types that `open`/`xdg-open` would run rather than show.
+RUNNABLE = frozenset(
+    [
+        ".app",
+        ".command",
+        ".tool",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".fish",
+        ".csh",
+        ".py",
+        ".pyw",
+        ".rb",
+        ".pl",
+        ".jar",
+        ".desktop",
+        ".run",
+        ".bin",
+        ".appimage",
+        ".exe",
+        ".msi",
+        ".bat",
+        ".cmd",
+        ".com",
+        ".ps1",
+        ".vbs",
+        ".scpt",
+        ".applescript",
+        ".workflow",
+        ".pkg",
+        ".mpkg",
+        ".terminal",
+        ".webloc",
+        ".inetloc",
+        ".url",
+    ]
+)
+
+
 class View(Screen):
     """Full-screen view: title bar, Esc/q back, j/k move."""
 
@@ -279,10 +319,12 @@ class SyncView(View):
     def action_start(self) -> None:
         if self.running or not self._todo() or self.plan is None:
             return
-        self.app.push_screen(
-            ConfirmScreen("Sync now?", plan_summary(self.plan)),
-            lambda ok: self.run_sync() if ok else None,
-        )
+
+        def confirmed(ok: bool | None) -> None:
+            if ok:
+                self.run_sync()
+
+        self.app.push_screen(ConfirmScreen("Sync now?", plan_summary(self.plan)), confirmed)
 
     @work(thread=True, exclusive=True)
     def run_sync(self) -> None:
@@ -386,7 +428,7 @@ class CoursesView(View):
     HINT = "Space: sync on/off · Enter: choose folder"
     BINDINGS: ClassVar = [
         *View.BINDINGS,
-        Binding("space", "toggle", "On/off"),
+        Binding("space", "toggle_course", "On/off"),
         Binding("enter", "choose_folder", "Folder"),
         Binding("a", "toggle_all_semesters", "All semesters"),
     ]
@@ -464,7 +506,7 @@ class CoursesView(View):
         self.app.refresh_home()  # type: ignore[attr-defined]
         return True
 
-    def action_toggle(self) -> None:
+    def action_toggle_course(self) -> None:
         entry = self._selected()
         if entry is None:
             return
@@ -590,6 +632,15 @@ class HistoryView(View):
 
     @on(DataTable.RowSelected)
     def action_open(self) -> None:
+        path = self._selected()
+        if path is not None and path.suffix.lower() in RUNNABLE:
+            # Downloads carry no quarantine flag: opening could run a program
+            # uploaded to Stud.IP without any warning. Show it in the folder instead.
+            self.notify(
+                f"{path.name} is a program or script - not opened. Press r to show it.",
+                severity="warning",
+            )
+            return
         self._run("open" if sys.platform == "darwin" else "xdg-open")
 
     def action_reveal(self) -> None:

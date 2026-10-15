@@ -128,14 +128,41 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+# Bumped whenever the schema changes; older files are migrated, newer ones refused.
+SCHEMA_VERSION = 1
+
+
+class StateError(Exception):
+    """The state database cannot be used (damaged, or written by a newer version)."""
+
+
 class State:
     def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        from .paths import private_dir, private_file
+
+        private_dir(path.parent)
         self.path = path
-        self._db = sqlite3.connect(path)
-        self._db.row_factory = sqlite3.Row
-        self._db.executescript(SCHEMA)
-        self._migrate()
+        try:
+            self._db = sqlite3.connect(path)
+            self._db.row_factory = sqlite3.Row
+            version = self._db.execute("PRAGMA user_version").fetchone()[0]
+            if version > SCHEMA_VERSION:
+                self._db.close()
+                raise StateError(
+                    f"{path} was written by a newer studip-router (schema {version}); "
+                    "update studip-router (`uv tool upgrade studip-router`)"
+                )
+            self._db.executescript(SCHEMA)
+            self._migrate()
+            if version < SCHEMA_VERSION:
+                self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                self._db.commit()
+        except sqlite3.DatabaseError as exc:
+            raise StateError(
+                f"{path} is damaged ({exc}). Rename it (e.g. to state.sqlite.broken) and "
+                "sync again: files already on disk are recognised and not downloaded twice"
+            ) from None
+        private_file(path)
 
     def _migrate(self) -> None:
         columns = {row["name"] for row in self._db.execute("PRAGMA table_info(files)")}
@@ -185,7 +212,8 @@ class State:
             "INSERT INTO runs (started_at, mode) VALUES (?, ?)", (now_iso(), mode)
         )
         self._db.commit()
-        return int(cur.lastrowid)
+        assert cur.lastrowid is not None
+        return cur.lastrowid
 
     def finish_run(self, run_id: int, summary: dict) -> None:
         self._db.execute(

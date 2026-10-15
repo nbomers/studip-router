@@ -12,10 +12,10 @@ from pathlib import Path
 
 import httpx
 
-from .api import ApiError
+from .api import ApiError, AuthFailed
 from .fsutil import atomic_writer, local_stat, move_no_clobber, sha256_file
 from .models import RemoteFile
-from .planner import Action, CoursePlan, Kind
+from .planner import Action, CoursePlan, Kind, is_locally_modified
 from .postprocess import PostprocessError, Unlock, extract_zip, unlock_pdf
 from .state import FileRecord, State
 
@@ -42,7 +42,12 @@ def execute(
     pdf_password: str | None = None,
 ) -> Outcome:
     """Apply ``plan``. With ``pdf_password``, new files of the course that are PDFs
-    locked with exactly this password are stored without it."""
+    locked with exactly this password are stored without it.
+
+    One failing file never stops the others, whatever the error; only a rejected
+    login (``AuthFailed``) ends the run, so a wrong password is not retried for
+    every file (that could lock the account).
+    """
     outcome = Outcome()
     for action in plan.actions:
         if action.kind in (Kind.SKIP, Kind.ERROR):
@@ -51,11 +56,18 @@ def execute(
             _apply(action, state, download, run_id)
             if pdf_password and action.kind in UNLOCKS:
                 _unlock(action, state, pdf_password, outcome)
-        except (ApiError, OSError) as exc:
-            log.error("failed: %s -> %s: %s", _label(action), action.dest, exc)
-            outcome.failed.append((action, str(exc)))
+        except AuthFailed:
+            raise
+        except Exception as exc:  # KeyboardInterrupt still stops the run
+            if isinstance(exc, (ApiError, OSError)):
+                log.error("failed: %s -> %s: %s", _label(action), action.dest, exc)
+                message = str(exc)
+            else:
+                log.exception("unexpected error: %s -> %s", _label(action), action.dest)
+                message = f"unexpected error: {type(exc).__name__}: {exc}"
+            outcome.failed.append((action, message))
             if action.file is not None:
-                state.record_failure(action.file.id, str(exc))
+                state.record_failure(action.file.id, message)
             continue
         if action.file is not None and action.transfers:
             state.clear_failure(action.file.id)
@@ -89,6 +101,8 @@ def unlock_record(state: State, record: FileRecord, password: str, outcome: Outc
     st = local_stat(path)
     if st is None or st.dataless:
         return  # missing, or only in iCloud: never downloaded just for this
+    if is_locally_modified(record, st, path):
+        return  # edited (e.g. annotated) since the sync: never rewritten
     try:
         result = unlock_pdf(path, password)
     except PostprocessError as exc:
@@ -192,6 +206,9 @@ def _apply(action: Action, state: State, download: Downloader, run_id: int) -> N
     if action.kind is not Kind.OVERWRITE and action.dest.exists():
         # Plan is stale (file appeared meanwhile): never clobber.
         raise OSError(f"refusing to overwrite unexpected file {action.dest}")
+    if action.kind is Kind.OVERWRITE:
+        assert previous is not None
+        _check_unchanged(previous, action.dest)  # the plan may be old (UI preview)
     # A changed date often means a renamed or re-uploaded but identical file:
     # compare the content before creating a "_v2" copy of the same bytes.
     known = (
@@ -202,7 +219,15 @@ def _apply(action: Action, state: State, download: Downloader, run_id: int) -> N
         and previous.sha256
         else None
     )
-    sha, written = fetch_verified(file, action.dest, download, unless_sha=known)
+    dest = action.dest
+    before_replace = (
+        (lambda: _check_unchanged(previous, dest))
+        if action.kind is Kind.OVERWRITE and previous is not None
+        else None
+    )
+    sha, written = fetch_verified(
+        file, action.dest, download, unless_sha=known, before_replace=before_replace
+    )
     if not written:
         assert previous is not None
         log.info("%s: content unchanged on Stud.IP, nothing written", file.name)
@@ -245,6 +270,20 @@ def _save(
         state.delete_file_record(previous.file_id)
 
 
+def _check_unchanged(previous: FileRecord, path: Path) -> None:
+    """Raise if the local copy was edited since we wrote it (checked at run time)."""
+    st = local_stat(path)
+    if st is not None and is_locally_modified(previous, st, path):
+        raise LocalChangeError(
+            f"{path.name} was changed locally since the preview; not overwritten "
+            "(the next sync keeps it and saves the new version next to it)"
+        )
+
+
+class LocalChangeError(OSError):
+    """The file to overwrite was edited after the plan was made."""
+
+
 _sleep = time.sleep  # replaced in tests
 
 
@@ -282,17 +321,26 @@ def fetch_verified(
     download: Downloader,
     attempts: int = 3,
     unless_sha: str | None = None,
+    before_replace: Callable[[], None] | None = None,
 ) -> tuple[str, bool]:
     """Download into ``dest`` atomically; return (sha256, written).
 
     Interrupted transfers and size mismatches are retried. If the size reported
     by Stud.IP is wrong but two complete downloads agree, the file is accepted.
     With ``unless_sha``, identical content is discarded instead of written.
+    ``before_replace`` runs right before ``dest`` is replaced and may raise to keep it.
     """
     mismatch: int | None = None
     for attempt in range(1, attempts + 1):
         try:
-            commit = (lambda sha: sha != unless_sha) if unless_sha else None
+
+            def commit(sha: str) -> bool:
+                if unless_sha and sha == unless_sha:
+                    return False
+                if before_replace is not None:
+                    before_replace()
+                return True
+
             with atomic_writer(dest, commit) as (fh, digest):
                 guard = _Guard(file, fh.write)
                 download(file.id, guard.write)

@@ -8,6 +8,7 @@ everything (used by tests and the scheduler).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 from pathlib import Path
@@ -75,3 +76,20 @@ def lock_file() -> Path:
 def auth_pause_file() -> Path:
     """Exists while auto-sync is paused after a failed login."""
     return state_dir() / f"{profile() or 'default'}.auth-paused"
+
+
+def private_dir(path: Path) -> Path:
+    """Create ``path`` readable only by the user (state, log: course names, paths)."""
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name != "nt":
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o700)
+    return path
+
+
+def private_file(path: Path) -> None:
+    """Make an existing file readable only by the user (best effort)."""
+    if os.name == "nt":
+        return
+    with contextlib.suppress(OSError):
+        os.chmod(path, 0o600)

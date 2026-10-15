@@ -140,6 +140,12 @@ class SetupScreen(Screen):
                 "Try the address in a browser: …/jsonapi.php/v1/discovery[/dim]",
             )
             return
+        except Exception as exc:  # unexpected answer: report it, never crash with locals
+            self.app.call_from_thread(
+                self.query_one("#status", Static).update,
+                f"[red]Unexpected answer from Stud.IP ({type(exc).__name__}).[/red]",
+            )
+            return
         self.values = values
         self.semester = sem.title
         courses = sorted(courses, key=lambda c: c.title)
@@ -261,6 +267,15 @@ class SetupScreen(Screen):
         def write(ok: bool | None = True) -> None:
             if not ok:
                 return
+            try:  # first, so a missing keychain leaves no half-finished setup behind
+                auth.set_password(
+                    self.values["url"].rstrip("/"),
+                    self.values["username"],
+                    self.values["password"],
+                )
+            except auth.AuthError as exc:
+                self.notify(str(exc), severity="error", timeout=20)
+                return
             try:
                 root.mkdir(parents=True, exist_ok=True)
                 for name in to_create:
@@ -281,9 +296,7 @@ class SetupScreen(Screen):
                 ),
                 encoding="utf-8",
             )
-            auth.set_password(
-                self.values["url"].rstrip("/"), self.values["username"], self.values["password"]
-            )
+            self.values.pop("password", None)  # stored in the keychain; drop the copy
             self.app.finish_setup()  # type: ignore[attr-defined]
 
         if to_create:

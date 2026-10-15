@@ -157,7 +157,18 @@ class StudipClient:
 
     def _get_json(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         url = path if path.startswith("http") else self.api_url + path
-        return self._request("GET", url, params=params).json()
+        response = self._request("GET", url, params=params)
+        try:
+            doc = response.json()
+        except ValueError:
+            kind = response.headers.get("content-type", "").split(";")[0] or "no content type"
+            raise ApiError(
+                f"Stud.IP sent {kind} instead of JSON for {url} - a single sign-on (SSO) "
+                "login page, a maintenance page, or the JSON:API is not enabled"
+            ) from None
+        if not isinstance(doc, dict):
+            raise ApiError(f"unexpected JSON from {url}")
+        return doc
 
     def _paginate(
         self, path: str, params: dict[str, Any] | None = None
@@ -187,7 +198,11 @@ class StudipClient:
     def semesters(self) -> list[Semester]:
         if not self._semesters:
             for item, _ in self._paginate("/semesters"):
-                sem = self._semester_from(item)
+                try:
+                    sem = self._semester_from(item)
+                except (KeyError, TypeError, ValueError) as exc:
+                    self._skipped(item, exc)
+                    continue
                 self._semesters[sem.id] = sem
         return sorted(self._semesters.values(), key=lambda s: s.start)
 
@@ -202,12 +217,10 @@ class StudipClient:
     @staticmethod
     def _semester_from(item: dict[str, Any]) -> Semester:
         attrs = item["attributes"]
-        return Semester(
-            id=item["id"],
-            title=attrs["title"],
-            start=_parse_dt(attrs["start"]),
-            end=_parse_dt(attrs["end"]),
-        )
+        start, end = _parse_dt(attrs["start"]), _parse_dt(attrs["end"])
+        if start is None or end is None:
+            raise ValueError("semester without start or end")
+        return Semester(id=item["id"], title=attrs["title"], start=start, end=end)
 
     def courses(self, user_id: str) -> list[Course]:
         self.semesters()  # fill cache so relationships resolve
@@ -287,6 +300,8 @@ class StudipClient:
         """
         try:
             units = self._get_json(f"/courses/{course_id}/courseware-units")["data"]
+        except AuthFailed:
+            raise
         except ApiError:
             return []
         file_ids: dict[str, str] = {}  # file-ref id -> page path
@@ -339,6 +354,8 @@ class StudipClient:
                         folder_type="Courseware",
                     )
                 )
+            except AuthFailed:
+                raise
             except ApiError as exc:
                 self.warnings.append(f"courseware file {fid}: {exc}")
             except (KeyError, TypeError, ValueError) as exc:
@@ -349,6 +366,8 @@ class StudipClient:
         """Number of Courseware units (content there is not synced)."""
         try:
             doc = self._get_json(f"/courses/{course_id}/courseware-units", {"page[limit]": 1})
+        except AuthFailed:
+            raise
         except ApiError:
             return 0
         total = (doc.get("meta") or {}).get("page", {}).get("total")

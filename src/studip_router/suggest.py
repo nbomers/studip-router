@@ -72,6 +72,14 @@ LOCAL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "slides": ("skript", "script", "folie", "slide", "vorlesung", "lecture", "notes", "unterlagen"),
     "misc": ("sonstig", "misc", "other", "allgemein", "general", "divers", "inbox", "extra"),
 }
+# Words that contain a keyword but mean something else ("Examples" is no exam,
+# "Cheat sheet" no exercise sheet, a "Scripts"/"Code" folder holds programs).
+# They are removed before the keywords are matched.
+_FALSE_FRIENDS = re.compile(
+    r"example\w*|exemplar\w*|cheat[\s_-]?sheets?|(?<![a-z])scripts(?![a-z])"
+    r"|(?<![a-z])(?:source[\s_-]?)?code(?![a-z])"
+)
+
 # Local folders that are archives, never a target for new files.
 _ARCHIVE = ("old", "alt", "archiv", "archive", "backup", "previous")
 _PAST = ("alt", "old", "past", "previous", "frueher")
@@ -124,7 +132,7 @@ def local_subdirs(course_dir: Path, depth: int = 2) -> list[str]:
 
 
 def _category(text: str) -> str | None:
-    words = normalise_name(text)
+    words = _FALSE_FRIENDS.sub(" ", normalise_name(text))
     for name, keywords in REMOTE_KEYWORDS.items():
         if _has_keyword(words, keywords):
             return name

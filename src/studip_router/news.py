@@ -51,10 +51,14 @@ def html_to_text(content: str) -> str:
 
 
 def _parse_dt(value: str | None) -> datetime | None:
+    """Aware datetime; a time without offset is taken as local time."""
     try:
-        return datetime.fromisoformat(value) if value else None
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
     except ValueError:
         return None
+    if parsed is not None and parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return parsed
 
 
 def fetch_news(client: StudipClient, course_id: str, course_title: str) -> list[News]:

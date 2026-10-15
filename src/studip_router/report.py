@@ -10,6 +10,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from . import paths
 from .dates import Change, ChangeKind
 from .executor import Outcome
 from .planner import Action, CoursePlan, Kind
@@ -39,9 +40,18 @@ SYMBOL = {
 }
 
 
+class _PrivateLog(RotatingFileHandler):
+    """The log names courses and paths: readable only by the user."""
+
+    def _open(self):
+        stream = super()._open()
+        paths.private_file(Path(self.baseFilename))
+        return stream
+
+
 def setup_file_logging(path: Path, verbose: bool) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handler = RotatingFileHandler(path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    paths.private_dir(path.parent)
+    handler = _PrivateLog(path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger("studip_router")
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
@@ -148,8 +158,8 @@ def print_summary(
             console.print(f"  {c.id}  {c.title}")
     if sync_plan.missing:
         console.print("\n[yellow]Configured courses not found on Stud.IP:[/yellow]")
-        for c in sync_plan.missing:
-            console.print(f"  {c.id}  {c.name}")
+        for missing in sync_plan.missing:
+            console.print(f"  {missing.id}  {missing.name}")
 
     if sync_plan.errors:
         console.print("\n[red]Courses that could not be read (the others were synced):[/red]")

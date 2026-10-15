@@ -523,7 +523,10 @@ class SettingsScreen(Screen):
 
         def logout(ok: bool | None) -> None:
             if ok:
-                auth.delete_password(cfg.base_url, cfg.username)
+                try:
+                    auth.delete_password(cfg.base_url, cfg.username)
+                except auth.AuthError as exc:
+                    self.notify(str(exc), severity="error")
                 self.refresh_account()
 
         self.app.push_screen(ConfirmScreen("Remove the stored password?"), logout)

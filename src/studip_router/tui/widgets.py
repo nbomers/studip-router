@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, ClassVar
 
 from textual import on
@@ -16,17 +17,27 @@ from ..config import Config
 
 
 class ConfirmScreen(ModalScreen[bool]):
-    """Yes/no question. y/Enter confirms, n/Esc cancels."""
+    """Yes/no question. y/Enter confirms, n/Esc cancels.
+
+    Enter right after the dialog opened is ignored: a double Enter (one to start,
+    one by accident) must not confirm before the summary could be read.
+    """
 
     BINDINGS: ClassVar = [
-        Binding("y,enter", "answer(True)", "Yes"),
+        Binding("y", "answer(True)", "Yes"),
+        Binding("enter", "enter", "Yes", show=False),
         Binding("n,escape", "answer(False)", "No"),
     ]
+    ENTER_DELAY = 0.4  # seconds
 
     def __init__(self, question: str, detail: str = "") -> None:
         super().__init__()
         self.question = question
         self.detail = detail
+        self._opened = time.monotonic()
+
+    def _too_early(self) -> bool:
+        return time.monotonic() - self._opened < self.ENTER_DELAY
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
@@ -38,11 +49,18 @@ class ConfirmScreen(ModalScreen[bool]):
                 yield Button("No  n", id="no")
 
     def on_mount(self) -> None:
+        self._opened = time.monotonic()
         self.query_one("#yes", Button).focus()
 
     @on(Button.Pressed)
     def pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "yes" and self._too_early():
+            return
         self.dismiss(event.button.id == "yes")
+
+    def action_enter(self) -> None:
+        if not self._too_early():
+            self.dismiss(True)
 
     def action_answer(self, value: bool) -> None:
         self.dismiss(value)

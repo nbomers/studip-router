@@ -28,11 +28,17 @@ class ScheduleStatus:
 
 
 def executable() -> str:
-    """Absolute path of the `studip` command to run from the scheduler."""
+    """Absolute path of *this* installation's `studip` command for the scheduler.
+
+    The script next to the running interpreter comes first: another tool called
+    `studip` earlier in PATH must never be scheduled instead.
+    """
+    name = "studip.exe" if sys.platform == "win32" else "studip"
+    for candidate in (Path(sys.executable).parent / name, Path(sys.argv[0])):
+        if candidate.name == name and candidate.is_file():
+            return str(candidate.absolute())
     found = shutil.which("studip")
-    if found:
-        return str(Path(found).resolve())
-    return str(Path(sys.argv[0]).resolve())
+    return str(Path(found).absolute()) if found else str(Path(sys.argv[0]).absolute())
 
 
 def executable_warning(exe: str) -> str | None:

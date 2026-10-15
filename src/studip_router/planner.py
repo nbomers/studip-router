@@ -237,10 +237,16 @@ def plan_course(
 
     existing = list(walk_files(course_dir))
     by_name: dict[str, list[Path]] = {}
-    by_base: dict[str, list[Path]] = {}  # "a_v2.pdf"/"a_2.pdf" also under "a.pdf"
     for p in existing:
         by_name.setdefault(name_key(p.name), []).append(p)
-        if (base := _unsuffixed(p.name)) is not None:
+    # "a_v2.pdf" also under "a.pdf", but only next to an existing "a.pdf": that is a
+    # version chain this tool wrote (state lost). A lone "Blatt_01.pdf" is no
+    # version of "Blatt.pdf".
+    present = {path_key(p) for p in existing}
+    by_base: dict[str, list[Path]] = {}
+    for p in existing:
+        base = _unsuffixed(p.name)
+        if base is not None and path_key(p.with_name(base)) in present:
             by_base.setdefault(name_key(base), []).append(p)
     claims = _Claims(existing + [Path(r.local_path) for r in records.values()])
     adopted: set[str] = set(path_key(r.local_path) for r in records.values())
@@ -256,7 +262,7 @@ def plan_course(
     ctx = _Ctx(cfg, plan, claims, route_file, by_name, by_base, adopted, planned_dirs)
 
     for file in sorted(remote_files, key=lambda f: (f.folder_path, nfc(f.name))):
-        reason = exclusion_reason(file, excludes)
+        reason: str | None = exclusion_reason(file, excludes)
         if file.id in ignored:
             reason = SkipReason.IGNORED
         elif (backoff := _backoff(failures.get(file.id))) is not None:
@@ -415,11 +421,11 @@ def same_time(stored: str, remote: datetime) -> bool:
         return False
 
 
-_SUFFIXED = re.compile(r"^(.+?)_v?\d{1,3}(\.[^.]+)?$")
+_SUFFIXED = re.compile(r"^(.+?)_v\d{1,3}(\.[^.]+)?$")
 
 
 def _unsuffixed(name: str) -> str | None:
-    """ "a_v2.pdf" / "a_2.pdf" -> "a.pdf" (names this tool creates for versions/clashes)."""
+    """ "a_v2.pdf" -> "a.pdf" (the names this tool creates for versions)."""
     m = _SUFFIXED.match(name)
     return f"{m.group(1)}{m.group(2) or ''}" if m else None
 
