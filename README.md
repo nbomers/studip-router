@@ -418,7 +418,7 @@ Found a security problem? See [SECURITY.md](https://github.com/nbomers/studip-ro
 |---|---|
 | `:` `*` `?` `"` `<` `>` `\|` in names | replaced (`Kapitel 1: Intro` → `Kapitel 1 - Intro`), so the folder also syncs to Windows/OneDrive/iCloud for Windows (`rename.portable`) |
 | names longer than 255 bytes (umlauts count twice) | shortened, extension kept, room left for `_v2` |
-| `/`, control characters, leading dot, trailing dots/spaces, `CON`/`NUL`… | made safe |
+| `/`, control and bidi characters, leading dot, trailing dots/spaces, `CON`/`NUL`… | made safe (`Lösung\u202Efdp.exe` cannot pose as a PDF) |
 | `&amp;` & co. in Stud.IP names | decoded |
 | file without extension | added from the MIME type (`Blatt 1` + PDF → `Blatt 1.pdf`) |
 | upper/lower case, NFC/NFD (`ü` vs `u` + `¨`) | treated as the same name; no duplicates |
@@ -426,7 +426,9 @@ Found a security problem? See [SECURITY.md](https://github.com/nbomers/studip-ro
 | hand-downloaded `Homework_1.pdf` vs `Homework 1.pdf` on Stud.IP | recognised as the same file |
 | interrupted download, wrong size | retried; never leaves half files |
 | Stud.IP sends a login/error page instead of the file | rejected and reported, retried next time |
-| Stud.IP reports a wrong size | accepted once two downloads agree |
+| Stud.IP reports a slightly wrong size | accepted once two downloads agree; a file far bigger than announced (or than the size limit) is stopped while downloading |
+| `[b]`, `[link=…]` in titles, file names or announcements | shown as text, never as formatting or a clickable link |
+| a server that pages endlessly or repeats pages | stopped; every record is used once |
 | one file fails | the others continue; the failed one is retried next sync |
 | files only in iCloud (also old `.name.icloud` placeholders) | never downloaded just to compare |
 | ZIPs with garbled umlaut names, ZIP-slip, ZIP bombs | names repaired and made safe, unsafe archives refused (more than 1 GiB, 20 000 entries or a compression ratio above 200:1) |
@@ -435,7 +437,7 @@ Found a security problem? See [SECURITY.md](https://github.com/nbomers/studip-ro
 | two syncs at once (auto-sync + manual) | the second one stops with a message instead of racing |
 | crash or power loss mid-download | leftover temp files are cleaned up after a day |
 | university CA or TLS-inspecting proxy | the operating system's certificate store is used |
-| link to an external site redirects elsewhere | your credentials are never sent to the other host |
+| link to an external site redirects elsewhere | your credentials are never sent to the other host; redirects to plain `http://` are refused |
 
 </details>
 

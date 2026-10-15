@@ -53,7 +53,7 @@ def execute(
         if action.kind in (Kind.SKIP, Kind.ERROR):
             continue
         try:
-            _apply(action, state, download, run_id)
+            _apply(action, state, download, run_id, plan.max_bytes)
             if pdf_password and action.kind in UNLOCKS:
                 _unlock(action, state, pdf_password, outcome)
         except AuthFailed:
@@ -150,7 +150,13 @@ def _unzip(action: Action, state: State, run_id: int, outcome: Outcome) -> None:
         log.info("unzip %s -> %s", action.dest, folder)
 
 
-def _apply(action: Action, state: State, download: Downloader, run_id: int) -> None:
+def _apply(
+    action: Action,
+    state: State,
+    download: Downloader,
+    run_id: int,
+    max_bytes: int | None = None,
+) -> None:
     assert action.dest is not None
     if action.kind is Kind.MKDIR:
         action.dest.mkdir(parents=True, exist_ok=True)
@@ -226,7 +232,12 @@ def _apply(action: Action, state: State, download: Downloader, run_id: int) -> N
         else None
     )
     sha, written = fetch_verified(
-        file, action.dest, download, unless_sha=known, before_replace=before_replace
+        file,
+        action.dest,
+        download,
+        unless_sha=known,
+        before_replace=before_replace,
+        max_bytes=max_bytes,
     )
     if not written:
         assert previous is not None
@@ -291,13 +302,30 @@ class DownloadError(OSError):
     """The received content is not the file we expected."""
 
 
-class _Guard:
-    """Counts bytes and rejects HTML error/login pages served instead of a file."""
+class TooLargeError(DownloadError):
+    """The server sends far more than it announced, or more than the size limit."""
 
-    def __init__(self, file: RemoteFile, sink: Callable[[bytes], object]) -> None:
+
+def size_limit(file: RemoteFile, max_bytes: int | None) -> int | None:
+    """Most bytes accepted for ``file``: a bit more than announced (Stud.IP's size is
+    sometimes slightly off), never more than the configured size limit."""
+    limits = [max_bytes] if max_bytes else []
+    if file.size > 0:
+        limits.append(file.size + max(file.size // 10, 1 << 20))
+    return min(limits) if limits else None
+
+
+class _Guard:
+    """Counts bytes, stops oversized transfers and rejects HTML pages served instead
+    of a file."""
+
+    def __init__(
+        self, file: RemoteFile, sink: Callable[[bytes], object], limit: int | None = None
+    ) -> None:
         self.file = file
         self.sink = sink
         self.size = 0
+        self.limit = limit
 
     def write(self, chunk: bytes) -> None:
         if self.size == 0 and chunk and not _expects_html(self.file):
@@ -308,6 +336,11 @@ class _Guard:
                     "(expired login, missing permission or a link to a website?)"
                 )
         self.size += len(chunk)
+        if self.limit is not None and self.size > self.limit:
+            raise TooLargeError(
+                f"Stud.IP sends more than {self.limit // (1 << 20) or 1} MB for "
+                f"{self.file.name} (announced: {self.file.size} bytes); stopped"
+            )
         self.sink(chunk)
 
 
@@ -322,6 +355,7 @@ def fetch_verified(
     attempts: int = 3,
     unless_sha: str | None = None,
     before_replace: Callable[[], None] | None = None,
+    max_bytes: int | None = None,
 ) -> tuple[str, bool]:
     """Download into ``dest`` atomically; return (sha256, written).
 
@@ -329,6 +363,8 @@ def fetch_verified(
     by Stud.IP is wrong but two complete downloads agree, the file is accepted.
     With ``unless_sha``, identical content is discarded instead of written.
     ``before_replace`` runs right before ``dest`` is replaced and may raise to keep it.
+    A transfer far bigger than announced, or bigger than ``max_bytes``, is stopped
+    at once and not retried.
     """
     mismatch: int | None = None
     for attempt in range(1, attempts + 1):
@@ -342,7 +378,7 @@ def fetch_verified(
                 return True
 
             with atomic_writer(dest, commit) as (fh, digest):
-                guard = _Guard(file, fh.write)
+                guard = _Guard(file, fh.write, size_limit(file, max_bytes))
                 download(file.id, guard.write)
                 if file.size > 0 and guard.size != file.size and guard.size != mismatch:
                     mismatch = guard.size
@@ -356,7 +392,7 @@ def fetch_verified(
             sha = digest()
             return sha, sha != unless_sha
         except DownloadError as exc:
-            if "HTML page" in str(exc) or attempt == attempts:
+            if isinstance(exc, TooLargeError) or "HTML page" in str(exc) or attempt == attempts:
                 raise
             log.warning("%s (attempt %s/%s)", exc, attempt, attempts)
         except httpx.HTTPError as exc:  # connection dropped mid-transfer

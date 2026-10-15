@@ -868,7 +868,7 @@ requires-dist = [
     { name = "textual", specifier = ">=1.0,<9" },
     { name = "tomlkit", specifier = ">=0.13,<1" },
     { name = "truststore", specifier = ">=0.10,<1" },
-    { name = "typer", specifier = ">=0.12,<1" },
+    { name = "typer", specifier = ">=0.13,<1" },
 ]
 
 [package.metadata.requires-dev]

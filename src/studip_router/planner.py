@@ -108,6 +108,7 @@ class CoursePlan:
     unchanged: int = 0
     remote_deleted: list[FileRecord] = field(default_factory=list)  # newly deleted only
     reappeared: list[str] = field(default_factory=list)  # ids marked gone that are back
+    max_bytes: int | None = None  # size limit (sync.exclude.max_size_mb), checked while downloading
 
 
 Router = Callable[[RemoteFile], Route]
@@ -217,6 +218,8 @@ def plan_course(
     excludes = cfg.course_exclude(course)
     if include_large:
         excludes = ExcludeConfig(excludes.globs, excludes.mime, None)
+    if excludes.max_size_mb:  # 0 or None: no limit
+        plan.max_bytes = int(excludes.max_size_mb * 1024 * 1024)
     ignored = ignored or set()
     failures = failures or {}
     planned_dirs: set[str] = set()

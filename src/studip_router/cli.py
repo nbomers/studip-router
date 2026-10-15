@@ -19,6 +19,7 @@ import typer
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
+from rich.text import Text
 
 from . import __version__, auth, doctor, paths, report, schedule
 from .api import ApiError, AuthFailed, StudipClient
@@ -32,6 +33,7 @@ from .notify import dates_message, notify, sync_message
 from .planner import build_router
 from .rename import RenameError
 from .reorganize import apply_reorganize, apply_undo, pending_moves, plan_reorganize, plan_undo
+from .report import esc
 from .state import State, StateError
 from .suggest import suggest_rules
 from .sync import (
@@ -125,7 +127,7 @@ def fail(message: str, code: int = 1) -> typer.Exit:
     if OPTS.json:
         emit_json({"error": message})
     else:
-        err.print(f"[red]Error:[/red] {message}")
+        err.print(f"[red]Error:[/red] {esc(message)}")
     return typer.Exit(code)
 
 
@@ -207,7 +209,7 @@ def auth_login(config: ConfigOpt = None) -> None:
         raise fail(f"{exc} - nothing was stored", 3) from None
     paths.auth_pause_file().unlink(missing_ok=True)  # resume auto-sync
     console.print(
-        f"[green]✓[/green] Logged in as {me['name'] or cfg.username}; "
+        f"[green]✓[/green] Logged in as {esc(me['name'] or cfg.username)}; "
         "password stored in the keychain."
     )
 
@@ -256,7 +258,7 @@ def config_validate(config: ConfigOpt = None) -> None:
         emit_json({"path": cfg.path, "active": active, "rules": rules, "valid": True})
         return
     console.print(
-        f"[green]✓[/green] {cfg.path}: {active} active, "
+        f"[green]✓[/green] {esc(cfg.path)}: {esc(active)} active, "
         f"{len(cfg.courses) - active} excluded courses, {rules} rules"
     )
 
@@ -279,7 +281,7 @@ def config_set(
         set_value(paths.config_file(), tuple(key.split(".")), parsed)
     except ConfigError as exc:
         raise fail(f"not changed: {'; '.join(exc.problems)}", 2) from None
-    console.print(f"[green]✓[/green] {key} = {parsed!r}")
+    console.print(f"[green]✓[/green] {esc(key)} = {esc(repr(parsed))}")
 
 
 @config_app.command("edit")
@@ -318,7 +320,9 @@ def init_cmd(
     except ApiError as exc:
         raise fail(str(exc), 3) from None
     courses.sort(key=lambda c: c.title.casefold())
-    console.print(f"[green]✓[/green] Login works. {len(courses)} courses in {semester.title}.\n")
+    console.print(
+        f"[green]✓[/green] Login works. {len(courses)} courses in {esc(semester.title)}.\n"
+    )
 
     home = Path.home()
     with console.status("Looking for your course folders..."):
@@ -331,7 +335,7 @@ def init_cmd(
     for i, option in enumerate(options, 1):
         found = next((r for r in roots if r.path == option), None)
         label = found.label(home, len(courses)) if found else display_path(option, home) + "  (new)"
-        console.print(f"  {i}  {label}")
+        console.print(f"  {i}  {esc(label)}")
     answer = Prompt.ask("Number or a path", default="1").strip()
     root_path = (
         options[int(answer) - 1]
@@ -350,7 +354,7 @@ def init_cmd(
     choices = []
     for course, proposal in zip(courses, proposals, strict=True):
         suggestion = proposal or (course_folder_name(course.title) if fresh_start else "-")
-        target = Prompt.ask(f"  [bold]{course.title}[/bold]", default=suggestion).strip()
+        target = Prompt.ask(f"  [bold]{esc(course.title)}[/bold]", default=suggestion).strip()
         choices.append(
             CourseChoice(
                 course.id, course.title, course.semester_title, None if target == "-" else target
@@ -389,7 +393,7 @@ def init_cmd(
     if path.exists():
         shutil.copy2(path, path.with_name(path.name + ".bak"))
     path.write_text(text, encoding="utf-8")
-    console.print(f"\n[green]✓[/green] Wrote {path}")
+    console.print(f"\n[green]✓[/green] Wrote {esc(path)}")
     console.print(
         "Next: [bold]studip rules suggest --write[/bold], then [bold]studip sync --dry-run[/bold]."
     )
@@ -433,7 +437,7 @@ def courses_cmd(
         return
     console.print(report.courses_table(entries, sem.title if sem else "all semesters"))
     for c in missing:
-        console.print(f"[yellow]Configured but not on Stud.IP:[/yellow] {c.id} {c.name}")
+        console.print(f"[yellow]Configured but not on Stud.IP:[/yellow] {esc(c.id)} {esc(c.name)}")
 
 
 @app.command("sync")
@@ -502,10 +506,12 @@ def sync_cmd(
                     cfg,
                     state,
                     client,
-                    on_course=lambda p: out.print(f"[bold]{p.course.name or p.course.id}[/bold]"),
+                    on_course=lambda p: out.print(
+                        f"[bold]{esc(p.course.name or p.course.id)}[/bold]"
+                    ),
                     on_progress=lambda a: out.print(
                         f"  [{report.STYLE[a.kind]}]{report.SYMBOL[a.kind]}[/] "
-                        + (a.dest.name if a.dest else "")
+                        + esc(a.dest.name if a.dest else "")
                     ),
                 )
             except Locked as exc:
@@ -538,9 +544,11 @@ def sync_cmd(
                 report.print_unlocked(out, result.outcome)
             for m in result.merges if result else []:
                 if m.written:
-                    out.print(f"  [green]✓[/green] merged slides: {m.output} ({m.reason})")
+                    out.print(
+                        f"  [green]✓[/green] merged slides: {esc(m.output)} ({esc(m.reason)})"
+                    )
                 elif not m.reason.startswith("up to date"):
-                    out.print(f"  [yellow]◎[/yellow] merge {m.course}: {m.reason}")
+                    out.print(f"  [yellow]◎[/yellow] merge {esc(m.course)}: {esc(m.reason)}")
             if news_count:
                 out.print(f"\n[cyan]{news_count} new announcement(s)[/cyan] - `studip news`")
             report.print_date_changes(out, date_changes)
@@ -548,9 +556,11 @@ def sync_cmd(
                 out.print(f"\n{report.reorganize_hint(to_move)}")
             if quiet:
                 for name, problem in sync_plan.errors:
-                    err.print(f"[red]✗[/red] course {name}: {problem}")
+                    err.print(f"[red]✗[/red] course {esc(name)}: {esc(problem)}")
                 for action, msg in result.outcome.failed if result else []:
-                    err.print(f"[red]✗[/red] {action.file.name if action.file else ''}: {msg}")
+                    err.print(
+                        f"[red]✗[/red] {esc(action.file.name if action.file else '')}: {esc(msg)}"
+                    )
         failed = len(result.outcome.failed) if result else 0
         if background and cfg.notify:
             message = sync_message(result.new_by_course(sync_plan) if result else {}, news_count)
@@ -617,7 +627,7 @@ def status_cmd(
             ]
         except (ApiError, typer.Exit) as exc:
             if isinstance(exc, ApiError):
-                err.print(f"[yellow]Could not reach Stud.IP:[/yellow] {exc}")
+                err.print(f"[yellow]Could not reach Stud.IP:[/yellow] {esc(exc)}")
     data = {
         "last_run": dict(last) if last else None,
         "default_routed": [
@@ -631,20 +641,23 @@ def status_cmd(
         emit_json(data)
         return
     if last:
-        console.print(f"Last run: {last['mode']} at {last['finished_at']} - {last['summary']}")
+        console.print(
+            f"Last run: {esc(last['mode'])} at {esc(last['finished_at'])} - {esc(last['summary'])}"
+        )
     else:
         console.print("No sync has run yet.")
     if unconfigured:
         console.print("\n[yellow]Courses without config entry:[/yellow]")
         for c in unconfigured:
-            console.print(f"  {c['id']}  {c['title']}")
+            console.print(f"  {esc(c['id'])}  {esc(c['title'])}")
     if default_routed:
         console.print(
-            f"\n[yellow]{len(default_routed)} file(s) only routed by the default "
+            f"\n[yellow]{esc(len(default_routed))} file(s) only routed by the default "
             "target[/yellow] - add rules (`studip rules suggest`):"
         )
         for r in default_routed:
-            console.print(f"  {r.local_path}  [dim]← {r.remote_folder_path}/{r.remote_name}[/dim]")
+            remote = esc(f"{r.remote_folder_path}/{r.remote_name}")
+            console.print(f"  {esc(r.local_path)}  [dim]← {remote}[/dim]")
     if to_move:
         console.print(f"\n{report.reorganize_hint(len(to_move))}")
     if not unconfigured and not default_routed and not to_move:
@@ -675,7 +688,7 @@ def rules_list(
         )
         return
     for c in courses:
-        table = Table(title=f"{c.name or c.id} → {c.target}", title_justify="left")
+        table = Table(title=esc(f"{c.name or c.id} → {c.target}"), title_justify="left")
         for col in ("#", "id", "match", "target", "rename"):
             table.add_column(col)
         for i, r in enumerate(c.rules, 1):
@@ -693,12 +706,12 @@ def rules_list(
             ]
             table.add_row(
                 str(i),
-                r.id,
-                " ".join(parts) or "*",
-                "[dim]skip[/dim]" if r.skip else str(r.target),
-                r.rename or "",
+                Text(r.id),
+                Text(" ".join(parts) or "*"),
+                "[dim]skip[/dim]" if r.skip else Text(str(r.target)),
+                Text(r.rename or ""),
             )
-        table.add_row("", "[dim]default[/dim]", "*", cfg.course_default_target(c), "")
+        table.add_row("", "[dim]default[/dim]", "*", Text(cfg.course_default_target(c)), "")
         console.print(table)
 
 
@@ -739,9 +752,11 @@ def rules_test(
     if OPTS.json:
         emit_json(data)
     elif route.skip:
-        console.print(f"Rule [bold]{route.rule_id}[/bold]: [dim]skipped[/dim]")
+        console.print(f"Rule [bold]{esc(route.rule_id)}[/bold]: [dim]skipped[/dim]")
     else:
-        console.print(f"Rule [bold]{route.rule_id or 'default target'}[/bold]\n  → {dest}")
+        console.print(
+            f"Rule [bold]{esc(route.rule_id or 'default target')}[/bold]\n  → {esc(dest)}"
+        )
 
 
 @rules_app.command("suggest")
@@ -767,7 +782,7 @@ def rules_suggest(
             except AuthFailed as exc:  # do not repeat a rejected login for every course
                 raise fail(str(exc), 3) from None
             except ApiError as exc:
-                err.print(f"[yellow]{c.name}: {exc}[/yellow]")
+                err.print(f"[yellow]{esc(c.name)}: {esc(exc)}[/yellow]")
                 continue
             existing = {r.id for r in c.rules}
             known_folders = {r.match.folder for r in c.rules if r.match.folder}
@@ -795,10 +810,10 @@ def rules_suggest(
         # plain print: rich would read "[[courses...]]" as markup
         print("\n".join(blocks))
     if write and blocks:
-        if not yes and not Confirm.ask(f"Append {len(blocks)} rule(s) to {cfg.path}?"):
+        if not yes and not Confirm.ask(f"Append {len(blocks)} rule(s) to {esc(cfg.path)}?"):
             raise typer.Exit()
         backup = append_blocks(cfg.path, blocks, "rules suggested by `studip rules suggest`")
-        console.print(f"[green]✓[/green] Appended. Backup: {backup}")
+        console.print(f"[green]✓[/green] Appended. Backup: {esc(backup)}")
         load_config(cfg.path)
 
 
@@ -827,7 +842,9 @@ def reorganize_cmd(
             table.add_column(col)
         for m in moves:
             base = cfg.root
-            table.add_row(_rel(m.src, base), _rel(m.dst, base), f"[yellow]{m.problem}[/]")
+            table.add_row(
+                Text(_rel(m.src, base)), Text(_rel(m.dst, base)), Text(m.problem, "yellow")
+            )
         console.print(table)
         movable = [m for m in moves if not m.problem]
         if dry_run or not movable:
@@ -837,7 +854,7 @@ def reorganize_cmd(
         done, failed = apply_reorganize(moves, state)
         console.print(f"[green]✓[/green] Moved {done} file(s).")
         for m, msg in failed:
-            err.print(f"[red]✗[/red] {m.src.name}: {msg}")
+            err.print(f"[red]✗[/red] {esc(m.src.name)}: {esc(msg)}")
 
 
 @app.command("undo")
@@ -851,10 +868,10 @@ def undo_cmd(yes: Annotated[bool, typer.Option("--yes", "-y")] = False) -> None:
             return
         for s in moves:
             note = f" [yellow]({s.problem})[/yellow]" if s.problem else ""
-            console.print(f"  {s.dst}\n    → {s.src}{note}")
+            console.print(f"  {esc(s.dst)}\n    → {esc(s.src)}{note}")
         if not yes and not Confirm.ask(f"Move {len(moves)} file(s) back?"):
             raise typer.Exit()
-        console.print(f"[green]✓[/green] Reverted {apply_undo(state, run_id, steps)} move(s).")
+        console.print(f"[green]✓[/green] Reverted {esc(apply_undo(state, run_id, steps))} move(s).")
 
 
 def _rel(path: Path, base: Path) -> str:
@@ -893,7 +910,7 @@ def history_cmd(limit: Annotated[int, typer.Option("--limit", "-n")] = 30) -> No
         table.add_column(col)
     for r in records:
         p = Path(r.local_path)
-        table.add_row(r.synced_at.replace("T", " ")[:16], p.name, str(p.parent))
+        table.add_row(r.synced_at.replace("T", " ")[:16], Text(p.name), Text(str(p.parent)))
     console.print(table)
 
 
@@ -917,7 +934,7 @@ def news_cmd(
             except AuthFailed as exc:  # do not repeat a rejected login for every course
                 raise fail(str(exc), 3) from None
             except ApiError as exc:
-                err.print(f"[yellow]{c.name}: {exc}[/yellow]")
+                err.print(f"[yellow]{esc(c.name)}: {esc(exc)}[/yellow]")
         shown = items if show_all else unread(state, items)
         if OPTS.json:
             emit_json(shown)
@@ -925,8 +942,11 @@ def news_cmd(
             console.print("No unread announcements.")
         for n in shown if not OPTS.json else []:
             when = n.published.strftime("%d.%m.%Y") if n.published else ""
-            console.rule(f"[bold]{n.title}[/bold]  [dim]{n.course} · {when}[/dim]", align="left")
-            console.print(n.text + "\n")
+            console.rule(
+                f"[bold]{esc(n.title)}[/bold]  [dim]{esc(n.course)} · {esc(when)}[/dim]",
+                align="left",
+            )
+            console.print(Text(n.text + "\n"))
         if not keep_unread:
             state.mark_news_seen([(n.id, n.course_id) for n in shown])
 
@@ -952,7 +972,7 @@ def merge_cmd(
         )
     for m in results:
         mark = "[green]✓[/green]" if m.written else "[dim]◎[/dim]"
-        console.print(f"{mark} {m.course}: {m.reason}  [dim]{m.output}[/dim]")
+        console.print(f"{mark} {esc(m.course)}: {esc(m.reason)}  [dim]{esc(m.output)}[/dim]")
 
 
 # -- schedule ---------------------------------------------------------------------------
@@ -968,7 +988,7 @@ def schedule_install(
         raise fail("please use an interval of at least 15 minutes")
     exe = schedule.executable()
     if warning := schedule.executable_warning(exe):
-        err.print(f"[yellow]Warning:[/yellow] {warning}")
+        err.print(f"[yellow]Warning:[/yellow] {esc(warning)}")
     if not yes and not Confirm.ask(
         f"Install a background job running `{exe} sync` every {every} minutes?"
     ):
@@ -977,7 +997,9 @@ def schedule_install(
         where = schedule.install(every, paths.profile())
     except (OSError, subprocess.CalledProcessError) as exc:
         raise fail(f"could not install: {exc}") from None
-    console.print(f"[green]✓[/green] Installed ({where}). Remove with `studip schedule uninstall`.")
+    console.print(
+        f"[green]✓[/green] Installed ({esc(where)}). Remove with `studip schedule uninstall`."
+    )
 
 
 @schedule_app.command("run-now")
@@ -1015,7 +1037,9 @@ def schedule_status() -> None:
         console.print("Not installed.")
         return
     every = f"every {st.interval_minutes} min, " if st.interval_minutes else ""
-    console.print(f"Installed ({every}{'loaded' if st.loaded else 'not loaded'}): {st.path}")
+    console.print(
+        f"Installed ({every}{esc('loaded' if st.loaded else 'not loaded')}): {esc(st.path)}"
+    )
 
 
 # -- doctor -----------------------------------------------------------------------------
@@ -1048,7 +1072,7 @@ def doctor_cmd(
             "fail": "[red]✗[/red]",
         }
         for c in checks:
-            console.print(f"{marks[c.level]} [bold]{c.name}[/bold]: {c.detail}")
+            console.print(f"{marks[c.level]} [bold]{esc(c.name)}[/bold]: {esc(c.detail)}")
     if any(c.level == "fail" for c in checks):
         raise typer.Exit(1)
 
@@ -1064,7 +1088,7 @@ def ignore_list() -> None:
     if not rows:
         console.print("No ignored files.")
     for r in rows:
-        console.print(f"{r['file_id']}  {r['name']}  [dim]since {r['since'][:10]}[/dim]")
+        console.print(f"{esc(r['file_id'])}  {esc(r['name'])}  [dim]since {r['since'][:10]}[/dim]")
 
 
 @ignore_app.command("add")
@@ -1101,7 +1125,7 @@ def ignore_add(
             )
         fid, cid, name = hits[0]
         state.ignore(fid, cid, name)
-    console.print(f"[green]✓[/green] {name} will not be downloaded any more.")
+    console.print(f"[green]✓[/green] {esc(name)} will not be downloaded any more.")
 
 
 @ignore_app.command("remove")
@@ -1116,7 +1140,7 @@ def ignore_remove(query: Annotated[str, typer.Argument(help="File id or name.")]
         if len(hits) != 1:
             raise fail(f"{len(hits)} ignored files match {query!r}")
         state.unignore(hits[0]["file_id"])
-    console.print(f"[green]✓[/green] {hits[0]['name']} is synced again.")
+    console.print(f"[green]✓[/green] {esc(hits[0]['name'])} is synced again.")
 
 
 # -- course dates -----------------------------------------------------------------------
@@ -1164,7 +1188,7 @@ def dates_cmd(
     if first and not offline:
         console.print("  [dim]Watching your courses from now on; changes show up here.[/dim]")
     for r in changes:
-        console.print(f"  [yellow]●[/yellow] {r['text']}")
+        console.print(f"  [yellow]●[/yellow] {esc(r['text'])}")
     if not changes and not first:
         console.print("  [dim]none[/dim]")
     console.print("\n[bold]Exams[/bold]")
@@ -1172,7 +1196,9 @@ def dates_cmd(
         until = (d.start.date() - now.date()).days
         place = f" · {d.location}" if d.location else ""
         cancelled = " [red]cancelled[/red]" if d.cancelled else ""
-        console.print(f"  {d.when()}  {d.course}{place}  [dim]in {until} days[/dim]{cancelled}")
+        console.print(
+            f"  {esc(d.when())}  {esc(d.course)}{esc(place)}  [dim]in {until} days[/dim]{cancelled}"
+        )
     if not exams:
         console.print("  [dim]none in Stud.IP yet (dates with the category Klausur/Prüfung)[/dim]")
 
@@ -1266,5 +1292,5 @@ def main() -> None:
         if OPTS.json:
             emit_json({"error": str(exc)})
         else:
-            err.print(f"[red]Error:[/red] {exc}")
+            err.print(f"[red]Error:[/red] {esc(exc)}")
         sys.exit(code)

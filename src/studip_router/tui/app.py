@@ -26,6 +26,7 @@ from ..api import ApiError, AuthFailed, StudipClient
 from ..config import Config, ConfigError, load
 from ..news import fetch_news, unread
 from ..reorganize import pending_moves
+from ..report import esc
 from ..state import State
 from ..sync import CourseStatus, list_courses, resolve_semester
 from .settings import THEMES, SettingsScreen
@@ -84,9 +85,9 @@ def _ago(iso: str | None) -> str:
     if minutes < 1:
         return "just now"
     if minutes < 60:
-        return f"{minutes} min ago"
+        return f"{esc(minutes)} min ago"
     if minutes < 48 * 60:
-        return f"{minutes // 60} h ago"
+        return f"{esc(minutes // 60)} h ago"
     return then.astimezone().strftime("%d.%m.%Y")
 
 
@@ -142,9 +143,10 @@ class HomeScreen(Screen):
             )
             return
         logged_in = auth.has_password(cfg.base_url, cfg.username)
-        profile = f" · profile {paths.profile()}" if paths.profile() else ""
+        profile = f" · profile {esc(paths.profile())}" if paths.profile() else ""
         self.query_one("#who", Static).update(
-            f"{cfg.username} @ {cfg.base_url.split('//')[-1]}{profile}  [dim]v{__version__}[/dim]"
+            f"{esc(cfg.username)} @ {esc(cfg.base_url.split('//')[-1])}{profile}"
+            f"  [dim]v{__version__}[/dim]"
         )
         with State(paths.state_db()) as state:
             last = state.last_run()
@@ -156,10 +158,10 @@ class HomeScreen(Screen):
             with contextlib.suppress(ValueError):
                 last_summary = json.loads(last["summary"])
         when = _ago(last["finished_at"] if last else None)
-        cards["sync"].update(f"[b]{when}[/b]\n[dim]{_summary(last_summary)}[/dim]")
+        cards["sync"].update(f"[b]{esc(when)}[/b]\n[dim]{esc(_summary(last_summary))}[/dim]")
         active = sum(1 for c in cfg.courses.values() if not c.exclude)
         courses = f"{active} course" + ("s" if active != 1 else "")
-        cards["files"].update(f"[b]{tracked}[/b] synced\n[dim]{courses}[/dim]")
+        cards["files"].update(f"[b]{tracked}[/b] synced\n[dim]{esc(courses)}[/dim]")
         self._local = {
             "default_routed": default_routed,
             "to_move": to_move,
@@ -187,20 +189,22 @@ class HomeScreen(Screen):
         else:
             unread_count = remote["unread"]
             news.update(
-                f"[b]{unread_count}[/b] unread" + (" [dim](a)[/dim]" if unread_count else "")
+                f"[b]{esc(unread_count)}[/b] unread" + (" [dim](a)[/dim]" if unread_count else "")
             )
             if remote["new_courses"]:
                 todo.append(
-                    f"[yellow]{remote['new_courses']} new course(s)[/yellow] [dim](c)[/dim]"
+                    f"[yellow]{esc(remote['new_courses'])} new course(s)[/yellow] [dim](c)[/dim]"
                 )
         if local["course_errors"]:
-            todo.append(f"[red]{local['course_errors']} course(s) failed[/red] [dim](p)[/dim]")
+            todo.append(f"[red]{esc(local['course_errors'])} course(s) failed[/red] [dim](p)[/dim]")
         if local["failed"]:
-            todo.append(f"[red]{local['failed']} file(s) failed[/red] [dim](p)[/dim]")
+            todo.append(f"[red]{esc(local['failed'])} file(s) failed[/red] [dim](p)[/dim]")
         if local["to_move"]:
-            todo.append(f"[yellow]{local['to_move']} file(s) to reorganize[/yellow] [dim](o)[/dim]")
+            todo.append(
+                f"[yellow]{esc(local['to_move'])} file(s) to reorganize[/yellow] [dim](o)[/dim]"
+            )
         if local["default_routed"]:
-            todo.append(f"{local['default_routed']} in default folder [dim](r)[/dim]")
+            todo.append(f"{esc(local['default_routed'])} in default folder [dim](r)[/dim]")
         self.query_one("#card-todo", Static).update(
             "\n".join(todo[:3]) or "[green]✓ all good[/green]"
         )

@@ -47,7 +47,7 @@ from ..reorganize import (
     plan_reorganize,
     plan_undo,
 )
-from ..report import STYLE, SYMBOL, reorganize_hint, summarize, unlocked_lines
+from ..report import STYLE, SYMBOL, esc, reorganize_hint, summarize, unlocked_lines
 from ..state import State
 from ..suggest import Suggestion, suggest_rules
 from ..sync import (
@@ -129,8 +129,8 @@ class View(Screen):
     HINT = ""
 
     def compose_header(self) -> ComposeResult:
-        hint = f"  [dim]{self.HINT}[/dim]" if self.HINT else ""
-        yield Static(f" [b]{self.TITLE}[/b]{hint}", classes="view-title")
+        hint = f"  [dim]{esc(self.HINT)}[/dim]" if self.HINT else ""
+        yield Static(f" [b]{esc(self.TITLE)}[/b]{hint}", classes="view-title")
 
     @property
     def cfg(self) -> Config:
@@ -214,7 +214,7 @@ class SyncView(View):
             with self.client() as client, State(paths.state_db()) as state:
                 plan = build_plan(client, self.cfg, state)
         except ApiError as exc:
-            self.app.call_from_thread(self.status, f"[red]✗ {exc}[/red]")
+            self.app.call_from_thread(self.status, f"[red]✗ {esc(exc)}[/red]")
             return
         self.app.call_from_thread(self.show_plan, plan)
 
@@ -240,9 +240,9 @@ class SyncView(View):
                 self.row_actions.append(a)
                 table.add_row(
                     Text(SYMBOL[a.kind], style=STYLE[a.kind]),
-                    name,
-                    remote,
-                    local,
+                    Text(name),
+                    Text(remote),
+                    Text(local),
                     Text(note, style="dim"),
                 )
         todo = self._todo()
@@ -251,7 +251,7 @@ class SyncView(View):
         if plan.errors:
             names = ", ".join(n for n, _ in plan.errors)
             extra += (
-                f"\n[red]Could not read {len(plan.errors)} course(s): {names}[/red] "
+                f"\n[red]Could not read {len(plan.errors)} course(s): {esc(names)}[/red] "
                 "[dim](the others are fine; details in the log)[/dim]"
             )
         if plan.unconfigured:
@@ -261,11 +261,11 @@ class SyncView(View):
             )
         if todo:
             self.status(
-                f"{sem} · {plan_summary(plan)}\n[b]s[/b] or [b]Enter[/b] syncs, "
+                f"{esc(sem)} · {esc(plan_summary(plan))}\n[b]s[/b] or [b]Enter[/b] syncs, "
                 f"[b]v[/b] shows skipped files{extra}"
             )
         else:
-            self.status(f"[green]✓ Everything is up to date.[/green] {sem}{extra}")
+            self.status(f"[green]✓ Everything is up to date.[/green] {esc(sem)}{extra}")
         if self.auto and todo:
             self.auto = False
             self.action_start()
@@ -293,10 +293,10 @@ class SyncView(View):
         with State(paths.state_db()) as state:
             if action.file.id in state.ignored_ids():
                 state.unignore(action.file.id)
-                self.notify(f"{action.file.name} will be synced again.")
+                self.notify(f"{esc(action.file.name)} will be synced again.")
             else:
                 state.ignore(action.file.id, action.course_id, action.file.name)
-                self.notify(f"{action.file.name} will never be downloaded.")
+                self.notify(f"{esc(action.file.name)} will never be downloaded.")
         self.action_refresh()
 
     def action_toggle_skipped(self) -> None:
@@ -363,7 +363,7 @@ class SyncView(View):
             self.running = False
             return
         except ApiError as exc:
-            self.app.call_from_thread(self.status, f"[red]✗ {exc}[/red]")
+            self.app.call_from_thread(self.status, f"[red]✗ {esc(exc)}[/red]")
             self.running = False
             return
         self.running = False
@@ -381,7 +381,8 @@ class SyncView(View):
         self.query_one(ProgressBar).advance(1)
         name = action.dest.name if action.dest else ""
         self.query_one(RichLog).write(
-            f"[{STYLE[action.kind]}]{SYMBOL[action.kind]}[/] {name}  [dim]{action.kind.value}[/]"
+            f"[{STYLE[action.kind]}]{SYMBOL[action.kind]}[/] {esc(name)}"
+            f"  [dim]{action.kind.value}[/]"
         )
 
     def _finish_run(self, result) -> None:
@@ -389,23 +390,23 @@ class SyncView(View):
         new = sum(1 for a in result.outcome.done if a.transfers)
         log.write("")
         log.write(
-            f"[b]Done.[/b] {new} downloaded, {len(result.outcome.failed)} failed"
+            f"[b]Done.[/b] {esc(new)} downloaded, {esc(len(result.outcome.failed))} failed"
             + (
-                f", {len(result.outcome.extracted)} archive(s) extracted"
+                f", {esc(len(result.outcome.extracted))} archive(s) extracted"
                 if result.outcome.extracted
                 else ""
             )
             + "."
         )
         for action, msg in result.outcome.failed:
-            log.write(f"[red]✗ {action.file.name if action.file else ''}: {msg}[/red]")
+            log.write(f"[red]✗ {esc(action.file.name if action.file else '')}: {esc(msg)}[/red]")
         for m in result.merges:
             if m.written:
-                log.write(f"[green]✓[/green] merged slides: {m.output}")
+                log.write(f"[green]✓[/green] merged slides: {esc(m.output)}")
         for line in unlocked_lines(result.outcome):
             log.write(line)
         for change in self.date_changes:
-            log.write(f"[yellow]● date[/yellow] {change.text()}")
+            log.write(f"[yellow]● date[/yellow] {esc(change.text())}")
         with State(paths.state_db()) as state:
             to_move = len(pending_moves(self.cfg, state))
         if to_move:
@@ -414,7 +415,7 @@ class SyncView(View):
         self.status(
             "[green]✓ Sync finished.[/green]"
             if not failed
-            else f"[yellow]Sync finished with {failed} problem(s)[/yellow] - they are "
+            else f"[yellow]Sync finished with {esc(failed)} problem(s)[/yellow] - they are "
             "retried next time."
         )
         self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
@@ -456,7 +457,7 @@ class CoursesView(View):
                 sem = resolve_semester(client, "all" if self.all_semesters else "current")
                 entries, missing = list_courses(client, self.cfg, sem)
         except ApiError as exc:
-            self.app.call_from_thread(self.status, f"[red]{exc}[/red]")
+            self.app.call_from_thread(self.status, f"[red]{esc(exc)}[/red]")
             return
         label = sem.title if sem else "all semesters"
         self.app.call_from_thread(self.fill, entries, label, len(missing))
@@ -476,16 +477,16 @@ class CoursesView(View):
             folder = e.config.target if e.config and e.config.target else ""
             table.add_row(
                 marks[e.status],
-                e.course.title,
+                Text(e.course.title),
                 Text(e.course.course_type[:22], style="dim"),
-                e.course.semester_title,
+                Text(e.course.semester_title),
                 folder,
             )
         if entries:
             table.move_cursor(row=min(cursor, len(entries) - 1))
-        note = f"{label} · {len(entries)} courses"
+        note = f"{esc(label)} · {esc(len(entries))} courses"
         if missing:
-            note += f" · [yellow]{missing} configured course(s) not found on Stud.IP[/yellow]"
+            note += f" · [yellow]{esc(missing)} configured course(s) not found on Stud.IP[/yellow]"
         self.status(note + "  [dim]a: switch current/all semesters[/dim]")
 
     def _selected(self) -> CourseEntry | None:
@@ -498,7 +499,7 @@ class CoursesView(View):
         try:
             self.app.cfg = set_course(self.cfg.path, course_id, **fields)  # type: ignore[attr-defined]
         except (ConfigError, OSError) as exc:
-            self.notify(f"Not saved: {exc}", severity="error")
+            self.notify(f"Not saved: {esc(exc)}", severity="error")
             return False
         for e in self.entries:
             e.config = self.app.cfg.courses.get(e.course.id)  # type: ignore[attr-defined]
@@ -532,11 +533,11 @@ class CoursesView(View):
         proposal = propose_target(entry.course.title, folders)
         ordered = ([proposal] if proposal else []) + [f for f in folders if f != proposal]
         choices: list[tuple[str, str]] = [
-            (f, f"{f}  [dim](suggested)[/dim]" if f == proposal else f) for f in ordered
+            (f, f"{esc(f)}  [dim](suggested)[/dim]" if f == proposal else esc(f)) for f in ordered
         ]
         new_folder = course_folder_name(entry.course.title)
         if new_folder not in folders:
-            choices.append((NEW_FOLDER, f"[green]+ new folder[/green] {new_folder}"))
+            choices.append((NEW_FOLDER, f"[green]+ new folder[/green] {esc(new_folder)}"))
         choices.append((EXCLUDE, "[dim]don't sync this course[/dim]"))
 
         def chosen(folder: str | None) -> None:
@@ -549,13 +550,15 @@ class CoursesView(View):
                 try:
                     create_course_folder(self.cfg.root, new_folder, self.cfg.course_folders)
                 except OSError as exc:
-                    self.notify(f"Folder not created: {exc}", severity="error")
+                    self.notify(f"Folder not created: {esc(exc)}", severity="error")
                     return
                 folder = new_folder
             self._save(entry.course.id, name=entry.course.title, target=folder, exclude=None)
 
         self.app.push_screen(
-            ChoiceScreen(f"Folder for “{entry.course.title}”", choices, f"inside {self.cfg.root}"),
+            ChoiceScreen(
+                f"Folder for “{esc(entry.course.title)}”", choices, f"inside {esc(self.cfg.root)}"
+            ),
             chosen,
         )
 
@@ -597,7 +600,10 @@ class HistoryView(View):
             p = Path(r.local_path)
             when = r.synced_at.replace("T", " ")[:16]
             table.add_row(
-                when, p.name, Text(rel(p.parent, self.cfg.root), style="dim"), key=r.local_path
+                when,
+                Text(p.name),
+                Text(rel(p.parent, self.cfg.root), style="dim"),
+                key=r.local_path,
             )
         if not records:
             table.add_row("", "Nothing synced yet.", "")
@@ -619,7 +625,7 @@ class HistoryView(View):
             if record is None:
                 return
             state.ignore(record.file_id, record.course_id, record.remote_name)
-        self.notify(f"{path.name}: never downloaded again, even if you delete it.")
+        self.notify(f"{esc(path.name)}: never downloaded again, even if you delete it.")
 
     def _run(self, *args: str) -> None:
         path = self._selected()
@@ -637,7 +643,7 @@ class HistoryView(View):
             # Downloads carry no quarantine flag: opening could run a program
             # uploaded to Stud.IP without any warning. Show it in the folder instead.
             self.notify(
-                f"{path.name} is a program or script - not opened. Press r to show it.",
+                f"{esc(path.name)} is a program or script - not opened. Press r to show it.",
                 severity="warning",
             )
             return
@@ -682,7 +688,7 @@ class DatesView(View):
                     check_dates(client, state, courses, now)
             except ApiError as exc:
                 self.app.call_from_thread(
-                    log.write, f"[red]{exc}[/red] [dim](showing saved dates)[/dim]"
+                    log.write, f"[red]{esc(exc)}[/red] [dim](showing saved dates)[/dim]"
                 )
             changes = [
                 r
@@ -691,12 +697,14 @@ class DatesView(View):
             ]
             exams = upcoming_exams(state, now)
         lines = ["[b]Changed dates[/b] [dim](last 14 days)[/dim]"]
-        lines += [f"  [yellow]●[/yellow] {r['text']}" for r in changes] or ["  [dim]none[/dim]"]
+        lines += [f"  [yellow]●[/yellow] {esc(r['text'])}" for r in changes] or [
+            "  [dim]none[/dim]"
+        ]
         lines += ["", "[b]Exams[/b]"]
         lines += [
-            f"  {d.when()}  {d.course}"
-            + (f" · {d.location}" if d.location else "")
-            + f"  [dim]in {(d.start.date() - now.date()).days} days[/dim]"
+            f"  {esc(d.when())}  {esc(d.course)}"
+            + (f" · {esc(d.location)}" if d.location else "")
+            + f"  [dim]in {esc((d.start.date() - now.date()).days)} days[/dim]"
             + ("  [red]cancelled[/red]" if d.cancelled else "")
             for d in exams
         ] or ["  [dim]none in Stud.IP yet[/dim]"]
@@ -739,7 +747,7 @@ class NewsView(View):
                         items += fetch_news(client, c.id, c.name or c.target)
         except ApiError as exc:
             self.app.call_from_thread(
-                self.query_one("#news-text", Static).update, f"[red]{exc}[/red]"
+                self.query_one("#news-text", Static).update, f"[red]{esc(exc)}[/red]"
             )
             return
         with State(paths.state_db()) as state:
@@ -752,7 +760,7 @@ class NewsView(View):
         options.clear_options()
         for n in items:
             when = n.published.strftime("%d.%m.") if n.published else ""
-            options.add_option(Option(f"{when} {n.course[:20]}: {n.title}"))
+            options.add_option(Option(f"{esc(when)} {n.course[:20]}: {esc(n.title)}"))
         self.query_one("#news-text", Static).update("No unread announcements." if not items else "")
         if items:
             options.highlighted = 0
@@ -764,7 +772,7 @@ class NewsView(View):
         n = self.items[event.option_index]
         when = n.published.strftime("%d.%m.%Y %H:%M") if n.published else ""
         self.query_one("#news-text", Static).update(
-            f"[b]{n.title}[/b]\n[dim]{n.course} · {when}[/dim]\n\n{n.text}"
+            f"[b]{esc(n.title)}[/b]\n[dim]{esc(n.course)} · {esc(when)}[/dim]\n\n{esc(n.text)}"
         )
         with State(paths.state_db()) as state:
             state.mark_news_seen([(n.id, n.course_id)])
@@ -816,7 +824,7 @@ class RulesView(View):
         for c in self.cfg.courses.values():
             if c.exclude:
                 continue
-            lines.append(f"[b]{c.name or c.target}[/b]  [dim]→ {c.target}[/dim]")
+            lines.append(f"[b]{esc(c.name or c.target)}[/b]  [dim]→ {esc(c.target)}[/dim]")
             for i, r in enumerate(c.rules, 1):
                 m = r.match
                 what = (
@@ -833,9 +841,9 @@ class RulesView(View):
                     or "everything"
                 )
                 target = "[dim]skip[/dim]" if r.skip else r.target
-                rename = f"  [dim]rename {r.rename}[/dim]" if r.rename else ""
-                lines.append(f"  {i}. {r.id}: {what} → {target}{rename}")
-            lines.append(f"  [dim]otherwise → {self.cfg.course_default_target(c)}[/dim]\n")
+                rename = f"  [dim]rename {esc(r.rename)}[/dim]" if r.rename else ""
+                lines.append(f"  {esc(i)}. {esc(r.id)}: {esc(what)} → {esc(target)}{rename}")
+            lines.append(f"  [dim]otherwise → {esc(self.cfg.course_default_target(c))}[/dim]\n")
         lines.append(
             "[dim]Edit rules in the config file (Settings → e). Syntax: config.example.toml[/dim]"
         )
@@ -856,7 +864,7 @@ class RulesView(View):
                         if s.rule["match"].get("folder") not in known:
                             found.append((c.id, s))
         except ApiError as exc:
-            self.app.call_from_thread(self.status, f"[red]{exc}[/red]")
+            self.app.call_from_thread(self.status, f"[red]{esc(exc)}[/red]")
             return
         self.app.call_from_thread(self.fill, found)
 
@@ -874,13 +882,14 @@ class RulesView(View):
             )
             selection.add_option(
                 (
-                    f"{names[cid]}: {what} → {s.rule['target']}  [dim]({s.files} files)[/dim]",
+                    f"{esc(names[cid])}: {esc(what)} → {esc(s.rule['target'])}"
+                    f"  [dim]({s.files} files)[/dim]",
                     i,
                     True,
                 )
             )
         self.status(
-            f"{len(found)} suggestion(s). Space toggles, [b]w[/b] adds the selected "
+            f"{esc(len(found))} suggestion(s). Space toggles, [b]w[/b] adds the selected "
             "ones to your config."
             if found
             else "[green]✓ No new suggestions[/green] - your rules cover the Stud.IP folders."
@@ -903,7 +912,7 @@ class RulesView(View):
                 append_blocks(self.cfg.path, blocks, "rules added in the TUI")
                 self.app.reload_config()  # type: ignore[attr-defined]
             except Exception as exc:
-                self.notify(f"Could not write: {exc}", severity="error")
+                self.notify(f"Could not write: {esc(exc)}", severity="error")
                 return
             self.notify(f"Added {len(blocks)} rule(s).")
             self.render_rule_list()
@@ -928,7 +937,7 @@ class RulesView(View):
         ]
         if len(hits) != 1:
             result.update(
-                f"[yellow]{len(hits)} courses match - type more of the name.[/yellow]"
+                f"[yellow]{esc(len(hits))} courses match - type more of the name.[/yellow]"
                 if hits
                 else "[yellow]No active course matches.[/yellow]"
             )
@@ -948,14 +957,14 @@ class RulesView(View):
         try:
             route = build_router(self.cfg, course)(file)
         except RenameError as exc:
-            result.update(f"[red]{exc}[/red]")
+            result.update(f"[red]{esc(exc)}[/red]")
             return
         if route.skip:
-            result.update(f"Rule [b]{route.rule_id}[/b]: not downloaded (skip)")
+            result.update(f"Rule [b]{esc(route.rule_id)}[/b]: not downloaded (skip)")
             return
-        where = f"{course.target}/{route.subdir}/{route.name}"
+        where = f"{esc(course.target)}/{esc(route.subdir)}/{esc(route.name)}"
         rule = route.rule_id or "no rule matches → default folder"
-        result.update(f"[b]{rule}[/b]\n→ {where}")
+        result.update(f"[b]{esc(rule)}[/b]\n→ {where}")
 
 
 # -- reorganize / merge / doctor --------------------------------------------------------
@@ -991,8 +1000,8 @@ class ReorganizeView(View):
             self.moves = plan_reorganize(self.cfg, state)
         for m in self.moves:
             table.add_row(
-                rel(m.src, self.cfg.root),
-                rel(m.dst, self.cfg.root),
+                Text(rel(m.src, self.cfg.root)),
+                Text(rel(m.dst, self.cfg.root)),
                 Text(m.problem, style="yellow"),
             )
         ok = sum(1 for m in self.moves if not m.problem)
@@ -1064,7 +1073,7 @@ class MergeView(View):
             )
         for m in results:
             mark = "[green]✓[/green]" if m.written else "[dim]◎[/dim]"
-            self.app.call_from_thread(log.write, f"{mark} {m.course}: {m.reason}")
+            self.app.call_from_thread(log.write, f"{mark} {esc(m.course)}: {esc(m.reason)}")
 
 
 class DoctorView(View):
@@ -1089,5 +1098,5 @@ class DoctorView(View):
         log = self.query_one(RichLog)
         for check in doctor.run_checks():
             self.app.call_from_thread(
-                log.write, f"{marks[check.level]} [b]{check.name}[/b]: {check.detail}"
+                log.write, f"{marks[check.level]} [b]{esc(check.name)}[/b]: {esc(check.detail)}"
             )

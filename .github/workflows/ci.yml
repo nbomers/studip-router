@@ -40,3 +40,22 @@ jobs:
       - run: uv run pytest -q
         env:
           PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+
+  lowest:
+    # The lower bounds in pyproject.toml are promises: test them, not only the lock file.
+    name: test (lowest allowed dependency versions)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.11"
+      - run: uv pip compile pyproject.toml --resolution lowest-direct --python-version 3.11 -o lowest.txt
+      - run: uv venv .lowest
+      - run: uv pip install --python .lowest -r lowest.txt pytest pytest-asyncio respx
+      - run: uv pip install --python .lowest --no-deps -e .
+      - run: .lowest/bin/python -m pytest -q
+        env:
+          PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring

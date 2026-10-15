@@ -96,7 +96,15 @@ async def test_settings_change_values_and_keep_comments(course_dir: Path) -> Non
         next(r for r in rows if r.setting.label == "semester").focus()
         await pilot.press("l")  # current -> all
         assert config().semester == "all"
-        await pilot.press("j", "l")  # changed files: version -> overwrite
+        await pilot.press("j", "l")  # changed files: version -> overwrite asks first
+        assert isinstance(app.screen, ConfirmScreen)
+        assert "Replace changed files" in str(app.screen.question)
+        await pilot.press("n")
+        assert config().on_update == "version"
+        await pilot.press("l")
+        await pilot.pause(0.5)  # the dialog ignores an Enter/y right after it opened
+        await pilot.press("y")
+        await pilot.pause()
         assert config().on_update == "overwrite"
         await pilot.press("h", "h")  # wraps around: overwrite -> version -> skip
         assert config().on_update == "skip"

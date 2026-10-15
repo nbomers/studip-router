@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 PAGE_LIMIT = 100
+MAX_PAGES = 1000  # 100 000 records: far more than any course has
 _sleep = time.sleep  # replaced in tests
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
@@ -101,12 +102,21 @@ class StudipClient:
             },
             follow_redirects=True,
             transport=transport,
+            event_hooks={"request": [self._only_secure]},
         )
         self._semesters: dict[str, Semester] = {}
         self.warnings: list[str] = []  # records skipped because the API sent surprises
 
     def close(self) -> None:
         self._http.close()
+
+    def _only_secure(self, request: httpx.Request) -> None:
+        """Every request, redirects included, stays on https (http only for localhost):
+        a redirect to plain http would let anyone on the network swap the file."""
+        url = request.url
+        if url.scheme == "https" or (url.scheme == "http" and url.host in LOCAL_HOSTS):
+            return
+        raise ApiError(f"refused to follow a redirect to {url.scheme}://{url.host}")
 
     def __enter__(self) -> StudipClient:
         return self
@@ -173,14 +183,28 @@ class StudipClient:
     def _paginate(
         self, path: str, params: dict[str, Any] | None = None
     ) -> Iterator[tuple[dict[str, Any], list[dict[str, Any]]]]:
-        """Yield (resource, included) for every item across all pages."""
+        """Yield (resource, included) for every item across all pages.
+
+        Each id is yielded once. A server that ignores ``page[offset]`` (a page with
+        nothing new) or never ends (more than MAX_PAGES) is stopped, not followed.
+        """
         offset = 0
-        while True:
+        seen: set[str] = set()
+        for _ in range(MAX_PAGES):
             query = {**(params or {}), "page[offset]": offset, "page[limit]": PAGE_LIMIT}
             doc = self._get_json(path, query)
             data = doc.get("data") or []
+            if not isinstance(data, list):
+                raise ApiError(f"unexpected JSON from {path}: data is not a list")
             included = doc.get("included") or []
+            new = 0
             for item in data:
+                item_id = item.get("id") if isinstance(item, dict) else None
+                if isinstance(item_id, str):
+                    if item_id in seen:
+                        continue
+                    seen.add(item_id)
+                new += 1
                 yield item, included
             total = (doc.get("meta") or {}).get("page", {}).get("total")
             offset += len(data)
@@ -188,6 +212,10 @@ class StudipClient:
                 return
             if total is None and len(data) < PAGE_LIMIT:
                 return
+            if not new:
+                self.warnings.append(f"{path}: the server repeated a page; stopped there")
+                return
+        raise ApiError(f"{path}: more than {MAX_PAGES} pages, stopped (server error?)")
 
     # -- resources ---------------------------------------------------------
 

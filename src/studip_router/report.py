@@ -8,13 +8,25 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
+from rich.text import Text
 
 from . import paths
 from .dates import Change, ChangeKind
 from .executor import Outcome
 from .planner import Action, CoursePlan, Kind
 from .sync import CourseEntry, CourseStatus, SyncPlan
+
+
+def esc(value: object) -> str:
+    """Text from Stud.IP (or the user's files) inside Rich markup: shown as is.
+
+    Course titles, file names and announcements are written by other people; they
+    must never be read as markup ("[/b]" crashes, "[link=...]" fakes a link).
+    """
+    return escape(str(value))
+
 
 STYLE = {
     Kind.DOWNLOAD: "green",
@@ -82,11 +94,11 @@ def courses_table(entries: list[CourseEntry], semester_title: str) -> Table:
     for e in entries:
         status = e.status
         table.add_row(
-            e.course.id,
-            e.course.semester_title,
-            e.course.title,
+            Text(e.course.id),
+            Text(e.course.semester_title),
+            Text(e.course.title),
             f"[{colours[status]}]{status.value}[/]",
-            e.config.target if e.config and not e.config.exclude else "",
+            Text(e.config.target if e.config and not e.config.exclude else ""),
         )
     return table
 
@@ -95,7 +107,7 @@ def plan_table(plan: CoursePlan, verbose: bool) -> Table | None:
     rows = [a for a in plan.actions if verbose or a.kind is not Kind.SKIP]
     if not rows:
         return None
-    title = f"{plan.course.name or plan.course.id} -> {plan.course_dir}"
+    title = esc(f"{plan.course.name or plan.course.id} -> {plan.course_dir}")
     table = Table(title=title, title_justify="left", show_lines=False)
     table.add_column("Action")
     table.add_column("Stud.IP")
@@ -111,7 +123,10 @@ def plan_table(plan: CoursePlan, verbose: bool) -> Table | None:
         if a.unzips:
             note = (note + "; " if note else "") + "+ unzip"
         table.add_row(
-            f"[{STYLE[a.kind]}]{a.kind.value}[/]", remote, _rel(a.dest, plan.course_dir), note
+            f"[{STYLE[a.kind]}]{a.kind.value}[/]",
+            Text(remote),
+            Text(_rel(a.dest, plan.course_dir)),
+            Text(note),
         )
     return table
 
@@ -136,7 +151,7 @@ def print_summary(
 ) -> None:
     counts = summarize(sync_plan, outcome)
     header = "Dry run - nothing was changed" if dry_run else "Sync finished"
-    console.print(f"\n[bold]{header}[/bold]")
+    console.print(f"\n[bold]{esc(header)}[/bold]")
     labels = {
         "download": "new",
         "new-version": "new versions (_vN)",
@@ -148,26 +163,26 @@ def print_summary(
         "error": "errors",
     }
     for key, value in sorted(counts.items()):
-        console.print(f"  {labels.get(key, key)}: {value}")
+        console.print(f"  {esc(labels.get(key, key))}: {value}")
     if not counts:
         console.print("  nothing to do")
 
     if sync_plan.unconfigured:
         console.print("\n[yellow]Courses on Stud.IP without config entry (not synced):[/yellow]")
         for c in sync_plan.unconfigured:
-            console.print(f"  {c.id}  {c.title}")
+            console.print(f"  {esc(c.id)}  {esc(c.title)}")
     if sync_plan.missing:
         console.print("\n[yellow]Configured courses not found on Stud.IP:[/yellow]")
         for missing in sync_plan.missing:
-            console.print(f"  {missing.id}  {missing.name}")
+            console.print(f"  {esc(missing.id)}  {esc(missing.name)}")
 
     if sync_plan.errors:
         console.print("\n[red]Courses that could not be read (the others were synced):[/red]")
         for name, problem in sync_plan.errors:
-            console.print(f"  {name}: {problem}")
+            console.print(f"  {esc(name)}: {esc(problem)}")
     if sync_plan.warnings:
         console.print(
-            f"\n[yellow]{len(sync_plan.warnings)} unexpected record(s) from Stud.IP "
+            f"\n[yellow]{esc(len(sync_plan.warnings))} unexpected record(s) from Stud.IP "
             "were skipped[/yellow] - see the log for details."
         )
 
@@ -175,7 +190,7 @@ def print_summary(
     if deleted:
         console.print("\n[yellow]Deleted on Stud.IP (kept locally, reported once):[/yellow]")
         for r in deleted:
-            console.print(f"  {r.local_path}")
+            console.print(f"  {esc(r.local_path)}")
 
     errors: list[tuple[Action, str]] = [
         (a, a.reason) for p in sync_plan.plans for a in p.actions if a.kind is Kind.ERROR
@@ -185,7 +200,7 @@ def print_summary(
     if errors:
         console.print("\n[red]Errors:[/red]")
         for a, msg in errors:
-            console.print(f"  {a.file.name if a.file else a.dest}: {msg}")
+            console.print(f"  {esc(a.file.name if a.file else a.dest)}: {esc(msg)}")
 
 
 def plan_json(
@@ -235,7 +250,7 @@ def unlocked_lines(outcome: Outcome) -> list[str]:
     if outcome.unlocked:
         lines.append(f"[green]✓[/green] {len(outcome.unlocked)} PDF(s) unlocked")
     for path, reason in outcome.still_locked:
-        lines.append(f"[yellow]◎[/yellow] still locked: {path.name} ({reason})")
+        lines.append(f"[yellow]◎[/yellow] still locked: {esc(path.name)} ({esc(reason)})")
     if outcome.still_locked and not outcome.unlocked:
         lines.append(
             "[dim]The password fits none of these PDFs. If every PDF has its own password, "
@@ -266,7 +281,7 @@ def print_date_changes(console: Console, changes: list[Change]) -> None:
     console.print("\n[bold]Changed dates[/bold]")
     for change in changes:
         style = "red" if change.kind in (ChangeKind.CANCELLED, ChangeKind.REMOVED) else "yellow"
-        console.print(f"  [{style}]●[/{style}] {change.text()}")
+        console.print(f"  [{style}]●[/{style}] {esc(change.text())}")
 
 
 def reorganize_hint(count: int) -> str:
