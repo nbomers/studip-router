@@ -1,6 +1,6 @@
 [project]
 name = "studip-router"
-version = "0.2.0"
+version = "0.2.1"
 description = "Sync Stud.IP course files into your own folder structure, with per-course routing and renaming rules."
 readme = "README.md"
 license = "MIT"
@@ -16,6 +16,10 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Education",
 ]
 # Upper bounds: a new major version is tested before users get it (textual: the
@@ -34,6 +38,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/nbomers/studip-router"
 Issues = "https://github.com/nbomers/studip-router/issues"
+Changelog = "https://github.com/nbomers/studip-router/blob/main/CHANGELOG.md"
 
 [project.scripts]
 studip = "studip_router.cli:main"

@@ -11,7 +11,7 @@
 [![CI](https://github.com/nbomers/studip-router/actions/workflows/ci.yml/badge.svg)](https://github.com/nbomers/studip-router/actions/workflows/ci.yml)
 [![Python 3.11–3.14](https://img.shields.io/badge/python-3.11--3.14-3776ab?logo=python&logoColor=white)](#installation)
 [![macOS | Linux](https://img.shields.io/badge/os-macOS%20%7C%20Linux-555555)](#requirements)
-[![License MIT](https://img.shields.io/badge/License-MIT-2e7d32)](LICENSE)
+[![License MIT](https://img.shields.io/badge/License-MIT-2e7d32)](https://github.com/nbomers/studip-router/blob/main/LICENSE)
 [![Never deletes](https://img.shields.io/badge/deletes-never-1565c0)](#how-it-stays-safe)
 
 **Course files in, your folder structure out.** Most Stud.IP downloaders mirror
@@ -27,7 +27,7 @@ studip
 Press `s`, confirm the one-line summary, done. A second run downloads nothing
 unless something changed on Stud.IP.
 
-![Home screen of the terminal UI](docs/screenshots/menu.svg)
+![Home screen of the terminal UI](https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/menu.svg)
 
 <sub>The home screen: status cards on top, every common action on one key.
 All course names in the screenshots are made up.</sub>
@@ -98,7 +98,7 @@ All course names in the screenshots are made up.</sub>
 ## Quick start
 
 ```bash
-uv tool install git+https://github.com/nbomers/studip-router
+uv tool install studip-router
 ```
 
 ```bash
@@ -119,8 +119,8 @@ same subfolders. Because their names say what they hold, files land in the right
 one from the first sync on — no rules needed.
 
 <p align="center">
-  <img src="docs/screenshots/setup-folders.svg" width="49%" alt="Setup step 2: the folder that already holds your courses is suggested first">
-  <img src="docs/screenshots/setup-courses.svg" width="49%" alt="Setup step 3: courses, subfolders of new course folders, default folder">
+  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/setup-folders.svg" width="49%" alt="Setup step 2: the folder that already holds your courses is suggested first">
+  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/setup-courses.svg" width="49%" alt="Setup step 3: courses, subfolders of new course folders, default folder">
 </p>
 
 **Then:** `p` shows where every file would go, `s` syncs. `studip init` is the
@@ -143,19 +143,21 @@ same setup in the terminal.
   must open in a browser.
 - SSO-only accounts (Shibboleth/OIDC without a Stud.IP password) and two-factor
   authentication are not supported yet — contributions welcome, see
-  [docs/DESIGN.md](docs/DESIGN.md).
+  [docs/DESIGN.md](https://github.com/nbomers/studip-router/blob/main/docs/DESIGN.md).
 
 ## Installation
 
 | Tool | Install | Update |
 |---|---|---|
-| [uv](https://docs.astral.sh/uv/) | `uv tool install git+https://github.com/nbomers/studip-router` | `uv tool upgrade studip-router` |
-| [pipx](https://pipx.pypa.io/) | `pipx install git+https://github.com/nbomers/studip-router` | `pipx upgrade studip-router` |
+| [uv](https://docs.astral.sh/uv/) | `uv tool install studip-router` | `uv tool upgrade studip-router` |
+| [pipx](https://pipx.pypa.io/) | `pipx install studip-router` | `pipx upgrade studip-router` |
 
-These commands install the newest state of `main`. For a fixed, reproducible
-version append a release tag, e.g.
-`uv tool install git+https://github.com/nbomers/studip-router@v0.2.0`
-([releases and changes](CHANGELOG.md)).
+Releases come from [PyPI](https://pypi.org/project/studip-router/), built and
+uploaded by this repository's GitHub Actions ([changes](https://github.com/nbomers/studip-router/blob/main/CHANGELOG.md)). A specific
+version: `uv tool install studip-router==0.2.1`. No `uv` yet? See its
+[installation](https://docs.astral.sh/uv/getting-started/installation/) (one command;
+it brings its own Python). The unreleased state of `main`:
+`uv tool install git+https://github.com/nbomers/studip-router`.
 
 > [!TIP]
 > Working on the code? Avoid an editable install from an iCloud/Dropbox folder for
@@ -194,8 +196,8 @@ source checkout.
 `j`/`k` and arrow keys move, `Enter` opens, `Esc` goes back.
 
 <p align="center">
-  <img src="docs/screenshots/sync-preview.svg" width="49%" alt="Sync preview: every file with its target and the rule that placed it">
-  <img src="docs/screenshots/settings.svg" width="49%" alt="Settings screen with options side by side">
+  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/sync-preview.svg" width="49%" alt="Sync preview: every file with its target and the rule that placed it">
+  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/settings.svg" width="49%" alt="Settings screen with options side by side">
 </p>
 
 <sub>Left the preview — every file, its target and the rule that placed it.
@@ -205,12 +207,12 @@ Right the settings — saved immediately, comments in the config file are kept.<
 <summary><b>More screenshots</b>: rule suggestions, courses, sync</summary>
 
 <p align="center">
-  <img src="docs/screenshots/rule-suggestions.svg" width="49%" alt="Rule suggestions derived from folder names">
-  <img src="docs/screenshots/courses.svg" width="49%" alt="Course list with sync status">
+  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/rule-suggestions.svg" width="49%" alt="Rule suggestions derived from folder names">
+  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/courses.svg" width="49%" alt="Course list with sync status">
 </p>
 <p align="center">
-  <img src="docs/screenshots/sync-confirm.svg" width="49%" alt="One-line summary before syncing">
-  <img src="docs/screenshots/sync-done.svg" width="49%" alt="Result after the sync">
+  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/sync-confirm.svg" width="49%" alt="One-line summary before syncing">
+  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/sync-done.svg" width="49%" alt="Result after the sync">
 </p>
 
 </details>
@@ -293,7 +295,7 @@ Config, state and log stay **outside** your course folders (also on macOS):
 
 The config lives at `~/.config/studip-router/config.toml` (`studip config path`).
 Most options are in the settings screen; rules are written in the file. The fully
-commented reference is **[config.example.toml](config.example.toml)**.
+commented reference is **[config.example.toml](https://github.com/nbomers/studip-router/blob/main/config.example.toml)**.
 
 ```toml
 [server]
@@ -403,7 +405,7 @@ university), `--json` (machine-readable output for scripts, Raycast, Alfred, …
 | **Private files** | state database and log (course names, paths) are readable only by you (`0600`, folder `0700`). |
 | **Stays on your machine** | the only server contacted is your `server.base_url`; no telemetry, no update checks. |
 
-Found a security problem? See [SECURITY.md](SECURITY.md).
+Found a security problem? See [SECURITY.md](https://github.com/nbomers/studip-router/blob/main/SECURITY.md).
 
 ---
 
@@ -625,9 +627,9 @@ uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
 
-Ground rules, layout and conventions: [CONTRIBUTING.md](CONTRIBUTING.md).
-Invariants, architecture and the Stud.IP API calls: [docs/DESIGN.md](docs/DESIGN.md).
-Changes: [CHANGELOG.md](CHANGELOG.md).
+Ground rules, layout and conventions: [CONTRIBUTING.md](https://github.com/nbomers/studip-router/blob/main/CONTRIBUTING.md).
+Invariants, architecture and the Stud.IP API calls: [docs/DESIGN.md](https://github.com/nbomers/studip-router/blob/main/docs/DESIGN.md).
+Changes: [CHANGELOG.md](https://github.com/nbomers/studip-router/blob/main/CHANGELOG.md).
 
 ## Use of AI
 
@@ -661,6 +663,6 @@ IDs or accounts are in the repository.
 
 ## License
 
-The code is under the [MIT license](LICENSE).
+The code is under the [MIT license](https://github.com/nbomers/studip-router/blob/main/LICENSE).
 
 Not affiliated with the Stud.IP e.V. or any university.

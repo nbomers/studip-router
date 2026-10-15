@@ -1,0 +1,57 @@
+name: Release
+
+# Publishes to PyPI when a version tag (v1.2.3) is pushed. Uses PyPI Trusted
+# Publishing: no token is stored anywhere, PyPI trusts this workflow file of this
+# repository in the "pypi" environment (configured once on pypi.org).
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - name: Tag matches the package version
+        run: |
+          version=$(uv run --no-sync python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          code=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/studip_router/__init__.py)
+          echo "tag ${GITHUB_REF_NAME}, pyproject ${version}, __version__ ${code}"
+          test "${GITHUB_REF_NAME}" = "v${version}"
+          test "${version}" = "${code}"
+          grep -q "^## \[${version}\]" CHANGELOG.md
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest -q
+        env:
+          PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+      - run: uv build
+      - name: Smoke test the built wheel
+        run: uv run --isolated --no-project --with dist/*.whl studip --version
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/studip-router/
+    permissions:
+      id-token: write # only this job may prove its identity to PyPI
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

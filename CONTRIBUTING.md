@@ -46,3 +46,16 @@ src/studip_router/
 ```
 
 Screenshots in the README come from `uv run python scripts/make_screenshots.py` (fake data only).
+
+## Releases
+
+1. Move the `[Unreleased]` changes in `CHANGELOG.md` under a new `## [X.Y.Z] - date`
+   heading and add its compare link at the bottom.
+2. Set the same version in `pyproject.toml` and `src/studip_router/__init__.py`,
+   then `uv lock`.
+3. Merge to `main`, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+The `Release` workflow checks that tag, versions and changelog agree, runs the
+checks and tests, builds, smoke-tests the wheel and publishes to PyPI via Trusted
+Publishing (environment `pypi`). A tag that does not match stops before anything
+is uploaded; PyPI never accepts the same version twice, so fix it with a new version.
