@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-15
+
 ### Security
 - Text from Stud.IP is shown as text: titles, file and folder names and announcements
   were read as terminal markup, so an announcement with `[/b]` crashed `studip news`
@@ -144,7 +146,8 @@ First public version.
 [0.2.0]: https://github.com/nbomers/studip-router/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nbomers/studip-router/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/nbomers/studip-router/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/nbomers/studip-router/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nbomers/studip-router/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nbomers/studip-router/releases/tag/v0.1.0
