@@ -22,6 +22,7 @@ from .. import auth, paths
 from ..api import ApiError, AuthFailed, StudipClient, base_url_problem
 from ..config import DEFAULT_COURSE_FOLDERS
 from ..models import Course
+from ..report import esc
 from ..wizard import (
     CourseChoice,
     course_folder_name,
@@ -114,7 +115,9 @@ class SetupScreen(Screen):
         if not values["url"].startswith(("https://", "http://")):
             values["url"] = "https://" + values["url"]
         if problem := base_url_problem(values["url"]):
-            self.query_one("#status", Static).update(f"[yellow]The address {problem}.[/yellow]")
+            self.query_one("#status", Static).update(
+                f"[yellow]The address {esc(problem)}.[/yellow]"
+            )
             return
         self.query_one("#status", Static).update("Connecting…")
         self._connect(values)
@@ -136,14 +139,14 @@ class SetupScreen(Screen):
         except ApiError as exc:
             self.app.call_from_thread(
                 self.query_one("#status", Static).update,
-                f"[red]{exc}[/red]\n[dim]Is the JSON:API enabled at your university? "
+                f"[red]{esc(exc)}[/red]\n[dim]Is the JSON:API enabled at your university? "
                 "Try the address in a browser: …/jsonapi.php/v1/discovery[/dim]",
             )
             return
         except Exception as exc:  # unexpected answer: report it, never crash with locals
             self.app.call_from_thread(
                 self.query_one("#status", Static).update,
-                f"[red]Unexpected answer from Stud.IP ({type(exc).__name__}).[/red]",
+                f"[red]Unexpected answer from Stud.IP ({esc(type(exc).__name__)}).[/red]",
             )
             return
         self.values = values
@@ -164,12 +167,12 @@ class SetupScreen(Screen):
         options = [Option(r.label(self.home, len(courses))) for r in roots]
         if fresh not in self.root_paths:
             self.root_paths.append(fresh)
-            options.append(Option(f"{display_path(fresh, self.home)}  [dim](new)[/dim]"))
+            options.append(Option(f"{esc(display_path(fresh, self.home))}  [dim](new)[/dim]"))
         choices = self.query_one("#root-choices", OptionList)
         choices.add_options(options)
         found = bool(roots and roots[0].matches)
         self.query_one("#root-title", Static).update(
-            f"[green]✓ Connected.[/green] {len(courses)} courses in {self.semester}.\n\n"
+            f"[green]✓ Connected.[/green] {esc(len(courses))} courses in {esc(self.semester)}.\n\n"
             "[b]2/3[/b]  Where do your course folders live?  "
             + (
                 "[dim]Found where your courses already are.[/dim]"
@@ -204,7 +207,9 @@ class SetupScreen(Screen):
             return
         root = Path(text).expanduser()
         if root.exists() and not root.is_dir():
-            self.query_one("#root-status", Static).update(f"[yellow]{text} is a file.[/yellow]")
+            self.query_one("#root-status", Static).update(
+                f"[yellow]{esc(text)} is a file.[/yellow]"
+            )
             return
         self.values["root"] = home_path(root, self.home)
         self.show_courses(root)
@@ -219,13 +224,13 @@ class SetupScreen(Screen):
         selection.clear_options()
         for i, (course, target) in enumerate(zip(self.courses, self.targets, strict=True)):
             where = (
-                f"→ {target}"
+                f"→ {esc(target)}"
                 if target
-                else f"[yellow]→ new: {course_folder_name(course.title)}[/yellow]"
+                else f"[yellow]→ new: {esc(course_folder_name(course.title))}[/yellow]"
             )
             # with existing folders only those courses; starting fresh: all of them
             selection.add_option(
-                (f"{course.title}  [dim]{where}[/dim]", i, bool(target) or not matched)
+                (f"{esc(course.title)}  [dim]{where}[/dim]", i, bool(target) or not matched)
             )
         self.query_one("#courses-title", Static).update(
             "[b]3/3[/b]  Which courses should be synced?  [dim]Space toggles. New course "
@@ -281,7 +286,7 @@ class SetupScreen(Screen):
                 for name in to_create:
                     create_course_folder(root, name, template)
             except OSError as exc:
-                self.notify(f"Could not create the folders: {exc}", severity="error")
+                self.notify(f"Could not create the folders: {esc(exc)}", severity="error")
                 return
             path = paths.config_file()
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -300,7 +305,9 @@ class SetupScreen(Screen):
             self.app.finish_setup()  # type: ignore[attr-defined]
 
         if to_create:
-            inside = f"in {display_path(root, self.home)}, each with: {', '.join(template)}"
+            inside = (
+                f"in {esc(display_path(root, self.home))}, each with: {esc(', '.join(template))}"
+            )
             self.app.push_screen(
                 ConfirmScreen(f"Create {len(to_create)} course folder(s)?", inside), write
             )

@@ -14,6 +14,7 @@ from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from ..config import Config
+from ..report import esc
 
 
 class ConfirmScreen(ModalScreen[bool]):
@@ -76,8 +77,8 @@ class PasswordScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
-            yield Label(f"Password for [b]{self.cfg.username}[/b]")
-            yield Label(f"{self.cfg.base_url} · stored in your OS keychain", classes="dim")
+            yield Label(f"Password for [b]{esc(self.cfg.username)}[/b]")
+            yield Label(f"{esc(self.cfg.base_url)} · stored in your OS keychain", classes="dim")
             if self.error:
                 yield Label(self.error, classes="error")
             yield Input(password=True, placeholder="password", id="password")

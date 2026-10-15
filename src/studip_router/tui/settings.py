@@ -25,6 +25,7 @@ from textual.widgets import Footer, Static
 from .. import auth, paths, schedule
 from ..config import Config, ConfigError
 from ..config_edit import set_value
+from ..report import esc
 from .widgets import ConfirmScreen, TextScreen
 
 THEMES = [
@@ -414,10 +415,10 @@ class SettingsScreen(Screen):
         with _SettingsList(id="settings"):
             yield Static(id="account", classes="section")
             for section, settings in SECTIONS:
-                yield Static(f"  {section}", classes="section-title")
+                yield Static(f"  {esc(section)}", classes="section-title")
                 for setting in settings:
                     yield SettingRow(setting, setting.current(cfg))
-            yield Static(f"\n  [dim]config: {cfg.path}[/dim]", id="config-path")
+            yield Static(f"\n  [dim]config: {esc(cfg.path)}[/dim]", id="config-path")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -430,7 +431,8 @@ class SettingsScreen(Screen):
         stored = auth.has_password(cfg.base_url, cfg.username)
         state = "[green]● password stored[/green]" if stored else "[yellow]○ not logged in[/yellow]"
         self.query_one("#account", Static).update(
-            f"  [b]account[/b]   {cfg.username} @ {cfg.base_url.split('//')[-1]}   {state}"
+            f"  [b]account[/b]   {esc(cfg.username)} @ {esc(cfg.base_url.split('//')[-1])}"
+            f"   {state}"
             "   [dim]L log in · O log out[/dim]"
         )
 
@@ -452,7 +454,7 @@ class SettingsScreen(Screen):
         try:
             new_cfg = set_value(cfg.path, setting.keys, setting.to_config(cfg, value))
         except (ConfigError, OSError) as exc:
-            self.notify(f"Not saved: {exc}", severity="error")
+            self.notify(f"Not saved: {esc(exc)}", severity="error")
             return
         self.app.cfg = new_cfg  # type: ignore[attr-defined]
         row.set_value(value)
@@ -469,7 +471,7 @@ class SettingsScreen(Screen):
             try:
                 new_cfg = set_value(cfg.path, setting.keys, setting.parse(text))
             except (ConfigError, OSError) as exc:
-                self.notify(f"Not saved: {exc}", severity="error")
+                self.notify(f"Not saved: {esc(exc)}", severity="error")
                 return
             self.app.cfg = new_cfg  # type: ignore[attr-defined]
             row.set_value(setting.current(new_cfg))
@@ -486,13 +488,13 @@ class SettingsScreen(Screen):
                 else:
                     schedule.uninstall(paths.profile())
             except (OSError, subprocess.CalledProcessError) as exc:
-                self.notify(f"Auto-sync: {exc}", severity="error")
+                self.notify(f"Auto-sync: {esc(exc)}", severity="error")
                 return
             row.set_value(minutes)
-            self.notify("Auto-sync " + (f"every {minutes} min" if minutes else "turned off"))
+            self.notify("Auto-sync " + (f"every {esc(minutes)} min" if minutes else "turned off"))
 
         question = (
-            f"Run a background sync every {minutes} minutes?"
+            f"Run a background sync every {esc(minutes)} minutes?"
             if minutes
             else "Turn off the background sync?"
         )
@@ -507,7 +509,7 @@ class SettingsScreen(Screen):
         self.app.reload_config()  # type: ignore[attr-defined]
         if self.app.cfg is None:  # type: ignore[attr-defined]
             self.notify(
-                f"Config now invalid: {self.app.config_error}",  # type: ignore[attr-defined]
+                f"Config now invalid: {esc(self.app.config_error)}",  # type: ignore[attr-defined]
                 severity="error",
                 timeout=10,
             )
