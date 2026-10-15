@@ -70,8 +70,13 @@ def ssl_context() -> ssl.SSLContext | bool:
         return True
 
 
-def _rel_id(relationships: dict[str, Any], name: str) -> str | None:
-    data = (relationships.get(name) or {}).get("data")
+def _dict(value: Any) -> dict[str, Any]:
+    """PHP's json_encode writes an empty object as []: treat anything else as {}."""
+    return value if isinstance(value, dict) else {}
+
+
+def _rel_id(relationships: Any, name: str) -> str | None:
+    data = _dict(_dict(relationships).get(name)).get("data")
     return data.get("id") if isinstance(data, dict) else None
 
 
@@ -206,7 +211,7 @@ class StudipClient:
                     seen.add(item_id)
                 new += 1
                 yield item, included
-            total = (doc.get("meta") or {}).get("page", {}).get("total")
+            total = _dict(_dict(doc.get("meta")).get("page")).get("total")
             offset += len(data)
             if not data or (total is not None and offset >= total):
                 return
@@ -220,15 +225,17 @@ class StudipClient:
     # -- resources ---------------------------------------------------------
 
     def me(self) -> dict[str, Any]:
-        data = self._get_json("/users/me")["data"]
-        return {"id": data["id"], "name": data["attributes"].get("formatted-name", "")}
+        data = _dict(self._get_json("/users/me").get("data"))
+        if not isinstance(data.get("id"), str):
+            raise ApiError("unexpected answer from Stud.IP for /users/me (no user id)")
+        return {"id": data["id"], "name": _dict(data.get("attributes")).get("formatted-name", "")}
 
     def semesters(self) -> list[Semester]:
         if not self._semesters:
             for item, _ in self._paginate("/semesters"):
                 try:
                     sem = self._semester_from(item)
-                except (KeyError, TypeError, ValueError) as exc:
+                except (KeyError, TypeError, ValueError, AttributeError) as exc:
                     self._skipped(item, exc)
                     continue
                 self._semesters[sem.id] = sem
@@ -255,7 +262,7 @@ class StudipClient:
         result = []
         for item, _ in self._paginate(f"/users/{user_id}/courses"):
             try:
-                rel = item.get("relationships") or {}
+                rel = _dict(item.get("relationships"))
                 start = _rel_id(rel, "start-semester")
                 end = _rel_id(rel, "end-semester")
                 attrs = item["attributes"]
@@ -268,7 +275,7 @@ class StudipClient:
                         course_type=str(attrs.get("course-type") or ""),
                     )
                 )
-            except (KeyError, TypeError, ValueError) as exc:
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 self._skipped(item, exc)
         return result
 
@@ -277,7 +284,7 @@ class StudipClient:
         for item, _ in self._paginate(f"/courses/{course_id}/folders"):
             try:
                 attrs = item.get("attributes") or {}
-                parent = _rel_id(item.get("relationships") or {}, "parent")
+                parent = _rel_id(_dict(item.get("relationships")), "parent")
                 result.append(
                     Folder(
                         id=item["id"],
@@ -286,7 +293,7 @@ class StudipClient:
                         folder_type=attrs.get("folder-type") or "",
                     )
                 )
-            except (KeyError, TypeError) as exc:
+            except (KeyError, TypeError, AttributeError) as exc:
                 self._skipped(item, exc)
         return result
 
@@ -296,7 +303,7 @@ class StudipClient:
         for item, _ in self._paginate(f"/courses/{course_id}/file-refs"):
             try:
                 attrs = item["attributes"]
-                rel = item.get("relationships") or {}
+                rel = _dict(item.get("relationships"))
                 parent = _rel_id(rel, "parent")
                 chdate = _parse_dt(attrs.get("chdate") or attrs.get("mkdate"))
                 if chdate is None or not attrs.get("name"):
@@ -316,7 +323,7 @@ class StudipClient:
                         folder_type=folders[parent].folder_type if parent in folders else "",
                     )
                 )
-            except (KeyError, TypeError, ValueError) as exc:
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 self._skipped(item, exc)
         return result
 
@@ -378,7 +385,7 @@ class StudipClient:
                         mime_type=attrs.get("mime-type") or "",
                         description=attrs.get("description") or "",
                         downloadable=bool(attrs.get("is-downloadable", True)),
-                        content_id=_rel_id(item.get("relationships") or {}, "file") or "",
+                        content_id=_rel_id(_dict(item.get("relationships")), "file") or "",
                         folder_type="Courseware",
                     )
                 )
@@ -386,7 +393,7 @@ class StudipClient:
                 raise
             except ApiError as exc:
                 self.warnings.append(f"courseware file {fid}: {exc}")
-            except (KeyError, TypeError, ValueError) as exc:
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 self._skipped({"id": fid}, exc)
         return result
 
@@ -398,7 +405,7 @@ class StudipClient:
             raise
         except ApiError:
             return 0
-        total = (doc.get("meta") or {}).get("page", {}).get("total")
+        total = _dict(_dict(doc.get("meta")).get("page")).get("total")
         return int(total) if total is not None else len(doc.get("data") or [])
 
     def _skipped(self, item: Any, exc: Exception) -> None:

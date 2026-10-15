@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
-import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -24,6 +22,7 @@ from textual.widgets.option_list import Option
 from .. import __version__, auth, paths
 from ..api import ApiError, AuthFailed, StudipClient
 from ..config import Config, ConfigError, load
+from ..config_edit import open_in_editor
 from ..news import fetch_news, unread
 from ..reorganize import pending_moves
 from ..report import esc
@@ -258,9 +257,10 @@ class HomeScreen(Screen):
         self.app.push_screen(HelpScreen())
 
     def action_edit_config(self) -> None:
-        editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "nano"
         with self.app.suspend():
-            subprocess.run([*editor.split(), str(paths.config_file())], check=False)
+            problem = open_in_editor(paths.config_file())
+        if problem:
+            self.notify(esc(problem), severity="error")
         self.app.reload_config()  # type: ignore[attr-defined]
         self.refresh_status()
 
@@ -330,6 +330,10 @@ class StudipRouterApp(App):
         self._status = None
 
     def on_mount(self) -> None:
+        from ..report import setup_file_logging
+
+        with contextlib.suppress(OSError):  # "details in the log" holds in the UI too
+            setup_file_logging(paths.log_file(), verbose=False)
         self.reload_config()
         if self.cfg is None and not paths.config_file().exists():
             self.push_screen(SetupScreen())

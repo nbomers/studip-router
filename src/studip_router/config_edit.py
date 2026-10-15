@@ -6,7 +6,10 @@ file, and the first change of a session keeps a ``.bak`` copy.
 
 from __future__ import annotations
 
+import os
+import shlex
 import shutil
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -79,3 +82,25 @@ def set_course(path: Path, course_id: str, **fields: Any) -> Config:
         else:
             course[key] = value
     return _save(path, doc)
+
+
+def open_in_editor(path: Path) -> str | None:
+    """Open ``path`` in $VISUAL/$EDITOR (quoted arguments allowed), else nano or vi.
+
+    Returns a problem description instead of raising when no editor can be started.
+    """
+    configured = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    try:
+        command = shlex.split(configured) if configured else []
+    except ValueError as exc:
+        return f"cannot read $VISUAL/$EDITOR ({exc})"
+    if not command:
+        found = shutil.which("nano") or shutil.which("vi")
+        if found is None:
+            return "no editor found; set $EDITOR, e.g. export EDITOR=nano"
+        command = [found]
+    try:
+        subprocess.run([*command, str(path)], check=False)
+    except OSError as exc:
+        return f"could not start {command[0]!r}: {exc.strerror or exc}"
+    return None

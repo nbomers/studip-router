@@ -5,10 +5,10 @@ from __future__ import annotations
 import getpass
 import json
 import logging
-import os
 import shutil
 import subprocess
 import sys
+import tomllib
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -23,7 +23,8 @@ from rich.text import Text
 
 from . import __version__, auth, doctor, paths, report, schedule
 from .api import ApiError, AuthFailed, StudipClient
-from .config import DEFAULT_COURSE_FOLDERS, Config, ConfigError, CourseConfig, load
+from .config import DEFAULT_COURSE_FOLDERS, Config, ConfigError, CourseConfig, load, unsafe_folder
+from .config import parse as parse_config
 from .dates import check_dates, upcoming_exams
 from .executor import unlock_course
 from .fsutil import Locked, exclusive_lock
@@ -269,7 +270,6 @@ def config_set(
     value: Annotated[str, typer.Argument(help='TOML value: skip, true, 200, "text"')],
 ) -> None:
     """Change one setting in place (comments are kept; the result is validated)."""
-    import tomllib
 
     from .config_edit import set_value
 
@@ -290,8 +290,10 @@ def config_edit() -> None:
     path = paths.config_file()
     if not path.exists():
         raise fail(f"{path} does not exist; run `studip init` first")
-    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "nano"
-    subprocess.run([*editor.split(), str(path)], check=False)
+    from .config_edit import open_in_editor
+
+    if problem := open_in_editor(path):
+        raise fail(problem)
     config_validate(None)
 
 
@@ -342,6 +344,8 @@ def init_cmd(
         if answer.isdigit() and 0 < int(answer) <= len(options)
         else Path(answer).expanduser()
     )
+    if problem := unsafe_folder(str(root_path)):  # before anything is created there
+        raise fail(f"{root_path}: the course folder location {problem}", 2)
     root = home_path(root_path, home)
 
     folders = local_course_folders(root_path)
@@ -377,6 +381,10 @@ def init_cmd(
         default=detected or ("Sonstiges" if "Sonstiges" in template else template[-1]),
     )
     text = render_config(base_url, username, root, choices, default_target, template)
+    try:  # valid before any folder is created or the password is stored
+        parse_config(tomllib.loads(text), path)
+    except ConfigError as exc:
+        raise fail(f"not written: {'; '.join(exc.problems)}", 2) from None
     missing = [d for d in course_dirs if not d.is_dir()]
     if missing and Confirm.ask(
         f"Create {len(missing)} course folder(s) in {display_path(root_path, home)}, "

@@ -188,6 +188,17 @@ def _local_target(category: str, subdirs: list[str]) -> str | None:
     return None
 
 
+def _with_umlauts(keyword: str) -> str:
+    """Regex for a normalised keyword that also matches the real spelling:
+    "loesung" -> "l(?:oe|ö)sung", so the rule matches "Lösung_1.pdf" itself."""
+    pattern = re.escape(keyword)
+    for plain, umlaut in (("ae", "ä"), ("oe", "ö"), ("ue", "ü"), ("ss", "ß")):
+        pattern = pattern.replace(plain, f"(?:{plain}|{umlaut})")
+    if keyword == "ubung":  # "Übung" written without the e
+        pattern = "(?:u|ü)bung"
+    return pattern
+
+
 def _slug(text: str) -> str:
     slug = re.sub(
         r"[^a-z0-9]+",
@@ -266,7 +277,7 @@ def suggest_rules(
         target = _local_target(category, subdirs)
         if target is None:
             continue
-        pattern = "|".join(re.escape(k) for k in keywords[category] if len(k) > 3)
+        pattern = "|".join(_with_umlauts(k) for k in keywords[category] if len(k) > 3)
         rule_id = _unique(f"{category}-by-name", taken)
         suggestions.append(
             Suggestion(

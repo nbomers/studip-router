@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- A file only re-described or moved on Stud.IP (same content) kept its folder but
+  was recorded with the new rule, so `studip reorganize` never offered to move it;
+  the rule that placed it is kept now.
+- `--include-large` also dropped `sync.exclude.folders` (e.g. `CoursewareImport*`).
+- A rejected login during planning was caught per course and could clear the
+  auto-sync pause; it now stops the sync. The terminal UI pauses auto-sync and asks
+  for the password instead of only showing the error.
+- The terminal UI wrote no log file; repeated logging setup no longer adds handlers.
+- A file deleted in one Stud.IP folder and uploaded under the same name in another
+  is no longer treated as a new version of it.
+- Setup: course numbers are real roman numerals and only the trailing one counts
+  ("X-Ray Physics I" finds "X-Ray Physics", "Seminar VII" finds "Seminar 7").
+- Setup (UI and `studip init`) refuses `/`, the home folder or system folders as the
+  course folder location before creating anything, and checks the config first.
+- A transfer cut short at the same point twice was saved as complete; only a size
+  within 10 % / 1 MB of the announced one, with identical content twice, is
+  accepted as "Stud.IP reports a wrong size".
+- A file that turned out unchanged now clears its failure count.
+- Name rules suggested for the course root match umlauts (`Lösung_1.pdf`).
+- Stud.IP answers with `[]` where an object is expected no longer crash.
+- `$VISUAL`/`$EDITOR` with quoted arguments works; a missing editor is a message.
+- Moves (renames on Stud.IP, reorganize, undo) are persisted with a directory fsync.
+
 ## [0.2.2] - 2026-10-15
 
 ### Security

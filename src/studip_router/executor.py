@@ -69,7 +69,7 @@ def execute(
             if action.file is not None:
                 state.record_failure(action.file.id, message)
             continue
-        if action.file is not None and action.transfers:
+        if action.file is not None:  # done, also when it turned out unchanged (REFRESH)
             state.clear_failure(action.file.id)
         outcome.done.append(action)
         if on_progress:
@@ -306,6 +306,11 @@ class TooLargeError(DownloadError):
     """The server sends far more than it announced, or more than the size limit."""
 
 
+def _size_close(got: int, announced: int) -> bool:
+    """A size Stud.IP may have reported slightly wrong (not an interrupted transfer)."""
+    return abs(got - announced) <= max(announced // 10, 1 << 20)
+
+
 def size_limit(file: RemoteFile, max_bytes: int | None) -> int | None:
     """Most bytes accepted for ``file``: a bit more than announced (Stud.IP's size is
     sometimes slightly off), never more than the configured size limit."""
@@ -360,13 +365,15 @@ def fetch_verified(
     """Download into ``dest`` atomically; return (sha256, written).
 
     Interrupted transfers and size mismatches are retried. If the size reported
-    by Stud.IP is wrong but two complete downloads agree, the file is accepted.
+    by Stud.IP is slightly wrong (within 10 % or 1 MB) and two downloads deliver the
+    same bytes, the file is accepted; a much shorter transfer is always an
+    interrupted one, however often it happens.
     With ``unless_sha``, identical content is discarded instead of written.
     ``before_replace`` runs right before ``dest`` is replaced and may raise to keep it.
     A transfer far bigger than announced, or bigger than ``max_bytes``, is stopped
     at once and not retried.
     """
-    mismatch: int | None = None
+    mismatch: tuple[int, str] | None = None  # (size, sha256) of a complete-looking transfer
     for attempt in range(1, attempts + 1):
         try:
 
@@ -380,14 +387,17 @@ def fetch_verified(
             with atomic_writer(dest, commit) as (fh, digest):
                 guard = _Guard(file, fh.write, size_limit(file, max_bytes))
                 download(file.id, guard.write)
-                if file.size > 0 and guard.size != file.size and guard.size != mismatch:
-                    mismatch = guard.size
-                    raise DownloadError(
-                        f"incomplete download: got {guard.size} of {file.size} bytes"
-                    )
+                if file.size > 0 and guard.size != file.size:
+                    this = (guard.size, digest())
+                    if not (_size_close(guard.size, file.size) and this == mismatch):
+                        if _size_close(guard.size, file.size):
+                            mismatch = this
+                        raise DownloadError(
+                            f"incomplete download: got {guard.size} of {file.size} bytes"
+                        )
             if mismatch is not None:
                 log.warning(
-                    "%s: Stud.IP reports %s bytes, file has %s", file.name, file.size, mismatch
+                    "%s: Stud.IP reports %s bytes, file has %s", file.name, file.size, mismatch[0]
                 )
             sha = digest()
             return sha, sha != unless_sha
@@ -403,6 +413,12 @@ def fetch_verified(
     raise AssertionError("unreachable")
 
 
+@dataclass(frozen=True)
+class _Placement:
+    rule_id: str | None
+    routed_by_default: bool
+
+
 def _record(
     action: Action,
     file: RemoteFile,
@@ -415,6 +431,14 @@ def _record(
 ) -> FileRecord:
     route = action.route
     previous = action.previous
+    # Which rule placed the file where it lies. REFRESH and MOVE leave it in its
+    # folder, so the old placement stays; otherwise reorganize would never learn
+    # that the current rules want it elsewhere.
+    placement: _Placement | None = None
+    if previous is not None and (action.kind in (Kind.REFRESH, Kind.MOVE) or route is None):
+        placement = _Placement(previous.rule_id, previous.routed_by_default)
+    elif route is not None:
+        placement = _Placement(route.rule_id, route.by_default)
     return FileRecord(
         file_id=file.id,
         course_id=file.course_id,
@@ -427,10 +451,8 @@ def _record(
         local_mtime=mtime,
         sha256=sha,
         version=version,
-        rule_id=route.rule_id if route else (previous.rule_id if previous else None),
-        routed_by_default=(
-            route.by_default if route else (previous.routed_by_default if previous else False)
-        ),
+        rule_id=placement.rule_id if placement else None,
+        routed_by_default=placement.routed_by_default if placement else False,
         mime_type=file.mime_type,
         description=file.description,
         content_id=file.content_id,

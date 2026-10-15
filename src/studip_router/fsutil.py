@@ -279,8 +279,11 @@ def move_no_clobber(src: Path, dst: Path) -> None:
         if dst.exists():
             raise
         os.rename(src, dst)
-        return
-    os.unlink(src)
+    else:
+        os.unlink(src)
+    fsync_dir(dst.parent)  # the rename survives a power loss
+    if src.parent != dst.parent:
+        fsync_dir(src.parent)
 
 
 class Locked(Exception):

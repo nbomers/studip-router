@@ -10,7 +10,7 @@ from __future__ import annotations
 import fnmatch
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -217,7 +217,7 @@ def plan_course(
     route_file = router or build_router(cfg, course)
     excludes = cfg.course_exclude(course)
     if include_large:
-        excludes = ExcludeConfig(excludes.globs, excludes.mime, None)
+        excludes = replace(excludes, max_size_mb=None)  # keeps globs, mime and folders
     if excludes.max_size_mb:  # 0 or None: no limit
         plan.max_bytes = int(excludes.max_size_mb * 1024 * 1024)
     ignored = ignored or set()
@@ -256,10 +256,12 @@ def plan_course(
 
     remote_ids = {f.id for f in remote_files}
     # Deleted on Stud.IP: a new upload with the same name replaces them (re-upload).
-    replaced_by_name: dict[str, FileRecord] = {}
+    # Same folder and name: a lecturer replacing a file. "Lösung.pdf" deleted in
+    # "Übung 1" and uploaded to "Klausur" is a different file, not a new version.
+    replaced_by_name: dict[tuple[str, str], FileRecord] = {}
     for fid, r in records.items():
         if fid not in remote_ids:
-            replaced_by_name.setdefault(name_key(r.remote_name), r)
+            replaced_by_name.setdefault((nfc(r.remote_folder_path), name_key(r.remote_name)), r)
     replaced: set[str] = set()
     plan.reappeared = [fid for fid, r in records.items() if r.gone and fid in remote_ids]
     ctx = _Ctx(cfg, plan, claims, route_file, by_name, by_base, adopted, planned_dirs)
@@ -275,7 +277,7 @@ def plan_course(
             continue
 
         record = records.get(file.id)
-        old = None if record else replaced_by_name.get(name_key(file.name))
+        old = None if record else replaced_by_name.get((nfc(file.folder_path), name_key(file.name)))
         if (
             old is not None
             and old.file_id not in replaced
