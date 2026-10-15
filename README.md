@@ -152,6 +152,11 @@ same setup in the terminal.
 | [uv](https://docs.astral.sh/uv/) | `uv tool install git+https://github.com/nbomers/studip-router` | `uv tool upgrade studip-router` |
 | [pipx](https://pipx.pypa.io/) | `pipx install git+https://github.com/nbomers/studip-router` | `pipx upgrade studip-router` |
 
+These commands install the newest state of `main`. For a fixed, reproducible
+version append a release tag, e.g.
+`uv tool install git+https://github.com/nbomers/studip-router@v0.2.0`
+([releases and changes](CHANGELOG.md)).
+
 > [!TIP]
 > Working on the code? Avoid an editable install from an iCloud/Dropbox folder for
 > daily use: if the sources are evicted, the command stops working.
