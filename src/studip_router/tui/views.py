@@ -30,7 +30,7 @@ from textual.widgets import (
 from textual.widgets.option_list import Option
 
 from .. import doctor, paths
-from ..api import ApiError, StudipClient
+from ..api import ApiError, AuthFailed, StudipClient
 from ..config import Config, ConfigError
 from ..config_edit import set_course
 from ..dates import Change, check_dates, upcoming_exams
@@ -139,6 +139,23 @@ class View(Screen):
     def client(self) -> StudipClient:
         return self.app.make_client()  # type: ignore[attr-defined]
 
+    def check_login(self, exc: ApiError) -> None:
+        """From a worker: a rejected login pauses auto-sync and asks for the password,
+        so neither the UI nor the background job keeps trying a wrong one."""
+        if isinstance(exc, AuthFailed):
+            self.app.call_from_thread(self._login_rejected)
+
+    def _login_rejected(self) -> None:
+        pause = paths.auth_pause_file()
+        pause.parent.mkdir(parents=True, exist_ok=True)
+        pause.write_text("login failed\n")
+        self.app.ask_password(  # type: ignore[attr-defined]
+            self.after_login, "Stud.IP rejected the stored password; auto-sync is paused."
+        )
+
+    def after_login(self) -> None:
+        """Runs after a successful login following a rejected one."""
+
     def action_cursor(self, direction: str) -> None:
         focused = self.focused
         method = getattr(focused, f"action_cursor_{direction}", None)
@@ -214,6 +231,7 @@ class SyncView(View):
             with self.client() as client, State(paths.state_db()) as state:
                 plan = build_plan(client, self.cfg, state)
         except ApiError as exc:
+            self.check_login(exc)
             self.app.call_from_thread(self.status, f"[red]✗ {esc(exc)}[/red]")
             return
         self.app.call_from_thread(self.show_plan, plan)
@@ -304,6 +322,9 @@ class SyncView(View):
         if self.plan:
             self.show_plan(self.plan)
 
+    def after_login(self) -> None:
+        self.action_refresh()
+
     def action_refresh(self) -> None:
         if not self.running:
             self.status("Fetching course data from Stud.IP…")
@@ -363,6 +384,7 @@ class SyncView(View):
             self.running = False
             return
         except ApiError as exc:
+            self.check_login(exc)
             self.app.call_from_thread(self.status, f"[red]✗ {esc(exc)}[/red]")
             self.running = False
             return
@@ -457,6 +479,7 @@ class CoursesView(View):
                 sem = resolve_semester(client, "all" if self.all_semesters else "current")
                 entries, missing = list_courses(client, self.cfg, sem)
         except ApiError as exc:
+            self.check_login(exc)
             self.app.call_from_thread(self.status, f"[red]{esc(exc)}[/red]")
             return
         label = sem.title if sem else "all semesters"
@@ -687,6 +710,7 @@ class DatesView(View):
                 with self.client() as client:
                     check_dates(client, state, courses, now)
             except ApiError as exc:
+                self.check_login(exc)
                 self.app.call_from_thread(
                     log.write, f"[red]{esc(exc)}[/red] [dim](showing saved dates)[/dim]"
                 )
@@ -746,6 +770,7 @@ class NewsView(View):
                     if not c.exclude:
                         items += fetch_news(client, c.id, c.name or c.target)
         except ApiError as exc:
+            self.check_login(exc)
             self.app.call_from_thread(
                 self.query_one("#news-text", Static).update, f"[red]{esc(exc)}[/red]"
             )
@@ -864,6 +889,7 @@ class RulesView(View):
                         if s.rule["match"].get("folder") not in known:
                             found.append((c.id, s))
         except ApiError as exc:
+            self.check_login(exc)
             self.app.call_from_thread(self.status, f"[red]{esc(exc)}[/red]")
             return
         self.app.call_from_thread(self.fill, found)

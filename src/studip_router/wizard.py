@@ -39,8 +39,35 @@ STOPWORDS = {
     "informatikerinnen",
     "a",
 }
-# Course numbers ("Analysis I", "Mathe 2") tell courses apart: they must agree.
-_NUMBER = re.compile(r"^(?:\d+|[ivx]+)$")
+# Course numbers ("Analysis I", "Mathe 2", "Seminar VII") tell courses apart.
+_ROMAN = {
+    r: str(i)
+    for i, r in enumerate(
+        [
+            "i",
+            "ii",
+            "iii",
+            "iv",
+            "v",
+            "vi",
+            "vii",
+            "viii",
+            "ix",
+            "x",
+            "xi",
+            "xii",
+            "xiii",
+            "xiv",
+            "xv",
+            "xvi",
+            "xvii",
+            "xviii",
+            "xix",
+            "xx",
+        ],
+        1,
+    )
+}
 
 
 def _tokens(text: str) -> list[str]:
@@ -52,25 +79,36 @@ def _token_match(a: str, b: str) -> bool:
     return a == b or (len(a) > 4 and len(b) > 4 and SequenceMatcher(None, a, b).ratio() > 0.85)
 
 
-def _numbers(tokens: list[str]) -> set[str]:
-    roman = {"i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6"}
-    return {roman.get(t, t.lstrip("0") or "0") for t in tokens if _NUMBER.match(t)}
+def _number(token: str) -> str | None:
+    """ "2", "02", "ii" -> "2"; anything else -> None."""
+    if token.isdigit():
+        return str(int(token))
+    return _ROMAN.get(token)
+
+
+def _course_number(tokens: list[str]) -> str | None:
+    """The number a name ends with ("Analysis II" -> "2", "X-Ray" -> None)."""
+    return _number(tokens[-1]) if tokens else None
 
 
 def score(title: str, folder: str) -> float:
     """Share of the folder's words found in the course title (fuzzy, typo tolerant).
 
-    A number in the folder name must agree: "Analysis II" never matches the folder
-    "Analysis I" (last semester's course), but still matches "Analysis".
+    A number the folder name ends with must appear in the title: "Analysis II" never
+    matches the folder "Analysis I" (last semester's course), but still matches
+    "Analysis"; "X-Ray Physics I" matches "X-Ray Physics" (the X is a word there).
     """
     folder_tokens = _tokens(folder)
     title_tokens = _tokens(title)
     if not folder_tokens or not title_tokens:
         return 0.0
-    if (numbers := _numbers(folder_tokens)) and numbers != _numbers(title_tokens):
-        return 0.0
-    folder_tokens = [t for t in folder_tokens if not _NUMBER.match(t)] or folder_tokens
-    title_tokens = [t for t in title_tokens if not _NUMBER.match(t)] or title_tokens
+    folder_number = _course_number(folder_tokens)
+    if folder_number is not None:
+        if folder_number not in {_number(t) for t in title_tokens}:
+            return 0.0
+        folder_tokens = folder_tokens[:-1] or folder_tokens
+    if _course_number(title_tokens) is not None:
+        title_tokens = title_tokens[:-1] or title_tokens
     hits = sum(1 for f in folder_tokens if any(_token_match(f, t) for t in title_tokens))
     return hits / len(folder_tokens)
 

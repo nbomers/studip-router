@@ -12,7 +12,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from . import auth, paths
-from .api import ApiError, StudipClient
+from .api import ApiError, AuthFailed, StudipClient
 from .config import Config, CourseConfig
 from .executor import Outcome, execute
 from .fsutil import cleanup_stale_parts, exclusive_lock, sanitize_filename
@@ -189,6 +189,8 @@ def build_plan(
                 ignored=state.ignored_ids(),
                 failures=state.failures(),
             )
+        except AuthFailed:
+            raise  # a rejected login is not retried for every course
         except Exception as exc:  # one broken course must not stop the others
             log.error("course %s failed: %s", course.title, exc, exc_info=True)
             result.errors.append((course_cfg.name or course.title, str(exc) or repr(exc)))

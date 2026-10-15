@@ -62,11 +62,18 @@ class _PrivateLog(RotatingFileHandler):
 
 
 def setup_file_logging(path: Path, verbose: bool) -> None:
+    """Log to ``path`` (rotated). Calling it again never adds a second handler for
+    the same file; a handler for another file is replaced."""
+    root = logging.getLogger("studip_router")
+    root.setLevel(logging.DEBUG if verbose else logging.INFO)
+    for existing in [h for h in root.handlers if isinstance(h, _PrivateLog)]:
+        if Path(existing.baseFilename) == path.absolute():
+            return
+        root.removeHandler(existing)
+        existing.close()
     paths.private_dir(path.parent)
     handler = _PrivateLog(path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    root = logging.getLogger("studip_router")
-    root.setLevel(logging.DEBUG if verbose else logging.INFO)
     root.addHandler(handler)
 
 

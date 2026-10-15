@@ -24,7 +24,7 @@ from textual.widgets import Footer, Static
 
 from .. import auth, paths, schedule
 from ..config import Config, ConfigError
-from ..config_edit import set_value
+from ..config_edit import open_in_editor, set_value
 from ..report import esc
 from .widgets import ConfirmScreen, TextScreen
 
@@ -532,9 +532,10 @@ class SettingsScreen(Screen):
 
     def action_edit(self) -> None:
         cfg: Config = self.app.cfg  # type: ignore[attr-defined]
-        editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "nano"
         with self.app.suspend():
-            subprocess.run([*editor.split(), str(cfg.path)], check=False)
+            problem = open_in_editor(cfg.path)
+        if problem:
+            self.notify(esc(problem), severity="error")
         self.app.reload_config()  # type: ignore[attr-defined]
         if self.app.cfg is None:  # type: ignore[attr-defined]
             self.notify(

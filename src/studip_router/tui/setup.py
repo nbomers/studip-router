@@ -7,6 +7,7 @@ the courses and the structure new course folders get.
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 from typing import ClassVar
 
@@ -20,7 +21,7 @@ from textual.widgets.option_list import Option
 
 from .. import auth, paths
 from ..api import ApiError, AuthFailed, StudipClient, base_url_problem
-from ..config import DEFAULT_COURSE_FOLDERS
+from ..config import DEFAULT_COURSE_FOLDERS, ConfigError, parse, unsafe_folder
 from ..models import Course
 from ..report import esc
 from ..wizard import (
@@ -211,6 +212,11 @@ class SetupScreen(Screen):
                 f"[yellow]{esc(text)} is a file.[/yellow]"
             )
             return
+        if problem := unsafe_folder(str(root)):  # checked before anything is created
+            self.query_one("#root-status", Static).update(
+                f"[yellow]{esc(text)}: the course folder location {esc(problem)}.[/yellow]"
+            )
+            return
         self.values["root"] = home_path(root, self.home)
         self.show_courses(root)
 
@@ -269,6 +275,20 @@ class SetupScreen(Screen):
                 )
             )
 
+        text = render_config(
+            self.values["url"].rstrip("/"),
+            self.values["username"],
+            self.values["root"],
+            choices,
+            default_target,
+            template,
+        )
+        try:  # the config must be valid before any folder is created
+            parse(tomllib.loads(text), paths.config_file())
+        except (ConfigError, tomllib.TOMLDecodeError) as exc:
+            self.notify(f"Not saved: {esc(exc)}", severity="error", timeout=20)
+            return
+
         def write(ok: bool | None = True) -> None:
             if not ok:
                 return
@@ -279,7 +299,7 @@ class SetupScreen(Screen):
                     self.values["password"],
                 )
             except auth.AuthError as exc:
-                self.notify(str(exc), severity="error", timeout=20)
+                self.notify(esc(exc), severity="error", timeout=20)
                 return
             try:
                 root.mkdir(parents=True, exist_ok=True)
@@ -290,17 +310,7 @@ class SetupScreen(Screen):
                 return
             path = paths.config_file()
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                render_config(
-                    self.values["url"].rstrip("/"),
-                    self.values["username"],
-                    self.values["root"],
-                    choices,
-                    default_target,
-                    template,
-                ),
-                encoding="utf-8",
-            )
+            path.write_text(text, encoding="utf-8")
             self.values.pop("password", None)  # stored in the keychain; drop the copy
             self.app.finish_setup()  # type: ignore[attr-defined]
 

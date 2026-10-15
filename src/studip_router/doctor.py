@@ -201,30 +201,33 @@ def _check_server(cfg: Config) -> Iterator[Check]:
         yield Check("login", Level.FAIL, "no password stored; run `studip auth login`")
         return
     try:
-        with StudipClient(
+        client = StudipClient(
             cfg.base_url, cfg.username, auth.get_password(cfg.base_url, cfg.username)
-        ) as client:
-            client.me()
-            sem = client.current_semester()
+        )
     except (ApiError, auth.AuthError) as exc:
         yield Check("login", Level.FAIL, str(exc))
         return
-    except Exception as exc:  # unexpected answer: report, never crash the checks
-        yield Check("login", Level.FAIL, f"unexpected answer from Stud.IP ({type(exc).__name__})")
-        return
-    yield Check("login", Level.OK, f"as {cfg.username}; current semester: {sem.title}")
-    try:
-        with StudipClient(
-            cfg.base_url, cfg.username, auth.get_password(cfg.base_url, cfg.username)
-        ) as client:
+    with client:  # one connection for the login and the Courseware check
+        try:
+            client.me()
+            sem = client.current_semester()
+        except (ApiError, auth.AuthError) as exc:
+            yield Check("login", Level.FAIL, str(exc))
+            return
+        except Exception as exc:  # unexpected answer: report, never crash the checks
+            name = type(exc).__name__
+            yield Check("login", Level.FAIL, f"unexpected answer from Stud.IP ({name})")
+            return
+        yield Check("login", Level.OK, f"as {cfg.username}; current semester: {sem.title}")
+        try:
             courseware = [
                 c.name or c.target
                 for c in cfg.courses.values()
                 if not c.exclude and client.courseware_units(c.id)
             ]
-    except (ApiError, auth.AuthError) as exc:
-        yield Check("courseware", Level.WARN, f"not checked: {exc}")
-        return
+        except ApiError as exc:
+            yield Check("courseware", Level.WARN, f"not checked: {exc}")
+            return
     if courseware:
         yield Check(
             "courseware",
