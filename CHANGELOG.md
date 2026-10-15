@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Automatic routing and rule suggestions treat Stud.IP folders named like
+  `Notebooks` / `notebook-03` (Jupyter notebooks) as exercises: their files go to the
+  course's exercise folder (`Übungen`, `Exercises`, …) instead of the default folder.
+  Your own rules still win; without an exercise folder nothing changes.
+
 ## [0.2.1] - 2026-10-15
 
 ### Security

@@ -35,6 +35,7 @@ REMOTE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "zettel",
         "abgabe",
         "lab",
+        "notebook",  # Jupyter notebooks ("Notebooks", "notebook-03") are worked on like sheets
     ),
     "slides": (
         "folie",
