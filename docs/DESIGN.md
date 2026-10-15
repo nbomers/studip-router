@@ -9,12 +9,16 @@ rules. The command is `studip`; without arguments it opens a terminal UI.
 1. **Never delete** local files. Files removed on Stud.IP are only reported.
    (`undo` only moves files back and removes *empty* folders it created.)
 2. **Never silently overwrite.** Updates follow `on_update`; files the user
-   changed locally (size/mtime/hash differ from the state) are never replaced.
+   changed locally (size/mtime/hash differ from the state) are never replaced;
+   the check is repeated at execution time, right before `os.replace`, because a
+   plan can be old (the UI preview stays open).
 3. **Dry run == real run.** One planner produces the actions; the executor
    only performs them.
 4. **Idempotent.** Without remote changes a second sync does nothing: files are
    identified by Stud.IP file ID, never by their (renamed) local name.
-5. **No secrets at rest outside the OS keychain**, never in logs or output.
+5. **No secrets at rest outside the OS keychain**, never in logs or output, and
+   never in crash output (the TUI renders tracebacks without locals; non-JSON
+   answers and keychain failures are ordinary errors, not crashes).
 6. **iCloud-safe.** Evicted ("dataless") files are never read implicitly; only
    `stat()` is used for them.
 7. **Instance-agnostic.** Nothing university-specific is hard-coded.
@@ -74,7 +78,12 @@ cli.py / tui/   ──► sync.py ──► planner.py ──► executor.py ─
 - *Re-uploads*: a new file id whose name matches a file deleted in the same
   run is treated as the next version of it.
 - *Isolation*: each course is planned in its own try block; malformed API
-  records are skipped (`client.warnings`). Files failing 3x are retried daily.
+  records are skipped (`client.warnings`). The executor isolates every file,
+  whatever the exception, except `AuthFailed`: a rejected login ends the run at
+  once (one attempt, not one per file or course). Files failing 3x are retried daily.
+- *Adoption*: an untracked local file with the remote name and size is adopted.
+  `name_vN` counts as a version of `name` only when `name` exists next to it (a
+  version chain written before the state was lost).
 - *Semesters*: configured courses always sync; the semester only decides which
   unconfigured courses are announced (current + next within 60 days).
 - *Concurrency*: one `flock` per profile around every writing run; temp files

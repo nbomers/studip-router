@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+- The terminal UI no longer prints the password when it crashes: crash reports are
+  rendered without local variables, and the two realistic causes are now ordinary
+  errors: an HTML page instead of JSON (SSO login, maintenance page) and a missing
+  OS keychain.
+- A rejected login is never repeated: `news`, `rules suggest`, `ignore add`,
+  `dates`, Courseware and downloads stop at the first 401 (a sync also pauses
+  auto-sync), so a wrong password cannot lock the account.
+- `sync.root` and course targets refuse `/`, the home folder itself and system
+  folders; template fields like `{orig_name.__class__}` are rejected.
+- ZIP extraction: 1 GiB limit, compression-ratio check, drive letters refused, member
+  names made safe, case-only clashes kept apart.
+- State database, log and lock are created readable only by the user.
+- The terminal UI does not open programs and scripts with `o` (downloads carry no
+  quarantine flag); the scheduler always runs this installation's `studip`.
+- Dependencies get upper bounds; CI actions are pinned to commit SHAs; Dependabot.
+
+### Fixed
+- `on_update = "overwrite"` re-checks for local edits right before replacing a file,
+  so an edit made while the preview was open is kept.
+- A local `Blatt_01.pdf` of the same size was adopted as the Stud.IP file `Blatt.pdf`;
+  `name_vN` now only counts as a version when `name` exists next to it.
+- One unexpected error (e.g. a broken PDF) failed the whole sync instead of one file.
+- Automatic routing sent `Examples`, `Cheat sheets`, `Scripts`/`Code` folders to
+  exams, exercises or slides.
+- The setup proposed last semester's folder `Analysis I` for `Analysis II`.
+- Extracting an archive removed an existing `<name>.unzip-tmp` folder.
+- Unlocking PDFs never rewrites a PDF you edited since it was synced.
+- Dates and announcements without a UTC offset no longer break the comparison.
+- A double Enter no longer confirms a dialog before it could be read.
+- A damaged state database or one from a newer version gives a clear message
+  (exit code 4); the schema is versioned. Renames are persisted with a directory
+  fsync; merged PDFs are written atomically.
+
+### Added
+- `studip doctor` checks the keychain, lists course targets outside the root and does
+  not test the login while auto-sync is paused.
+- README: exit codes, uninstall, terms of use, privacy, headless use; `mypy` in CI.
+
 ## [0.2.0] - 2026-10-15
 
 ### Added
