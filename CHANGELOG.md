@@ -7,6 +7,19 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- Automatic routing also reads the file name when the Stud.IP folder name says
+  nothing: "Uebungsblatt_3.pdf" in the course root or in "Allgemeiner Dateiordner"
+  goes to your exercise folder instead of the default folder. Stud.IP homework
+  folders count as exercises; "Labor" is an exercise folder; "Literatur"/"Reader"
+  folders go to a local literature folder if you have one. A folder name still
+  wins over the file name, and your rules over both. Files already synced stay
+  where they are; `studip reorganize` offers to move them.
+- Home screen: one suggested next step (Enter does it), five everyday actions,
+  the rest behind *More*; the status line replaces the four cards.
+- Sync preview: files bound for the default folder are marked `!` and listed
+  first, the "Why" column says what placed a file (your rule, folder name, file
+  name), and files not downloaded are counted with their reason. After a sync the
+  log lists what landed in the default folder and what was not downloaded, why.
 - README: installing with plain `pip` into a venv is documented next to uv and pipx.
 - The release workflow can be started by hand as a dry run (checks, build, artifact
   hand-over, no upload), to test it after Dependabot updates its actions.

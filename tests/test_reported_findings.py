@@ -41,7 +41,7 @@ def test_suggested_name_rules_match_umlauts(tmp_path: Path) -> None:
 # 1.2 a file only re-described or moved on Stud.IP keeps the rule that placed it
 def test_refresh_keeps_the_placement_so_reorganize_sees_it(cfg, state, root: Path) -> None:
     (root / "Example Course" / "Uebungen").mkdir(exist_ok=True)
-    first = replace(remote("blatt1.pdf"), content_id="c1")
+    first = replace(remote("info1.pdf"), content_id="c1")
     execute(plan_course(cfg, cfg.courses[COURSE_ID], [first], {}), state, FakeDownloads(), 1)
     moved = replace(first, folder_path="Übungen", chdate=datetime(2026, 10, 9, tzinfo=UTC))
     plan = plan_course(cfg, cfg.courses[COURSE_ID], [moved], state.for_course(COURSE_ID))

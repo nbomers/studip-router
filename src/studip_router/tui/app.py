@@ -45,20 +45,22 @@ from .widgets import HelpScreen, PasswordScreen
 
 LOGO = "[b]studip[/b][dim]·[/dim]router"
 
-# key, title, description, factory
+# key, title, description, factory. The first PRIMARY ones are always on the home
+# screen; the rest sit behind "More" (their keys work everywhere anyway).
 ACTIONS: list[tuple[str, str, str, Callable[[], Screen]]] = [
-    ("s", "Sync now", "download what is new, after a short summary", lambda: SyncView(True)),
-    ("p", "Preview", "every file and its target, nothing changes", SyncView),
-    ("w", "What's new", "recently synced files: open, reveal, preview", HistoryView),
+    ("s", "Sync now", "download what is new", lambda: SyncView(True)),
+    ("w", "What's new", "files from the last syncs", HistoryView),
     ("a", "Announcements", "news from your courses", NewsView),
-    ("t", "Dates", "cancelled or moved dates, upcoming exams", DatesView),
-    ("c", "Courses", "turn syncing on/off, give new courses a folder", CoursesView),
-    ("r", "Rules", "suggestions, test a file name, your rules", RulesView),
-    ("o", "Reorganize", "apply changed rules to synced files (undo: u)", ReorganizeView),
+    ("t", "Dates", "cancelled or moved dates, exams", DatesView),
+    ("c", "Courses", "choose which courses to sync", CoursesView),
+    ("p", "Preview", "every file and where it would go, nothing changes", SyncView),
+    ("r", "Rules", "where files go: suggestions, test a name, your rules", RulesView),
+    ("o", "Reorganize", "move synced files after rules changed (undo: u)", ReorganizeView),
     ("m", "Merge slides", "combine lecture PDFs into one file", MergeView),
     ("comma", "Settings", "sync, file names, auto-sync, theme, account", SettingsScreen),
     ("d", "Doctor", "check config, folders, login and server", DoctorView),
 ]
+PRIMARY = {"s", "w", "a", "t", "c"}
 NEEDS_LOGIN = {"s", "p", "a", "c", "r", "t"}
 KEY_LABEL = {"comma": ","}
 
@@ -91,36 +93,70 @@ def _ago(iso: str | None) -> str:
 
 
 class HomeScreen(Screen):
+    """One suggested next step, five everyday actions, the rest behind "More"."""
+
     BINDINGS: ClassVar = [
-        *[Binding(key, f"run('{key}')", title, show=False) for key, title, _, _ in ACTIONS],
+        *[
+            Binding(key, f"run('{key}')", title, show=key == "comma")
+            for key, title, _, _ in ACTIONS
+        ],
         Binding("j", "move(1)", show=False),
         Binding("k", "move(-1)", show=False),
         Binding("question_mark", "help", "Help"),
         Binding("e", "edit_config", "Edit config", show=False),
         Binding("q", "app.quit", "Quit"),
     ]
+    more = False  # "More" expanded; kept while the app runs
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="top"):
             yield Static(LOGO, id="logo")
             yield Static(id="who")
-        with Horizontal(id="cards"):
-            yield Static(id="card-sync", classes="card")
-            yield Static(id="card-files", classes="card")
-            yield Static(id="card-news", classes="card")
-            yield Static(id="card-todo", classes="card")
-        yield OptionList(*[self._option(*a[:3]) for a in ACTIONS], id="actions")
+        yield Static(id="next", classes="card")
+        yield Static(id="facts")
+        yield OptionList(id="actions")
         yield Footer()
 
     @staticmethod
-    def _option(key: str, title: str, description: str) -> Option:
+    def _option(key: str, title: str, description: str, dim: bool = False) -> Option:
         text = Text(no_wrap=True, overflow="ellipsis")  # narrow terminals: cut, never wrap
-        text.append(f" {KEY_LABEL.get(key, key):>2}  ", style="bold")
-        text.append(f"{title:<15} ")
+        text.append(f" {KEY_LABEL.get(key, key):>2}  ", style="bold dim" if dim else "bold")
+        text.append(f"{title:<15} ", style="dim" if dim else "")
         text.append(description, style="dim")
         return Option(text, id=key)
 
+    def _fill_actions(self, next_key: str = "", next_label: str = "") -> None:
+        self._next = (next_key, next_label)
+        actions = self.query_one("#actions", OptionList)
+        highlighted = actions.highlighted
+        actions.clear_options()
+        if next_key:
+            text = Text(no_wrap=True, overflow="ellipsis")
+            text.append(" ↵  ", style="bold")
+            text.append(next_label, style="bold")
+            actions.add_option(Option(text, id=f"next:{next_key}"))
+            actions.add_option(None)
+        actions.add_options([self._option(*a[:3]) for a in ACTIONS if a[0] in PRIMARY])
+        if HomeScreen.more:
+            actions.add_option(None)
+            actions.add_options(
+                [self._option(*a[:3], dim=True) for a in ACTIONS if a[0] not in PRIMARY]
+            )
+            actions.add_option(Option(Text("  -  Fewer", style="dim"), id="more"))
+        else:
+            hidden = ", ".join(a[1].lower() for a in ACTIONS if a[0] not in PRIMARY)
+            text = Text(no_wrap=True, overflow="ellipsis")
+            text.append("  …  ", style="bold")
+            text.append(f"{'More':<15} ")
+            text.append(hidden, style="dim")
+            actions.add_option(Option(text, id="more"))
+        if highlighted is not None and highlighted < actions.option_count:
+            actions.highlighted = highlighted
+        else:
+            actions.highlighted = 0
+
     def on_mount(self) -> None:
+        self._fill_actions()
         self.query_one(OptionList).focus()
         self.refresh_status()
 
@@ -130,16 +166,15 @@ class HomeScreen(Screen):
     def refresh_status(self) -> None:
         app: StudipRouterApp = self.app  # type: ignore[assignment]
         cfg = app.cfg
-        titles = {"sync": "last sync", "files": "files", "news": "announcements", "todo": "to do"}
-        cards = {k: self.query_one(f"#card-{k}", Static) for k in titles}
-        for name, card in cards.items():
-            card.border_title = titles[name]
+        self.query_one("#next", Static).border_title = "next step"
         if cfg is None:
             self.query_one("#who", Static).update(f"[red]config problem[/red]  v{__version__}")
-            cards["sync"].update("[red]config invalid[/red]")
-            cards["todo"].update(
-                f"[red]{app.config_error[:200]}[/red]\n[dim]e: open the config file[/dim]"
+            self.query_one("#next", Static).update(
+                f"[red]The config file has a problem.[/red]\n[dim]{esc(app.config_error[:200])}"
+                "[/dim]"
             )
+            self.query_one("#facts", Static).update("")
+            self._fill_actions("e", "Open the config file")
             return
         logged_in = auth.has_password(cfg.base_url, cfg.username)
         profile = f" · profile {esc(paths.profile())}" if paths.profile() else ""
@@ -156,13 +191,15 @@ class HomeScreen(Screen):
         if last and last["summary"]:
             with contextlib.suppress(ValueError):
                 last_summary = json.loads(last["summary"])
-        when = _ago(last["finished_at"] if last else None)
-        cards["sync"].update(f"[b]{esc(when)}[/b]\n[dim]{esc(_summary(last_summary))}[/dim]")
         active = sum(1 for c in cfg.courses.values() if not c.exclude)
-        courses = f"{active} course" + ("s" if active != 1 else "")
-        cards["files"].update(f"[b]{tracked}[/b] synced\n[dim]{esc(courses)}[/dim]")
         self._local = {
+            "never": last is None,
+            "when": _ago(last["finished_at"] if last else None),
+            "last": _summary(last_summary),
+            "tracked": tracked,
+            "courses": active,
             "default_routed": default_routed,
+            "default_folder": cfg.default_target,
             "to_move": to_move,
             "failed": int(last_summary.get("failed", 0) or 0),
             "course_errors": int(last_summary.get("course_errors", 0) or 0),
@@ -174,39 +211,94 @@ class HomeScreen(Screen):
         if logged_in and cached is None:
             self.load_remote_status()
 
-    def _show_status(self, remote: dict | None) -> None:
+    def _steps(self, remote: dict | None) -> list[tuple[str, str, str]]:
+        """What needs doing, most important first: (message, key, action label)."""
         local = self._local
-        news = self.query_one("#card-news", Static)
-        todo: list[str] = []
+        steps: list[tuple[str, str, str]] = []
         if local["paused"]:
-            todo.append("[red]auto-sync paused[/red] [dim](log in: , then L)[/dim]")
-        if not local["logged_in"]:
-            news.update("[dim]log in to see[/dim]")
-            todo.append("[yellow]not logged in[/yellow] [dim](s asks for it)[/dim]")
-        elif remote is None:
-            news.update("[dim]…[/dim]")
-        else:
-            unread_count = remote["unread"]
-            news.update(
-                f"[b]{esc(unread_count)}[/b] unread" + (" [dim](a)[/dim]" if unread_count else "")
-            )
-            if remote["new_courses"]:
-                todo.append(
-                    f"[yellow]{esc(remote['new_courses'])} new course(s)[/yellow] [dim](c)[/dim]"
+            steps.append(
+                (
+                    "[red]Auto-sync is paused: Stud.IP rejected the password.[/red]",
+                    "login",
+                    "Log in again",
                 )
+            )
+        elif not local["logged_in"]:
+            steps.append(("Log in to Stud.IP to get started.", "login", "Log in"))
         if local["course_errors"]:
-            todo.append(f"[red]{esc(local['course_errors'])} course(s) failed[/red] [dim](p)[/dim]")
+            steps.append(
+                (
+                    f"[red]{local['course_errors']} course(s) could not be read last time.[/red]",
+                    "p",
+                    "See what is wrong",
+                )
+            )
         if local["failed"]:
-            todo.append(f"[red]{esc(local['failed'])} file(s) failed[/red] [dim](p)[/dim]")
+            steps.append(
+                (f"[red]{local['failed']} file(s) failed last time.[/red]", "s", "Try again")
+            )
+        if remote and remote["new_courses"]:
+            n = remote["new_courses"]
+            steps.append(
+                (
+                    f"[yellow]{n} new course{'s' if n != 1 else ''} on Stud.IP.[/yellow]",
+                    "c",
+                    "Choose whether to sync " + ("them" if n != 1 else "it"),
+                )
+            )
+        if local["never"] and local["logged_in"]:
+            steps.append(("Ready for the first sync.", "s", "Start the first sync"))
         if local["to_move"]:
-            todo.append(
-                f"[yellow]{esc(local['to_move'])} file(s) to reorganize[/yellow] [dim](o)[/dim]"
+            steps.append(
+                (
+                    f"[yellow]{local['to_move']} synced file(s) belong in another folder now."
+                    "[/yellow]",
+                    "o",
+                    "Move them",
+                )
             )
         if local["default_routed"]:
-            todo.append(f"{esc(local['default_routed'])} in default folder [dim](r)[/dim]")
-        self.query_one("#card-todo", Static).update(
-            "\n".join(todo[:3]) or "[green]✓ all good[/green]"
+            steps.append(
+                (
+                    f"[yellow]{local['default_routed']} file(s) landed in "
+                    f"{esc(local['default_folder'])}.[/yellow]",
+                    "r",
+                    "Sort them with rules",
+                )
+            )
+        if remote and remote["unread"]:
+            steps.append((f"{remote['unread']} unread announcement(s).", "a", "Read them"))
+        return steps
+
+    def _show_status(self, remote: dict | None) -> None:
+        local = self._local
+        steps = self._steps(remote)
+        if steps:
+            message, key, label = steps[0]
+            rest = [m for m, _, _ in steps[1:3]]
+        else:
+            message, key, label = (
+                f"[green]✓ All good.[/green] Last sync {esc(local['when'])}.",
+                "s",
+                "Sync now",
+            )
+            rest = []
+        body = message  # the action itself is the highlighted line below
+        if rest:
+            body += "\n[dim]then: " + " · ".join(rest) + "[/dim]"
+        self.query_one("#next", Static).update(body)
+        self._fill_actions(key, label)
+
+        facts = [f"last sync [b]{esc(local['when'])}[/b]"]
+        if local["last"]:
+            facts[0] += f" [dim]({esc(local['last'])})[/dim]"
+        facts.append(
+            f"[b]{local['tracked']}[/b] files in [b]{local['courses']}[/b] "
+            f"course{'s' if local['courses'] != 1 else ''}"
         )
+        if remote is not None:
+            facts.append(f"[b]{esc(remote['unread'])}[/b] unread")
+        self.query_one("#facts", Static).update("  ·  ".join(facts))
 
     def load_remote_status(self) -> None:
         # A daemon thread instead of a worker: quitting must never wait for a slow
@@ -248,10 +340,20 @@ class HomeScreen(Screen):
 
     @on(OptionList.OptionSelected, "#actions")
     def selected(self, event: OptionList.OptionSelected) -> None:
-        self.action_run(event.option.id or "")
+        option_id = event.option.id or ""
+        if option_id == "more":
+            HomeScreen.more = not HomeScreen.more
+            self._fill_actions(*self._next)
+            return
+        self.action_run(option_id.removeprefix("next:"))
 
     def action_run(self, key: str) -> None:
-        self.app.open_action(key)  # type: ignore[attr-defined]
+        if key == "login":
+            self.app.ask_password(self.refresh_status)  # type: ignore[attr-defined]
+        elif key == "e":
+            self.action_edit_config()
+        else:
+            self.app.open_action(key)  # type: ignore[attr-defined]
 
     def action_help(self) -> None:
         self.app.push_screen(HelpScreen())
@@ -278,9 +380,9 @@ class StudipRouterApp(App):
     #top { height: 3; padding: 1 2 0 2; }
     #logo { width: 1fr; color: $accent; }
     #who { width: auto; color: $text-muted; }
-    #cards { height: 5; padding: 0 1; }
-    .card { width: 1fr; height: 5; border: round $panel-lighten-2; padding: 0 1; margin: 0 1;
-            border-title-color: $text-muted; }
+    #next { height: auto; min-height: 3; border: round $accent; padding: 0 1; margin: 1 2 0 2;
+            border-title-color: $accent; border-title-style: bold; }
+    #facts { height: 1; padding: 0 3; margin-top: 1; color: $text-muted; }
     #actions { height: 1fr; margin: 1 2; border: round $accent 50%; padding: 0 1; }
     #actions:focus { border: round $accent; }
     .view-title { background: $accent 20%; color: $text; padding: 0 1; height: 1; }

@@ -223,8 +223,8 @@ def test_remote_deleted_is_reported_never_removed(cfg: Config, state: State, roo
 
 
 def test_slash_in_remote_name_stays_one_file(cfg: Config, state: State, root: Path) -> None:
-    plan = _sync(cfg, state, [remote("Blatt 1/2.pdf")])
-    assert plan.actions[0].dest == root / "Example Course" / "Sonstiges" / "Blatt 1-2.pdf"
+    plan = _sync(cfg, state, [remote("Info 1/2.pdf")])
+    assert plan.actions[0].dest == root / "Example Course" / "Sonstiges" / "Info 1-2.pdf"
 
 
 def test_interrupt_leaves_no_partial_file(cfg: Config, state: State, root: Path) -> None:

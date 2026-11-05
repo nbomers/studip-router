@@ -184,8 +184,66 @@ def plan_summary(plan: SyncPlan) -> str:
             parts.append(f"{counts[key]} {label}")
     default = counts.get("default-routed", 0)
     if default:
-        parts.append(f"{default} via default folder")
+        parts.append(f"{default} to the default folder")
+    skipped = sum(skipped_reasons(plan).values())
+    if skipped:
+        parts.append(f"{skipped} not downloaded")
     return " · ".join(parts) or "nothing to do"
+
+
+def plan_summary_short(plan: SyncPlan) -> str:
+    """Headline of the preview: "3 new files", "1 new · 2 updated"."""
+    counts = summarize(plan)
+    new = counts.get("download", 0)
+    updated = counts.get("new-version", 0) + counts.get("overwrite", 0)
+    parts = []
+    if new:
+        parts.append(f"{new} new file" + ("s" if new != 1 else ""))
+    if updated:
+        parts.append(f"{updated} updated")
+    other = sum(counts.get(k, 0) for k in ("adopt", "refresh", "rename", "mkdir"))
+    if other and not parts:
+        parts.append(f"{other} small change(s)")
+    return " · ".join(parts) or "nothing to download"
+
+
+def skipped_reasons(plan: SyncPlan) -> dict[str, int]:
+    """Why files are not downloaded, most frequent first: {"too large": 3, ...}."""
+    reasons: dict[str, int] = {}
+    for p in plan.plans:
+        for a in p.actions:
+            if a.kind is Kind.SKIP:
+                reasons[a.reason or "skipped"] = reasons.get(a.reason or "skipped", 0) + 1
+    return dict(sorted(reasons.items(), key=lambda kv: -kv[1]))
+
+
+def is_default_routed(action: Action) -> bool:
+    return bool(action.route and action.route.by_default and action.kind is Kind.DOWNLOAD)
+
+
+def why(action: Action) -> tuple[str, str]:
+    """(text, style) for the "Why" column: what placed the file, or what went wrong."""
+    route = action.route
+    if action.kind is Kind.ERROR:
+        return action.reason, "red"
+    if action.kind is Kind.SKIP:
+        return action.reason or "skipped", "dim"
+    if is_default_routed(action):
+        return "nothing matched", "yellow"
+    extra = f" · {action.reason or action.note}" if (action.reason or action.note) else ""
+    if action.unzips:
+        extra += " · unzip"
+    if route and route.rule_id and route.rule_id.startswith("auto:"):
+        return f"by {route.why or 'folder name'}{extra}", "dim"
+    if route and route.rule_id:
+        return f"your rule {route.rule_id}{extra}", "dim"
+    return extra.lstrip(" ·"), "dim"
+
+
+def _names(actions: list[Action], limit: int = 8) -> str:
+    names = [a.file.name for a in actions if a.file][:limit]
+    more = len(actions) - len(names)
+    return ", ".join(names) + (f" … +{more}" if more > 0 else "")
 
 
 class SyncView(View):
@@ -220,7 +278,7 @@ class SyncView(View):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns(" ", "Course", "Stud.IP", "→ Local", "Note")
+        self.query_one(DataTable).add_columns(" ", "Course", "On Stud.IP", "→ Saved as", "Why")
         self.query_one(ProgressBar).display = False
         self.query_one(RichLog).display = False
         self.load_plan()
@@ -241,46 +299,69 @@ class SyncView(View):
         table = self.query_one(DataTable)
         table.clear()
         self.row_actions: list[Action] = []
+
+        def order(a: Action) -> int:  # problems first, then what needs a look
+            if a.kind is Kind.ERROR:
+                return 0
+            if is_default_routed(a):
+                return 1
+            return 3 if a.kind is Kind.SKIP else 2
+
         for course_plan in plan.plans:
             name = course_plan.course.name or course_plan.course.target
-            for a in course_plan.actions:
+            for a in sorted(course_plan.actions, key=order):
                 if a.kind is Kind.SKIP and not self.show_skipped:
                     continue
                 remote = f"{a.file.folder_path}/{a.file.name}".lstrip("/") if a.file else ""
                 local = rel(a.dest, course_plan.course_dir) if a.dest else ""
-                note = a.reason or a.note
-                if a.route and a.route.by_default and a.kind is Kind.DOWNLOAD:
-                    note = (note + "; " if note else "") + "default folder"
-                elif a.route and a.route.rule_id and a.kind is not Kind.SKIP:
-                    note = (note + "; " if note else "") + f"rule {a.route.rule_id}"
-                if a.unzips:
-                    note += "; + unzip"
+                note, note_style = why(a)
+                flagged = is_default_routed(a)
+                row_style = "yellow" if flagged else ("dim" if a.kind is Kind.SKIP else "")
                 self.row_actions.append(a)
                 table.add_row(
-                    Text(SYMBOL[a.kind], style=STYLE[a.kind]),
-                    Text(name),
-                    Text(remote),
-                    Text(local),
-                    Text(note, style="dim"),
+                    Text("!" if flagged else SYMBOL[a.kind], style=STYLE[a.kind]),
+                    Text(name, style=row_style),
+                    Text(remote, style=row_style),
+                    Text(local, style=row_style),
+                    Text(note, style=note_style),
                 )
         todo = self._todo()
         sem = plan.semester.title if plan.semester else "all semesters"
-        extra = ""
+        lines: list[str] = []
+        counts = summarize(plan)
+        if counts.get("error"):
+            lines.append(f"[red]✗ {esc(counts['error'])} problem(s)[/red] [dim]- at the top[/dim]")
+        if counts.get("default-routed"):
+            n = counts["default-routed"]
+            lines.append(
+                f"[yellow]! {esc(n)} {'file goes' if n == 1 else 'files go'} to "
+                f"{esc(self.cfg.default_target)}[/yellow] [dim]- nothing matched "
+                f"{'it' if n == 1 else 'them'}; a rule fixes that (home: More → Rules)[/dim]"
+            )
+        skipped = skipped_reasons(plan)
+        if skipped:
+            detail = ", ".join(f"{n} {r}" for r, n in skipped.items())
+            toggle = "v hides them" if self.show_skipped else "v shows them"
+            lines.append(
+                f"[dim]◎ {esc(sum(skipped.values()))} not downloaded ({esc(detail)}) - "
+                f"{toggle}[/dim]"
+            )
         if plan.errors:
             names = ", ".join(n for n, _ in plan.errors)
-            extra += (
-                f"\n[red]Could not read {len(plan.errors)} course(s): {esc(names)}[/red] "
+            lines.append(
+                f"[red]Could not read {len(plan.errors)} course(s): {esc(names)}[/red] "
                 "[dim](the others are fine; details in the log)[/dim]"
             )
         if plan.unconfigured:
-            extra += (
-                f"\n[yellow]{len(plan.unconfigured)} course(s) not set up yet[/yellow] "
-                "[dim]→ Courses (c on the home screen)[/dim]"
+            lines.append(
+                f"[yellow]{len(plan.unconfigured)} new course(s) not set up yet[/yellow] "
+                "[dim]- Courses on the home screen[/dim]"
             )
+        extra = "".join(f"\n{line}" for line in lines)
         if todo:
             self.status(
-                f"{esc(sem)} · {esc(plan_summary(plan))}\n[b]s[/b] or [b]Enter[/b] syncs, "
-                f"[b]v[/b] shows skipped files{extra}"
+                f"[b]{esc(plan_summary_short(plan))}[/b] [dim]· {esc(sem)}[/dim]  "
+                f"→ [b]Enter[/b] syncs{extra}"
             )
         else:
             self.status(f"[green]✓ Everything is up to date.[/green] {esc(sem)}{extra}")
@@ -422,6 +503,30 @@ class SyncView(View):
         )
         for action, msg in result.outcome.failed:
             log.write(f"[red]✗ {esc(action.file.name if action.file else '')}: {esc(msg)}[/red]")
+        failed_ids = {id(a) for a, _ in result.outcome.failed}
+        if self.plan is not None:
+            for course_plan in self.plan.plans:
+                label = course_plan.course.name or course_plan.course.target
+                default_folder = self.cfg.course_default_target(course_plan.course)
+                defaulted = [
+                    a
+                    for a in course_plan.actions
+                    if is_default_routed(a) and id(a) not in failed_ids
+                ]
+                if defaulted:
+                    log.write(
+                        f"[yellow]! {esc(label)}: {len(defaulted)} in {esc(default_folder)}"
+                        f"[/yellow] [dim]{esc(_names(defaulted))}[/dim]"
+                    )
+                by_reason: dict[str, list[Action]] = {}
+                for a in course_plan.actions:
+                    if a.kind is Kind.SKIP:
+                        by_reason.setdefault(a.reason or "skipped", []).append(a)
+                for reason, actions in by_reason.items():
+                    log.write(
+                        f"[dim]◎ {esc(label)}: {len(actions)} not downloaded, {esc(reason)}: "
+                        f"{esc(_names(actions))}[/dim]"
+                    )
         for m in result.merges:
             if m.written:
                 log.write(f"[green]✓[/green] merged slides: {esc(m.output)}")
