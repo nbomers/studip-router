@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, ClassVar
 
@@ -13,6 +14,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
+from .. import paths
 from ..config import Config
 from ..report import esc
 
@@ -70,7 +72,13 @@ def load_course_groups() -> None:
         data = json.loads(_colors_file().read_text())
         if isinstance(data, dict):
             _groups.clear()
-            _groups.update({k: v for k, v in data.items() if isinstance(v, int) and 0 <= v <= 8})
+            _groups.update(
+                {
+                    k: v
+                    for k, v in data.items()
+                    if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 8
+                }
+            )
 
 
 def save_course_groups(groups: dict[str, int]) -> bool:
@@ -81,12 +89,16 @@ def save_course_groups(groups: dict[str, int]) -> bool:
     clean = {k: v for k, v in groups.items() if 0 <= v <= 8}
     if not clean or clean == _groups:
         return False
-    _groups.clear()
+    # No clear() first: a screen drawn meanwhile must not fall back to other colours.
+    for gone in set(_groups) - set(clean):
+        _groups.pop(gone, None)
     _groups.update(clean)
     with contextlib.suppress(OSError):
         path = _colors_file()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(clean))
+        paths.private_dir(path.parent)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(clean))
+        os.replace(tmp, path)  # never a half-written file
     return True
 
 

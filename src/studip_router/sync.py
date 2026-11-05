@@ -24,6 +24,15 @@ from .state import State
 log = logging.getLogger(__name__)
 
 
+def _implicit_target(title: str) -> str:
+    """Folder below the sync root for a course that is not in the config.
+
+    Always relative: a title "~" or "~user" must not expand to a home folder.
+    """
+    name = sanitize_filename(title)
+    return "_" + name[1:] if name.startswith("~") else name
+
+
 class CourseStatus(StrEnum):
     ACTIVE = "active"
     EXCLUDED = "excluded"
@@ -166,7 +175,7 @@ def build_plan(
     ]
     if not cfg.only_configured_courses:  # sync everything into folders named like the course
         selected += [
-            (c, CourseConfig(id=c.id, name=c.title, target=sanitize_filename(c.title)), True)
+            (c, CourseConfig(id=c.id, name=c.title, target=_implicit_target(c.title)), True)
             for c in result.unconfigured
         ]
         result.unconfigured = []

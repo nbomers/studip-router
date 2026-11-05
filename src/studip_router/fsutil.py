@@ -215,14 +215,15 @@ def cleanup_stale_parts(directory: Path, older_than: float = 24 * 3600) -> list[
 
 @contextmanager
 def atomic_writer(
-    dest: Path, commit: Callable[[str], bool] | None = None
+    dest: Path, commit: Callable[[str], bool] | None = None, *, no_clobber: bool = False
 ) -> Iterator[tuple[BinaryIO, Callable[[], str]]]:
     """Write to a temp file; on success fsync and atomically replace ``dest``.
 
     Yields the open file and a function returning the sha256 of what was written.
     ``commit(sha)`` returning False discards the result instead of replacing
     ``dest``. On any exception (including KeyboardInterrupt) the temp file is
-    removed.
+    removed. ``no_clobber`` never replaces a ``dest`` that appeared meanwhile (for
+    example a file the user saved during a long download): FileExistsError instead.
     """
     tmp = part_path(dest)
     digest = hashlib.sha256()
@@ -244,8 +245,11 @@ def atomic_writer(
         if commit is not None and not commit(digest.hexdigest()):
             tmp.unlink(missing_ok=True)
             return
-        os.replace(tmp, dest)
-        fsync_dir(dest.parent)
+        if no_clobber:
+            move_no_clobber(tmp, dest)
+        else:
+            os.replace(tmp, dest)
+            fsync_dir(dest.parent)
     except BaseException:
         fh.close()
         tmp.unlink(missing_ok=True)

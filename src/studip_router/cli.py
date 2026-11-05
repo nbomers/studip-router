@@ -177,6 +177,7 @@ def main_callback(
         raise typer.Exit()
     try:
         paths.set_profile(profile)
+        paths.profile()  # also checks STUDIP_ROUTER_PROFILE
     except ValueError as exc:
         raise fail(str(exc), 2) from None
     OPTS.json = as_json

@@ -251,6 +251,7 @@ def _apply(
         unless_sha=known,
         before_replace=before_replace,
         max_bytes=max_bytes,
+        no_clobber=action.kind is not Kind.OVERWRITE,
     )
     if not written:
         assert previous is not None
@@ -374,6 +375,7 @@ def fetch_verified(
     unless_sha: str | None = None,
     before_replace: Callable[[], None] | None = None,
     max_bytes: int | None = None,
+    no_clobber: bool = False,
 ) -> tuple[str, bool]:
     """Download into ``dest`` atomically; return (sha256, written).
 
@@ -385,6 +387,7 @@ def fetch_verified(
     ``before_replace`` runs right before ``dest`` is replaced and may raise to keep it.
     A transfer far bigger than announced, or bigger than ``max_bytes``, is stopped
     at once and not retried.
+    ``no_clobber`` refuses to replace a ``dest`` that appeared during the download.
     """
     mismatch: tuple[int, str] | None = None  # (size, sha256) of a complete-looking transfer
     for attempt in range(1, attempts + 1):
@@ -397,7 +400,7 @@ def fetch_verified(
                     before_replace()
                 return True
 
-            with atomic_writer(dest, commit) as (fh, digest):
+            with atomic_writer(dest, commit, no_clobber=no_clobber) as (fh, digest):
                 guard = _Guard(file, fh.write, size_limit(file, max_bytes))
                 download(file.id, guard.write)
                 if file.size > 0 and guard.size != file.size:

@@ -108,7 +108,7 @@ def systemd_units(exe: str, minutes: int, profile: str | None) -> tuple[str, str
 
 def install(minutes: int, profile: str | None = None) -> Path:
     exe = executable()
-    paths.state_dir().mkdir(parents=True, exist_ok=True)
+    paths.private_dir(paths.state_dir())  # launchd writes scheduler.log into it
     if sys.platform == "darwin":
         plist = _plist_path(profile)
         plist.parent.mkdir(parents=True, exist_ok=True)

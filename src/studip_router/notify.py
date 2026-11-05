@@ -10,6 +10,11 @@ import sys
 log = logging.getLogger(__name__)
 
 
+def _markup_escape(text: str) -> str:
+    """notify-send bodies are read as markup by most daemons; course titles are not."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _applescript_string(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -26,7 +31,10 @@ def notify(title: str, message: str) -> bool:
             return True
         if shutil.which("notify-send"):
             subprocess.run(
-                ["notify-send", title, message], check=True, capture_output=True, timeout=10
+                ["notify-send", "--", _markup_escape(title), _markup_escape(message)],
+                check=True,
+                capture_output=True,
+                timeout=10,
             )
             return True
     except (OSError, subprocess.SubprocessError) as exc:
