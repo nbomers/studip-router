@@ -26,6 +26,9 @@ _studip() {
       local IFS=$'\n'
       COMPREPLY=($(compgen -W "$(command studip _complete courses 2>/dev/null | cut -f1)" -- "$cur"))
       return ;;
+    --ics)
+      COMPREPLY=($(compgen -f -- "$cur"))
+      return ;;
     -s|--semester)
       COMPREPLY=($(compgen -W "current all" -- "$cur"))
       return ;;
@@ -46,7 +49,7 @@ _studip() {
     history) words="-n --limit" ;;
     news) words="--course --all --keep-unread" ;;
     merge) words="--course --force" ;;
-    dates) words="--days --offline" ;;
+    dates) words="--days --offline --ics" ;;
     status) words="--offline" ;;
     doctor) words="--offline --test-notification" ;;
     courses) words="-s --semester" ;;

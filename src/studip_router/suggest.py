@@ -230,8 +230,15 @@ def local_subdirs(course_dir: Path, depth: int = 2) -> list[str]:
     return result
 
 
-def _category(text: str) -> str | None:
+Keywords = dict[str, tuple[str, ...]]
+
+
+def _category(text: str, own: Keywords | None = None) -> str | None:
     words = re.sub(r"[_\-.+]+", " ", normalise_name(text))
+    if own:  # your own words first ([sync.keywords] in the config): they say what you mean
+        for name in REMOTE_KEYWORDS:
+            if _has_keyword(words, own.get(name, ())):
+                return name
     words = _FALSE_FRIENDS.sub(" ", words)
     for name, keywords in REMOTE_KEYWORDS.items():
         if _has_keyword(words, keywords):
@@ -239,10 +246,10 @@ def _category(text: str) -> str | None:
     return None
 
 
-def folder_category(folder_path: str) -> str | None:
+def folder_category(folder_path: str, own: Keywords | None = None) -> str | None:
     """Category of the first of the top three Stud.IP folders whose name reveals one."""
     for part in [p for p in folder_path.split("/") if p][:3]:
-        if (category := _category(part)) is not None:
+        if (category := _category(part, own)) is not None:
             return category
     return None
 
@@ -289,12 +296,12 @@ _CODE_EXT = frozenset(
 )
 
 
-def file_category(name: str) -> str | None:
+def file_category(name: str, own: Keywords | None = None) -> str | None:
     """Category a file name reveals ("Uebungsblatt_3.pdf" -> exercises), if any."""
     stem, _, ext = name.rpartition(".") if "." in name else (name, "", "")
     if ext.lower() == "ipynb":  # Jupyter notebooks are worked on like exercise sheets
         return "exercises"
-    category = _category(stem)
+    category = _category(stem, own)
     # "script.py", and "script.py.zip" too: any code extension, not only the last
     if category == "slides" and any(e in _CODE_EXT for e in name.lower().split(".")[1:]):
         return None
@@ -302,7 +309,11 @@ def file_category(name: str) -> str | None:
 
 
 def auto_route(
-    folder_path: str, folder_type: str, name: str, subdirs: list[str]
+    folder_path: str,
+    folder_type: str,
+    name: str,
+    subdirs: list[str],
+    own: Keywords | None = None,
 ) -> tuple[str, str, str] | None:
     """(category, local folder, why) for a file no rule matches.
 
@@ -312,11 +323,11 @@ def auto_route(
     everything in it together.
     """
     candidates: list[tuple[str, str]] = []
-    if (category := folder_category(folder_path)) is not None:
+    if (category := folder_category(folder_path, own)) is not None:
         candidates.append((category, "folder name"))
     elif (category := FOLDER_TYPES.get(folder_type.casefold())) is not None:
         candidates.append((category, "Stud.IP folder type"))
-    elif (category := file_category(name)) is not None:
+    elif (category := file_category(name, own)) is not None:
         candidates.append((category, "file name"))
     for category, why in candidates:
         target = _local_target(category, subdirs)

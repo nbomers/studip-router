@@ -71,6 +71,13 @@ auto_route = true
 watch_dates = true
 
 # Files never downloaded (in addition to per-course rules).
+# Your own words for automatic sorting, checked before the built-in lists.
+# Categories: exams, solutions, exercises, slides, reading. Words of up to three
+# letters count only as whole words.
+# [sync.keywords]
+# exercises = ["Werkstatt", "Lab-Report"]
+# slides = ["Handreichung"]
+
 [sync.exclude]
 globs = ["*.mp4", "*.mkv"]
 mime = ["video/*"]

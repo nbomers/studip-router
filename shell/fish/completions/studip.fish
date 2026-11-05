@@ -51,6 +51,7 @@ complete -c studip -n "__fish_seen_subcommand_from reorganize undo schedule" -s 
 complete -c studip -n "__fish_seen_subcommand_from news" -l all -d 'Include read ones'
 complete -c studip -n "__fish_seen_subcommand_from merge" -l force -d 'Download iCloud-only PDFs'
 complete -c studip -n "__fish_seen_subcommand_from dates" -l days -x -d 'Changes of the last N days'
+complete -c studip -n "__fish_seen_subcommand_from dates" -l ics -rF -d 'Write a calendar file'
 complete -c studip -n "__fish_seen_subcommand_from status doctor dates" -l offline -d 'Do not contact Stud.IP'
 complete -c studip -n "__fish_seen_subcommand_from history" -s n -l limit -x -d 'Number of files'
 complete -c studip -n "__fish_seen_subcommand_from init" -l force -d 'Overwrite config'

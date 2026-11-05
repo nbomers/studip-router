@@ -359,3 +359,39 @@ def test_name_rule_skips_false_friends(root: Path) -> None:
     rule = next(s for s in found if s.category == "exercises")
     rx = re.compile(rule.rule["match"]["name_regex"], re.IGNORECASE)
     assert [n for n in names if rx.search(n)] == ["Übungsblatt 4.pdf", "Blatt 2.pdf"]
+
+
+def test_own_keywords_sort_before_the_built_in_lists(state, root: Path) -> None:
+    from studip_router.config import ConfigError
+
+    cfg = make_config(root, keywords={"exercises": ["Werkstatt"]})
+    f = remote("Werkstatt 3.pdf")
+    plan = plan_course(cfg, cfg.courses[COURSE_ID], [f], {})
+    assert any(a.dest and a.dest.parent.name == "Uebungen" for a in plan.actions)
+    with pytest.raises(ConfigError):
+        make_config(root, keywords={"homework": ["x"]})
+
+
+def test_ics_export_is_valid_and_escaped() -> None:
+    from datetime import UTC, datetime
+
+    from studip_router.ics import to_ics
+    from studip_router.models import CourseDate
+
+    d = CourseDate(
+        id="d1",
+        course_id="c",
+        course="Mathe; I, II",
+        start=datetime(2027, 1, 20, 9, tzinfo=UTC),
+        end=datetime(2027, 1, 20, 11, tzinfo=UTC),
+        category="Klausur",
+        location="HS 1\x1b[2J",
+        cancelled=True,
+        description="x" * 200,
+    )
+    text = to_ics([d], now=datetime(2026, 11, 5, tzinfo=UTC))
+    assert text.startswith("BEGIN:VCALENDAR\r\n") and text.endswith("END:VCALENDAR\r\n")
+    assert "SUMMARY:Cancelled: Mathe\\; I\\, II: Klausur" in text
+    assert "DTSTART:20270120T090000Z" in text and "STATUS:CANCELLED" in text
+    assert "\x1b" not in text
+    assert all(len(line.encode()) <= 75 for line in text.split("\r\n"))

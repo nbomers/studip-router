@@ -1209,6 +1209,10 @@ def dates_cmd(
     config: ConfigOpt = None,
     offline: Annotated[bool, typer.Option("--offline", help="Do not contact Stud.IP.")] = False,
     days: Annotated[int, typer.Option("--days", help="Changes found in the last N days.")] = 14,
+    ics: Annotated[
+        Path | None,
+        typer.Option("--ics", help="Write all known course dates to this calendar file."),
+    ] = None,
 ) -> None:
     """Cancelled, moved or re-roomed course dates, and upcoming exams."""
     cfg = load_config(config)
@@ -1229,6 +1233,18 @@ def dates_cmd(
             if datetime.fromisoformat(r["start"]) >= now
         ]
         exams = upcoming_exams(state, now)
+        if ics is not None:
+            from .ics import to_ics
+
+            active = {c.id for c in cfg.courses.values() if not c.exclude}
+            target = ics.expanduser()
+            target.write_text(
+                to_ics(d for d in state.all_course_dates() if d.course_id in active),
+                encoding="utf-8",
+                newline="",
+            )
+            if not OPTS.json:
+                console.print(f"[green]✓[/green] Calendar written: {esc(target)}")
     if OPTS.json:
         emit_json(
             {
