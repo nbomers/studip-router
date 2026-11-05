@@ -83,6 +83,21 @@ def auth_pause_file() -> Path:
     return state_dir() / f"{profile() or 'default'}.auth-paused"
 
 
+def semester_kept_file() -> Path:
+    """Ended courses the user chose to keep syncing in a semester change."""
+    return state_dir() / f"{profile() or 'default'}.semester-kept.json"
+
+
+def seen_version_file() -> Path:
+    """The version that last ran in the foreground (UI, or ``studip sync`` by hand)."""
+    return state_dir() / f"{profile() or 'default'}.seen-version"
+
+
+def update_hold_file() -> Path:
+    """Exists while auto-sync waits for a look at the changes of an update."""
+    return state_dir() / f"{profile() or 'default'}.update-hold"
+
+
 def private_dir(path: Path) -> Path:
     """Create ``path`` readable only by the user (state, log: course names, paths)."""
     path.mkdir(parents=True, exist_ok=True, mode=0o700)

@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Semester change:** `n` in the UI (shown on the home screen when a new
+  semester's courses appear or a course has ended) and `studip semester`. Creates
+  a folder for the new semester when the root is named after one (`Semester 5` →
+  `Semester 6`), a folder per new course with the subfolders your courses share,
+  and archives courses that have ended (no longer synced, files stay). Old courses
+  keep their folders; their targets become absolute. `--read-only` also makes the
+  files of archived courses read-only. One config write, with a `.bak` copy.
+- **A rule from a file:** `+` in the preview on a file adds a rule for every file in
+  its Stud.IP folder, or for every file named like it (`Blatt_03.pdf` →
+  `Blatt_*.pdf`), into a folder you pick or create.
+- **Check after an update:** if a new version would put files you already have into
+  other folders, the background sync waits until you have looked (the UI, or a
+  `studip sync` by hand), at most three days, and sends one notification.
+  `studip doctor` shows the wait.
+
+### Changed
+- Dialogs for typed text are centred like the other dialogs.
+
 ## [0.4.2] - 2026-11-05
 
 ### Added

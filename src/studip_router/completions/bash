@@ -14,7 +14,7 @@ _studip() {
   local cur prev cmd
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="init open courses sync status reorganize undo history news merge doctor tui completion auth config rules schedule ignore dates pdf-password"
+  local commands="init open courses semester sync status reorganize undo history news merge doctor tui completion auth config rules schedule ignore dates pdf-password"
 
   # the first word that is a command
   local i
@@ -55,6 +55,7 @@ _studip() {
     reorganize) words="--course -n --dry-run -y --yes" ;;
     undo) words="-y --yes" ;;
     history) words="-l --limit" ;;
+    semester) words="-n --dry-run -y --yes --keep-root --read-only" ;;
     completion) words="zsh bash fish" ;;
     news) words="--course --all --keep-unread" ;;
     merge) words="--course --force" ;;

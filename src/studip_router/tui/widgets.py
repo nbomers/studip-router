@@ -304,13 +304,15 @@ HELP = """\
   a  announcements o reorganize (u undo)
   t  dates         m  merge slides
   c  courses       d  doctor
-  +  more / fewer
+  n  new semester  +  more / fewer
 
 [b]Lists[/b]
   Space      tick / untick
   a          show all (semesters, read announcements)
   x          announcements: mark all read
+             courses: remove one gone from Stud.IP
   f          what's new: show in folder
+  +          preview: a rule for files like this one
   Ctrl+R     sync: list again
   ← →        change a setting (saved at once)
 """
