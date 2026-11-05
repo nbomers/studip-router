@@ -126,4 +126,5 @@ async def test_tui_sync_preview_survives_markup_in_names(setup: Path, monkeypatc
                 break
         table = app.screen.query_one(DataTable)
         cells = [str(table.get_cell_at((r, 2))) for r in range(table.row_count)]
-        assert any("[/b] Blatt [link=x]1[/link].pdf" in c for c in cells), cells
+        # shown literally (long paths are cut with "…" for display)
+        assert any("[/b] Blatt [link=x]1[/l" in c for c in cells), cells

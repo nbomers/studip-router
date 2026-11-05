@@ -235,7 +235,7 @@ class HomeScreen(Screen):
             )
         if local["failed"]:
             steps.append(
-                (f"[red]{local['failed']} file(s) failed last time.[/red]", "s", "Try again")
+                (f"[red][b]{local['failed']}[/b] file(s) failed last time.[/red]", "s", "Try again")
             )
         if remote and remote["new_courses"]:
             n = remote["new_courses"]
@@ -247,7 +247,7 @@ class HomeScreen(Screen):
                 )
             )
         if local["never"] and local["logged_in"]:
-            steps.append(("Ready for the first sync.", "s", "Start the first sync"))
+            steps.append(("[b]Ready[/b] for the first sync.", "s", "Start the first sync"))
         if local["to_move"]:
             steps.append(
                 (
@@ -267,7 +267,7 @@ class HomeScreen(Screen):
                 )
             )
         if remote and remote["unread"]:
-            steps.append((f"{remote['unread']} unread announcement(s).", "a", "Read them"))
+            steps.append((f"[b]{remote['unread']}[/b] unread announcement(s).", "a", "Read them"))
         return steps
 
     def _show_status(self, remote: dict | None) -> None:
@@ -278,7 +278,7 @@ class HomeScreen(Screen):
             rest = [m for m, _, _ in steps[1:3]]
         else:
             message, key, label = (
-                f"[green]✓ All good.[/green] Last sync {esc(local['when'])}.",
+                f"[green]✓ [b]All good.[/b][/green] Last sync [b]{esc(local['when'])}[/b].",
                 "s",
                 "Sync now",
             )
@@ -392,7 +392,7 @@ class StudipRouterApp(App):
     DataTable { height: 1fr; }
     #progress { padding: 0 2; height: 1; width: 100%; }
     #progress Bar { width: 1fr; }
-    #log, #merge-log, #doctor-log { height: 1fr; border: round $panel; padding: 0 1; }
+    #log, #merge-log, #doctor-log, #dates-log { height: 1fr; border: round $panel; padding: 0 1; }
     #news-list { width: 45%; }
     #news-body { padding: 1 2; border: round $panel; }
     .form { padding: 1 2; height: auto; }

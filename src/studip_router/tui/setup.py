@@ -58,16 +58,16 @@ class SetupScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            " [b]Welcome to studip-router[/b]  [dim]set up in a minute[/dim]", classes="view-title"
+            " [b]Welcome to studip-router[/b]  [dim]3 short steps[/dim]", classes="view-title"
         )
         with VerticalScroll(id="setup"):
             with Vertical(id="step1", classes="form"):
-                yield Static("[b]1/3[/b]  Log in to Stud.IP")
+                yield Static("[b]1/3  Log in to Stud.IP[/b]")
                 yield Label("Stud.IP address of your university")
                 yield Input(placeholder="https://studip.example.edu", id="url")
                 yield Label("Username")
                 yield Input(id="username")
-                yield Label("Password  [dim](kept in your OS keychain only)[/dim]")
+                yield Label("Password  [dim](stays in your keychain)[/dim]")
                 yield Input(password=True, id="password")
                 yield Button("Connect", variant="primary", id="connect")
                 yield Static(id="status", classes="status")
@@ -81,9 +81,9 @@ class SetupScreen(Screen):
             with Vertical(id="step3", classes="form"):
                 yield Static(id="courses-title")
                 yield SelectionList[int](id="course-select")
-                yield Label("Subfolders of new course folders  [dim](comma separated)[/dim]")
+                yield Label("Subfolders of a new course folder  [dim](comma separated)[/dim]")
                 yield Input(id="course-folders")
-                yield Label("Folder for files that no rule and no folder name places")
+                yield Label("Folder for everything else")
                 yield Input(id="default-target")
                 with Horizontal(classes="buttons"):
                     yield Button("Save", variant="primary", id="save")
@@ -173,12 +173,13 @@ class SetupScreen(Screen):
         choices.add_options(options)
         found = bool(roots and roots[0].matches)
         self.query_one("#root-title", Static).update(
-            f"[green]✓ Connected.[/green] {esc(len(courses))} courses in {esc(self.semester)}.\n\n"
-            "[b]2/3[/b]  Where do your course folders live?  "
+            f"[green]✓ Connected[/green] - [b]{esc(len(courses))}[/b] courses in "
+            f"{esc(self.semester)}\n\n"
+            "[b]2/3  Where do your course folders live?[/b]  "
             + (
-                "[dim]Found where your courses already are.[/dim]"
+                "[dim]Found: the first one already holds your courses.[/dim]"
                 if found
-                else "[dim]No course folders found: start with a new folder.[/dim]"
+                else "[dim]None found yet: start with a new folder.[/dim]"
             )
         )
         self.query_one("#root", Input).value = home_path(self.root_paths[0], self.home)
@@ -239,8 +240,7 @@ class SetupScreen(Screen):
                 (f"{esc(course.title)}  [dim]{where}[/dim]", i, bool(target) or not matched)
             )
         self.query_one("#courses-title", Static).update(
-            "[b]3/3[/b]  Which courses should be synced?  [dim]Space toggles. New course "
-            "folders get the subfolders below, so files land in the right one at once.[/dim]"
+            "[b]3/3  Which courses should be synced?[/b]  [dim]Space ticks a course.[/dim]"
         )
         dirs = [root / t for t in self.targets if t]
         template = detect_course_folders(dirs) or DEFAULT_COURSE_FOLDERS

@@ -20,6 +20,12 @@ All notable changes to this project are documented here. The format follows
   first, the "Why" column says what placed a file (your rule, folder name, file
   name), and files not downloaded are counted with their reason. After a sync the
   log lists what landed in the default folder and what was not downloaded, why.
+- All other screens follow the same pattern: numbers and key words in bold, long
+  course, file and folder names cut with "…", shorter hints. Settings shows the
+  explanation only under the focused row; Courses drops the type column and
+  marks new courses; What's new says "today 14:02"/"yesterday"; Doctor lists
+  problems first under a one-line summary; Reorganize hides the empty table;
+  the setup texts are shorter.
 - README: installing with plain `pip` into a venv is documented next to uv and pipx.
 - The release workflow can be started by hand as a dry run (checks, build, artifact
   hand-over, no upload), to test it after Dependabot updates its actions.

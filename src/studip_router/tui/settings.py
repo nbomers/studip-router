@@ -108,7 +108,7 @@ SECTIONS: list[tuple[str, list[Setting]]] = [
             ),
             Setting(
                 "new course gets",
-                "subfolders of a new course folder (c → + new folder) · Enter to change",
+                "subfolders of every new course folder · Enter to change",
                 [],
                 lambda c: ", ".join(c.course_folders),
                 ("sync", "course_folders"),
@@ -116,7 +116,7 @@ SECTIONS: list[tuple[str, list[Setting]]] = [
             ),
             Setting(
                 "default folder",
-                "for files that no rule and no folder name places · Enter to change",
+                "for files nothing else places · Enter to change",
                 [],
                 lambda c: c.default_target,
                 ("sync", "default_target"),
@@ -301,7 +301,8 @@ class SettingRow(Widget, can_focus=True):
     """label · help on the left, options side by side on the right."""
 
     DEFAULT_CSS = """
-    SettingRow { height: 2; padding: 0 2; }
+    SettingRow { height: 1; padding: 0 2; }
+    SettingRow:focus { height: 2; }
     SettingRow:focus { background: $boost; }
     """
     BINDINGS: ClassVar = [
@@ -340,7 +341,7 @@ class SettingRow(Widget, can_focus=True):
         if self.setting.parse is not None:  # free text
             text.append(f" {self.value} ", style=f"bold black on {accent}" if focused else "bold")
             self._spans = [(len(text) - len(str(self.value)) - 2, len(text), "<edit>")]
-            text.append(f"\n    {self.setting.help}", style="dim italic")
+            self._help(text, focused)
             return text
         full = sum(len(label) + 3 for _, label in self.setting.options)
         if full > max(self.size.width - 24, 20):  # too wide: show "◂ value ▸" instead
@@ -356,7 +357,7 @@ class SettingRow(Widget, can_focus=True):
                 (prev_start, prev_start + 3, "<prev>"),
                 (next_start, next_start + 3, "<next>"),
             ]
-            text.append(f"\n    {self.setting.help}", style="dim italic")
+            self._help(text, focused)
             return text
         for value, label in self.setting.options:
             start = len(text)
@@ -369,8 +370,13 @@ class SettingRow(Widget, can_focus=True):
             text.append(" ")
         if self._index() == -1:
             text.append(f" (custom: {self.value})", style="italic dim")
-        text.append(f"\n    {self.setting.help}", style="dim italic")
+        self._help(text, focused)
         return text
+
+    def _help(self, text: Text, focused: bool) -> None:
+        """The explanation only under the focused row: the list stays short."""
+        if focused:
+            text.append(f"\n    {self.setting.help}", style="dim italic")
 
     def action_move(self, step: int) -> None:
         if self.setting.parse is not None:
@@ -424,7 +430,7 @@ class SettingsScreen(Screen):
     def compose(self) -> ComposeResult:
         cfg: Config = self.app.cfg  # type: ignore[attr-defined]
         yield Static(
-            " [b]Settings[/b]  [dim]h/l change · j/k move · saved immediately[/dim]",
+            " [b]Settings[/b]  [dim]←/→ change · ↑/↓ move · saved at once[/dim]",
             classes="view-title",
         )
         with _SettingsList(id="settings"):

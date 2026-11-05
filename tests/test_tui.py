@@ -76,7 +76,7 @@ async def test_sync_now_asks_once_then_downloads(course_dir: Path) -> None:
     async with app.run_test(size=(120, 36)) as pilot:
         await pilot.press("s")
         await wait_for(pilot, lambda: isinstance(app.screen, ConfirmScreen))
-        assert "3 new" in app.screen.detail
+        assert "[b]3 new[/b]" in app.screen.detail
         await pilot.press("y")
         await wait_for(pilot, lambda: (course_dir / "Sonstiges" / "Orga.pdf").exists())
         await wait_for(pilot, lambda: not app.screen.running)
