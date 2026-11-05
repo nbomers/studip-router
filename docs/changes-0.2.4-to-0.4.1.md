@@ -11,6 +11,7 @@ All changes made on 2026-11-05: three releases on PyPI and four merged pull requ
 | **0.3.0** | Sorting by file name; a guided home screen; a clearer sync preview; every screen reworked; release dry run |
 | **0.4.0** | Much longer keyword lists; courses closed to you no longer break the others; progress bars; merge set-up in the UI; course colours; compact settings |
 | **0.4.1** | Course colours taken from Stud.IP |
+| *not released* | Fixes from the review ([section 16](#16-review-findings-after-041-bugs-ux-and-security)) and ten roadmap items ([section 15](#15-ideas-and-roadmap)), on `claude/busy-ramanujan-trqb68` |
 
 **Update:** `uv tool upgrade studip-router` (or `pipx upgrade studip-router`)
 
@@ -293,8 +294,10 @@ A course whose announcements, dates or files Stud.IP closes to you answers with 
 - **Exit code:** `studip sync` exits with 1 only for failed files and courses in `course_errors`. A course closed to you is no longer an error, so a sync that exited with **1** in 0.2.4 because of such a course now exits with **0**. Scripts that check the exit code no longer see it; read `closed_courses` from `--json` instead.
 - **Notifications:** the auto-sync notification counts problems the same way, so closed courses no longer appear as "n problem(s)".
 
-### Caveat: 404 is not always "closed"
-A 404 can also mean that a course was deleted on Stud.IP or that you are no longer a member. Since 0.4.0 that case is shown in grey as "closed to you" too, with exit code 0 and no notification. If a course disappears from your synced files without a reason, check it on Stud.IP.
+### Caveat: 404 and courses that are gone
+*Corrected after the review.* A course that was deleted on Stud.IP, or that you left, is not a 404: it no longer appears in your course list at all. The tool reports such configured courses as "not found on Stud.IP" (CLI summary). 403 and 404 only concern courses that *are* in your list, so treating both as "closed to you" is right.
+
+Until 0.4.1 the UI did not show courses that are gone. *Fixed, not released:* the sync preview says "! not on Stud.IP any more: …", and `--json` has `missing_courses`. Exit code and notifications stay unchanged: a course you left is no error.
 
 ---
 
@@ -322,6 +325,9 @@ Files that operating systems leave behind sometimes end up on Stud.IP by acciden
 | `Enter` | Merge slides | choose a course's slides folder | 0.4.0 |
 | `m` | Merge slides | merge now | 0.4.0 |
 | `Enter` / `Space` / `←` `→` | Settings, "advanced" row | open / close the advanced settings | 0.4.0 |
+| `?` | **everywhere** | help (in 0.4.1 only on the home screen) | not released |
+| `x` | Announcements | mark all as read | not released |
+| `Esc` | Setup | one step back (in 0.4.1: quit) | not released |
 
 All other keys are unchanged (`s`, `p`, `w`, `a`, `t`, `c`, `r`, `o`, `m`, `d`, `?`, `q`, `v`, `i`, `u`, `e`).
 
@@ -343,12 +349,12 @@ Your config, rules and sync state are kept; none of them is part of the package.
 ## 14. Known limits
 
 - The keyword lists sort by words in names. Some files will still land where you would not put them, for example code archives in a folder called "Folien": the folder name wins. A rule in the config fixes that for one course.
-- Your own keywords can only be added as rules (`name_regex`), not as a simple word list.
+- ~~Your own keywords can only be added as rules (`name_regex`), not as a simple word list.~~ *Not released:* `[sync.keywords]` in the config, see section 15, item 17.
 - Without Stud.IP colours there are ten different course colours; from the eleventh course on, they repeat.
 - The Stud.IP colours come from the `group` field of `/users/{id}/course-memberships`. Whether every Stud.IP instance sends it is not checked; without it the tool silently uses the fallback colours.
-- Course colours are shared between profiles and made for dark terminals (see [section 9](#9-course-colours)).
-- A course that answers 404 is treated as closed to you, even if it was deleted or you left it (see [section 10](#10-courses-closed-to-you-http-403404)).
-- All tests run against the fake Stud.IP in `tests/fake_studip.py`. The three releases were not checked against a real Stud.IP instance before publishing.
+- ~~Course colours are shared between profiles and made for dark terminals.~~ *Not released:* one colour file per profile, darker colours for light themes (items 21, 22).
+- ~~A course that answers 404 is treated as closed to you, even if it was deleted or you left it.~~ A deleted or left course is not a 404 at all; see the corrected [section 10](#10-courses-closed-to-you-http-403404).
+- All tests run against the fake Stud.IP in `tests/fake_studip.py`. The three releases, and the fixes after the review, were not checked against a real Stud.IP instance. `CONTRIBUTING.md` now asks for that before every release (item 23).
 - The interface is English.
 - Login only with username and password (local or LDAP accounts); no SSO and no two-factor authentication. No Windows.
 
@@ -356,7 +362,16 @@ Your config, rules and sync state are kept; none of them is part of the package.
 
 ## 15. Ideas and roadmap
 
-Not built yet. Notes on what is already true in the code are marked *checked*; everything else is a proposal and unverified.
+Notes on what is already true in the code are marked *checked*; everything else is a proposal and unverified.
+
+**Status after the review** (built on `claude/busy-ramanujan-trqb68`, not released):
+
+| Status | Items |
+|---|---|
+| ✅ built | 1 calendar export · 3 zsh/bash completions · 6 setup explains a failed login · 12 mark all read (in Announcements) · 14 `studip open` · 17 own keywords · 20 (reframed: courses gone from Stud.IP are shown) · 21 colours per profile · 22 colours for light themes · 23 smoke test in `CONTRIBUTING.md` |
+| ⬜ open | semester change assistant · 2 · 4 · 5 · 7 · 8 · 9 · 10 · 11 · 13 · 15 · 16 · 18 · 19 · 24 |
+
+Why these stay open: each is a feature with its own design questions, not a fix. 4 (Homebrew tap) needs a public repository and 18 opens issues, both public steps that need a decision first. 5 (update notice) would contact PyPI and so break the promise "the only host contacted is Stud.IP" unless it is strictly opt-in. 7, 8 and 10 need a real Stud.IP or a separate app.
 
 ### Semester change
 
@@ -369,15 +384,15 @@ This happens every six months and is currently the only routine task that requir
 
 ### Getting information where students already look
 
-1. **Calendar export (ICS).** `studip dates` already knows exams and moved dates. As an `.ics` file or a subscribable feed they land in Apple, Google or Thunderbird calendars, where students look anyway.
+1. ✅ **Calendar export (ICS).** *Built:* `studip dates --ics ~/Uni/dates.ics` writes all known dates of your courses (cancelled ones marked). A subscribable feed is still open. Original idea: `studip dates` already knows exams and moved dates. As an `.ics` file or a subscribable feed they land in Apple, Google or Thunderbird calendars, where students look anyway.
 2. **Clickable notifications.** Clicking "3 new files in Mathe" should open the folder or the file. *Checked:* `notify.py` uses `osascript … display notification` on macOS and `notify-send` on Linux. `display notification` cannot carry a click action, so notifications are **not** clickable today. On macOS this needs another mechanism (for example a small helper app or `terminal-notifier`); on Linux, `notify-send --action` where the desktop supports it.
 
 ### Less friction when installing and setting up
 
-3. **Shell completions for zsh and bash.** *Checked:* only fish completions exist (`shell/fish`), but macOS uses zsh by default. Typer/Click can generate them with little effort.
+3. ✅ **Shell completions for zsh and bash.** *Built:* `shell/zsh/_studip`, `shell/bash/studip`, installation in the README. The bash file was syntax-checked; zsh was not available for a test. *Checked:* only fish completions exist (`shell/fish`), but macOS uses zsh by default. Typer/Click can generate them with little effort.
 4. **Homebrew tap:** `brew install studip-router` instead of installing `uv` first. For non-developers on macOS that is one hurdle less.
 5. **Optional update notice.** *Checked:* the README promises "no update checks". A one-time notice such as "0.5 is available – `uv tool upgrade …`", only when switched on, would keep that promise.
-6. **Check the instance before asking for the password.** In setup step 1, first test whether `jsonapi.php/v1/discovery` is reachable. If not, say "Your university has not enabled the JSON:API" instead of showing a cryptic error. A list of known instances to choose from would also save typing the URL.
+6. ✅ **Check the instance before asking for the password.** *Built, slightly different:* when the login fails, setup asks `…/discovery` (without the password) and says "Your university has not enabled the JSON:API" or "The address cannot be reached". A list of known instances is still open. In setup step 1, first test whether `jsonapi.php/v1/discovery` is reachable. If not, say "Your university has not enabled the JSON:API" instead of showing a cryptic error. A list of known instances to choose from would also save typing the URL.
 
 ### New features
 
@@ -389,24 +404,24 @@ This happens every six months and is currently the only routine task that requir
 
 ### Small everyday things
 
-12. **What's new: mark everything as read** with one key.
+12. ✅ **Mark everything as read** with one key. *Built in Announcements* (`x`), where read/unread exists; What's new has no read state.
 13. **Create a rule from a file:** in the preview, press a key on a file in the default folder, and the tool suggests a rule for exactly that folder or name pattern.
-14. **`studip open COURSE`:** open the course folder in Finder or the file manager.
+14. ✅ **`studip open COURSE`:** open the course folder in Finder or the file manager. *Built;* without a file manager it prints the path.
 15. **Switchable English and German interface.** The folder names are already bilingual; the interface texts are English only.
 
 ### Sorting
 
 16. **Shared rule sets per university or course.** Export and import the rules of a course, so a whole year can share one file. This helps more than ever longer keyword lists.
-17. **Own keywords as a list in the config,** for example `keywords.exercises = ["Werkstatt"]`, instead of only `name_regex` rules (see [Known limits](#14-known-limits)).
+17. ✅ **Own keywords as a list in the config,** *built:* `[sync.keywords]` with `exams`, `solutions`, `exercises`, `slides`, `reading`; checked before the built-in lists. Original idea: for example `keywords.exercises = ["Werkstatt"]`, instead of only `name_regex` rules (see [Known limits](#14-known-limits)).
 18. **"Sorted wrong" key in the preview.** It writes an issue text with only the folder and file name, no course data, so the keyword lists grow from real mistakes instead of research.
 19. **Check after an update.** Show which synced files the new version would place elsewhere, *before* auto-sync runs again. This closes the gap described in [section 13](#13-coming-from-02x), step 3.
 
 ### Robustness
 
-20. **Tell 403 from 404.** Treat only 403 as "closed to you"; keep a 404 on a whole course as an error, so a deleted course or a lost membership does not disappear quietly.
-21. **Course colours per profile:** `course-colors-<profile>.json` like the state database.
-22. **Colours for light themes:** a second, darkened set of the Stud.IP colours when a light theme is chosen.
-23. **A check against a real Stud.IP instance before a release,** for example a manual smoke test (`studip doctor`, `studip sync --dry-run`) listed in `CONTRIBUTING.md`.
+20. ✅ **Tell 403 from 404.** *Reframed after checking the code:* a deleted or left course never answers 404, it is missing from the course list (see section 10). The UI and `--json` now show such courses. Original idea: Treat only 403 as "closed to you"; keep a 404 on a whole course as an error, so a deleted course or a lost membership does not disappear quietly.
+21. ✅ **Course colours per profile:** *built,* `course-colors-<profile>.json` like the state database.
+22. ✅ **Colours for light themes:** *built:* each colour has at least 4.6:1 contrast on light grey (#efefef), checked by calculation, not on a real terminal. a second, darkened set of the Stud.IP colours when a light theme is chosen.
+23. ✅ **A check against a real Stud.IP instance before a release,** *now step 4 of the release steps in `CONTRIBUTING.md`;* for example a manual smoke test (`studip doctor`, `studip sync --dry-run`) listed in `CONTRIBUTING.md`.
 
 ### Semester end
 
@@ -416,7 +431,7 @@ This happens every six months and is currently the only routine task that requir
 
 ## 16. Review findings after 0.4.1: bugs, UX and security
 
-A code review of 0.4.1 (state of `main` at 2210848, line numbers from there) found the problems below. Most of them are fixed on the branch `claude/busy-ramanujan-trqb68` and wait for the next release (0.4.2); each finding says its status. Every finding was checked in the code; those marked *reproduced* were also triggered in a test run (TUI headless with `App.run_test` against `tests/fake_studip.py`, or a Python snippet). Section 14 lists limits that are known and accepted; this section lists defects.
+A code review of 0.4.1 (state of `main` at 2210848, line numbers from there) found the problems below. All but two are fixed on the branch `claude/busy-ramanujan-trqb68` and wait for the next release (0.4.2); each finding says its status. Every finding was checked in the code; those marked *reproduced* were also triggered in a test run (TUI headless with `App.run_test` against `tests/fake_studip.py`, or a Python snippet). Section 14 lists limits that are known and accepted; this section lists defects.
 
 Severity: **high** = data loss, wrong files, a crash or a broken promise in `SECURITY.md`; **medium** = wrong result or a clearly misleading screen; **low** = annoyance or hardening.
 
@@ -424,11 +439,11 @@ Severity: **high** = data loss, wrong files, a crash or a broken promise in `SEC
 
 | Status | Findings |
 |---|---|
-| ✅ fixed (not released) | S1, S2, S3, S4, S5, S7 · B1, B2, B3, B4, B5, B7 · U1, U2, U3, U5, U6, U7, U8, U10 |
-| ◐ partly fixed | S6, B6, B11, U4, U13, U14 |
-| ⬜ open | B8, B9, B10, U9, U11, U12 |
+| ✅ fixed (not released) | S1–S7 · B1–B11 · U1–U11, U14 |
+| ◐ partly fixed | U13 (two short options kept on purpose) |
+| ⏸ not changed, on purpose | U12 (keys) |
 
-The fixes are covered by 20 new tests in `tests/test_review_0_4_1.py` (494 tests in total, `ruff` and `mypy` clean). The tests for S3 and B4 were checked to fail against the 0.4.1 code.
+The fixes are covered by 27 new tests in `tests/test_review_0_4_1.py` (501 tests in total, `ruff` and `mypy` clean). The tests for S3 and B4 were checked to fail against the 0.4.1 code.
 
 ### Fix first (all fixed now)
 
@@ -440,7 +455,7 @@ The fixes are covered by 20 new tests in `tests/test_review_0_4_1.py` (494 tests
 | U3 | Settings crash the app after the config became invalid | high |
 | B1 | Esc right after a ZIP download leaves it packed for good | medium |
 | B4 | Reorganize moves homework-folder files back to the default folder | medium |
-| B6 | Suggested "by name" rules contradict the keyword classifier | medium (partly) |
+| B6 | Suggested "by name" rules contradict the keyword classifier | medium |
 
 ### Security
 
@@ -476,7 +491,7 @@ The fixes are covered by 20 new tests in `tests/test_review_0_4_1.py` (494 tests
 - Scenario: `STUDIP_ROUTER_PROFILE=../x` writes units or state outside the intended folder. Only relevant if someone else controls the environment.
 
 **S6. File permissions are inconsistent.** *Low.*
-- Status: ◐ **Partly fixed.** State folder via `private_dir` in `schedule.py` and for the colour file. Still open: the config file is written 0644.
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. State folder via `private_dir` in `schedule.py` and for the colour file; the config file is written 0600 (setup, `studip init`, settings).
 - `schedule.py:162` and `tui/widgets.py:87` create the state folder with plain `mkdir()` (0755) instead of `private_dir`. If `studip schedule install` runs before the first sync, launchd writes `scheduler.log` as 0644 into a 0755 folder until `State` tightens it.
 - The config file is written as 0644 (`cli.py:403`, `tui/setup.py:337`, `config_edit.py:36`). It holds the user name and course names, no password. `SECURITY.md` promises nothing here, but 0600 would cost nothing.
 
@@ -519,7 +534,7 @@ The fixes are covered by 20 new tests in `tests/test_review_0_4_1.py` (494 tests
 - Result: `print_summary` lists them under "Errors:", yet the run exits with 0 and the background notification does not count them. Combined with the 403/404 change of section 10, a script sees even fewer problems than before.
 
 **B6. Suggested "by name" rules contradict the keyword classifier.** *Medium. Reproduced.*
-- Status: ◐ **Partly fixed.** With automatic sorting on (the default) no "by name" rules are suggested at all: step 4 already sorts by file name with the exclusion list. With `auto_route = false` they are still suggested, now in the classifier's order (exams → solutions → exercises → slides → reading), so "Lösung Blatt 3" is a solution. Still open in that case: the regex ignores the exclusion list (Merkblatt, Examples, …).
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. With automatic sorting on (the default) no "by name" rules are suggested: step 4 already sorts by file name. With `auto_route = false` they come in the classifier's order (exams → solutions → exercises → slides → reading), and the regex starts with a look-ahead built from the exclusion list, so Merkblatt, Deckblätter, Examples or Prüfungsordnung are not matched.
 - Where: `suggest.py:437-450`: the rule regex is built from the keywords without the exclusion list ("Names that only contain a keyword", section 2), and the rules are sorted alphabetically (exams, exercises, slides, solutions) instead of by category priority. Rules win over automatic sorting.
 - Result, in a course with Übungen, Lösungen, Folien, Klausuren folders:
 
@@ -540,11 +555,11 @@ Accepting the suggestions makes sorting *worse* than without them.
 - Result: `studip rules suggest --yes` appends duplicate rules to the config on every run.
 
 **B8. Short keywords do not match in the plural.** *Low. Reproduced.*
-- Status: ⬜ **Open.**
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. Short keywords also match with a plural "s" (Labs, HWs, VLs); a local folder "Labs" is an exercise folder.
 - Where: `suggest.py:182-190`: the whole-word check `(?![a-z])` rejects "Labs", "HWs", "VLs". A local folder "Labs" is not recognised as an exercise folder either.
 
 **B9. Wrong hits of substring keywords.** *Low. Reproduced.*
-- Status: ⬜ **Open.** Candidates for the exclusion list.
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. Added to the exclusion list: Spick-/Notiz-/Handzettel, Titel-/Kalenderblatt, Sheet music, Labor-/Praktikums-/Übungsordnung, Klausur-/Prüfungsanmeldung, Facebook, Wallpaper. A code extension anywhere in the name (`script.py.zip`) prevents "slides".
 - exercises: Spickzettel, Notizzettel, Handzettel, Titelblatt, Kalenderblatt, "Sheet music", Laborordnung, Praktikumsordnung, Übungsordnung
 - exams: Klausuranmeldung, Prüfungsanmeldung
 - reading: Facebook, Wallpaper
@@ -552,11 +567,11 @@ Accepting the suggestions makes sorting *worse* than without them.
 - Mostly relevant for files in the course root or in neutral folders. Candidates for the exclusion list.
 
 **B10. The "old exams" bonus is partly dead code.** *Low.*
-- Status: ⬜ **Open.**
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. "Klausur/Alt", "Exams/Old exams" are targets for exams again; archive folders elsewhere ("Folien/alt") still never receive files.
 - Where: `suggest.py:338-353`: `_ARCHIVE` (alt, old, previous) excludes a folder before the `_PAST` bonus (alt, old, previous) can apply. "Exams/Old exams", "Klausur/Alt" are never chosen; only "past", "frueher" and "altklausur" work.
 
 **B11. Course colours depend on the news fetch and are not written atomically.** *Low. Checked in code.*
-- Status: ◐ **Partly fixed.** Colours are fetched right after the course list, before the announcements; no `clear()` before the update; written via tmp file + `os.replace`; `true` is no longer read as group 1.
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. Colours are fetched right after the course list, before the announcements; no `clear()` before the update; written via tmp file + `os.replace`; `true` is no longer read as group 1.
 - Where: `tui/app.py:320-336`: if `fetch_news` fails for any course with something other than 403/404 (e.g. 500, no network), the function returns before the colours are fetched.
 - `tui/widgets.py:83-89`: the background thread clears the colour table and refills it without a lock (a screen drawn in between briefly shows fallback colours), and `write_text` is not atomic (no tmp + replace). Broken JSON is ignored on load, so no crash. `true` in the file is read as group 1 (`bool` is an `int`).
 
@@ -581,7 +596,7 @@ Accepting the suggestions makes sorting *worse* than without them.
 - Edit the config with `e` so that it is invalid. The app says "Config now invalid", the settings stay open and `app.cfg` is `None`. The next change (e.g. `l`, Enter) ends the app with `AttributeError: 'NoneType' object has no attribute 'path'` and exit code 1.
 
 **U4. Every highlighted announcement reloads everything from Stud.IP.** *High. Reproduced.*
-- Status: ◐ **Partly fixed.** The home screen recounts once, when the announcements screen is left. Still as before: the first announcement counts as read when the screen opens (its text is shown).
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. The home screen recounts once, when the screen is left. An announcement counts as read when you move past it, press Enter on it, or leave the screen after moving through the list; the one shown on opening is not read just because it was first. `x` marks all as read.
 - Where: `tui/views.py:1034-1045`, `tui/app.py:477-482`, `218`.
 - Moving the cursor over an announcement calls `refresh_home(remote_changed=True)`. Each call starts a thread that fetches the course list, the news of all courses and the colours. Three cursor moves = three full fetches. With ten courses that is dozens of requests per second of scrolling.
 - An announcement also counts as read as soon as the cursor touches it; the first one is marked read the moment the screen opens.
@@ -607,7 +622,7 @@ Accepting the suggestions makes sorting *worse* than without them.
 - A screen opened to look at writes PDFs. Section 7 says "`m` merges now".
 
 **U9. Without network: no hint, but repeated fetches.** *Medium. Checked in code.*
-- Status: ⬜ **Open.**
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. One status fetch at a time; when Stud.IP cannot be reached the status line says "Stud.IP not reachable (tried again in 1 min)", and that answer is kept for a minute instead of retrying on every screen change.
 - Where: `tui/app.py:331-332`, `170-171`, `218`.
 - If the status fetch fails, nothing says so; "unread" and "new courses" are simply missing. Nothing is cached, so every return to the home screen starts another thread that retries with back-off (1 + 2 + 4 + 8 s) against an unreachable server. At start-up two full fetches run in parallel (`on_mount` and `on_screen_resume`).
 
@@ -617,22 +632,22 @@ Accepting the suggestions makes sorting *worse* than without them.
 - Fix: delete line 306.
 
 **U11. Enter on the home screen can hit a different action than shown.** *Low.*
-- Status: ⬜ **Open.**
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. After the status arrives, the cursor stays on the action you chose; if you had not moved, it goes to the (possibly new) suggested step.
 - Where: `tui/app.py:160-161`, `344`: when the remote status arrives, the list is refilled but the cursor index stays. Pressing Enter at that moment can trigger, say, "Choose whether to sync" instead of "Sync now". Not destructive: sync and reorganize always ask first.
 
 **U12. The same key means different things.** *Low.*
-- Status: ⬜ **Open.** Changing keys would break habits; needs a decision.
+- Status: ⏸ **Not changed, on purpose.** Renaming keys would break habits of existing users. Each screen shows its keys in the footer and `?` (now everywhere) lists them. To be decided before 1.0.
 - `r`: Rules (home), Refresh (sync), Reveal (What's new). `o`: Reorganize (home), Open (What's new). `a`: Announcements (home), "all" (Courses, News). No hard conflict, but it trains the wrong reflex.
 
 **U13. CLI inconsistencies.** *Low. Checked with `--help`.*
-- Status: ◐ **Partly fixed.** All options have help texts; `studip merge --help` points to the UI. Still open: `-n` means `--limit` for `history`; `--json`/`-p` only before the subcommand.
+- Status: ◐ **Partly fixed.** All options have help texts; `studip merge --help` points to the UI. Not changed, on purpose: `-n` stays `--limit` for `history` (scripts use it); `--json` and `-p` stay options of `studip` itself (`studip --json sync`), as the help shows.
 - `-n` is `--dry-run` for `sync` and `reorganize`, but `--limit` for `history`.
 - No help text: `sync --semester`, `reorganize --dry-run/--yes`, `undo --yes`, `history --limit`, `news --keep-unread`, `doctor --offline`, `rules test --mime`.
 - `studip sync --json` and `studip sync -p x` fail with "No such option": both only work before the subcommand (`studip --json sync`). Users try the other order first.
 - `studip merge --help` still says "needs `merge` in the course config", although the UI sets it up now.
 
 **U14. Small things.**
-- Status: ◐ **Partly fixed.** The help says "announcements"; "skip" in the rule list is dimmed text. Still open: absolute paths in error messages.
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. The help says "announcements"; "skip" in the rule list is dimmed text; error messages in the sync screen show paths relative to the sync folder and `~` for the home folder.
 - The help calls `a` "news", the UI "Announcements".
 - Error messages in the sync screen and the rule search show full absolute paths (`tui/views.py:580`, `1142`), which wrap and are hard to read; the Doctor already shortens paths.
 - `tui/views.py:1114` passes `"[dim]skip[/dim]"` through `esc()`, so the markup is shown literally.
@@ -643,6 +658,8 @@ Accepting the suggestions makes sorting *worse* than without them.
 
 - **Exit code:** `studip sync` now also exits with **1** when the plan contains files it cannot place (B5). A script that was green with 0.4.1 can turn red, rightly so. Together with section 10 the rule is now: closed courses → 0, anything that needs you → 1.
 - **Merge slides** no longer merges when the screen opens; press `m` (U8).
+- **Announcements** are read when you move past them, not when the screen opens (U4).
+- **Config file** is written readable only by you (0600) (S6).
 - **Setup:** Esc goes back a step instead of quitting (U6).
 - **Rule suggestions:** with automatic sorting on, no "… by name" rules are offered any more (B6). Existing ones stay in the config; with automatic sorting on they can be deleted, because they only override step 4 with a less exact copy of it.
 - **A file that appears during its download** is kept, the download is reported as failed and retried with the next sync (S3).
@@ -651,7 +668,6 @@ Accepting the suggestions makes sorting *worse* than without them.
 ### What this means for the roadmap
 
 - Items 20 and 23 of section 15 stay urgent: U1/U2 would have shown up in one manual run against a real instance. Nothing of the above was checked against a real Stud.IP either.
-- The open findings (B8–B10, U9, U11, U12) and the open parts are small; B9 is a list change, U9 needs a cached status with an "offline" line.
 - S1 and S3 contradicted `SECURITY.md`. They should be released soon as 0.4.2, with the CHANGELOG entries already written under *Unreleased*.
 
 ---
@@ -697,4 +713,4 @@ New or changed:
 - **Settings:** the advanced settings are closed until opened.
 - **Colours:** ten configured courses get ten colours, and a Stud.IP colour group overrides the fallback.
 - Tests that used "Blatt" as a neutral file name use neutral names now, because such files are now sorted into exercises.
-- **After the review (not released):** `tests/test_review_0_4_1.py` with 20 tests for the fixes of [section 16](#16-review-findings-after-041-bugs-ux-and-security), 494 tests in total. One known flaky warning: `test_untrusted_content.py::test_tui_sync_preview_survives_markup_in_names` sometimes reports "coroutine … was never awaited" from the home screen's status thread when the test app closes (`tui/app.py`, `call_from_thread` after exit). It was seen once in several runs and does not fail the test; whether it also occurs without the fixes was not established.
+- **After the review (not released):** `tests/test_review_0_4_1.py` with 27 tests for the fixes of [section 16](#16-review-findings-after-041-bugs-ux-and-security) and the roadmap items built, 501 tests in total. One known flaky warning: `test_untrusted_content.py::test_tui_sync_preview_survives_markup_in_names` sometimes reports "coroutine … was never awaited" from the home screen's status thread when the test app closes (`tui/app.py`, `call_from_thread` after exit). It was seen once in several runs and does not fail the test; whether it also occurs without the fixes was not established.

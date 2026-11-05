@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `studip dates --ics FILE` writes all known course dates as a calendar file.
+- `[sync.keywords]`: your own words per category for automatic sorting.
+- `studip open COURSE` opens a course folder.
+- zsh and bash completions (`shell/zsh`, `shell/bash`).
+- Announcements: `x` marks all as read. `?` opens the help on every screen.
+- The sync preview and `--json` (`missing_courses`) name configured courses that are
+  no longer on Stud.IP (deleted, or you left them).
+- Course colours for light themes; one colour file per profile.
+- Setup explains a failed login: JSON:API not enabled, or address not reachable.
+
 ### Security
 - Terminal control characters (escape sequences) in titles, file names and
   announcements from Stud.IP are removed before anything is shown or logged; they
@@ -41,6 +52,13 @@ All notable changes to this project are documented here. The format follows
 - The focused settings row has its coloured background again.
 - Retry-After values below 0 or "nan" no longer abort a run.
 - Course colours are fetched even when the announcements of a course fail.
+- Keywords: plurals of short ones (Labs, HWs), more names that only contain a keyword
+  (Spickzettel, Titelblatt, Klausuranmeldung, ...), "Klausur/Alt" is a target for old
+  exams again.
+- Home screen: one status fetch at a time, "Stud.IP not reachable" instead of
+  silence, and the cursor stays on the chosen action when the status arrives.
+- Announcements are read when you move past them, not when the screen opens.
+- The config file is written readable only by you.
 
 ### Changed
 - State database schema 2 (new column `folder_type`, added automatically). Going
