@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-05
+
 ### Changed
 - Automatic routing also reads the file name when the Stud.IP folder name says
   nothing: "Uebungsblatt_3.pdf" in the course root or in "Allgemeiner Dateiordner"
@@ -202,7 +204,8 @@ First public version.
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
 
-[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/nbomers/studip-router/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/nbomers/studip-router/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/nbomers/studip-router/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/nbomers/studip-router/compare/v0.2.1...v0.2.2
