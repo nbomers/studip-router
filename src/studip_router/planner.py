@@ -48,6 +48,7 @@ class Kind(StrEnum):
 
 class SkipReason(StrEnum):
     EXCLUDED = "excluded"
+    SYSTEM_FILE = "system file"
     TOO_LARGE = "too large"
     NOT_DOWNLOADABLE = "not downloadable"
     UPDATE_SKIPPED = "update skipped (policy)"
@@ -155,10 +156,16 @@ def build_router(cfg: Config, course: CourseConfig, semester: str = "") -> Route
     return route
 
 
+# Files that operating systems leave behind; uploaded by accident, never content.
+SYSTEM_FILES = frozenset({".ds_store", "thumbs.db", "desktop.ini", "icon\r", ".localized"})
+
+
 def exclusion_reason(file: RemoteFile, rules: ExcludeConfig) -> SkipReason | None:
     if not file.downloadable:
         return SkipReason.NOT_DOWNLOADABLE
     name = nfc(file.name).casefold()
+    if name in SYSTEM_FILES or name.startswith("._"):  # "._x": macOS resource forks
+        return SkipReason.SYSTEM_FILE
     if any(fnmatch.fnmatchcase(name, nfc(g).casefold()) for g in rules.globs):
         return SkipReason.EXCLUDED
     if any(fnmatch.fnmatchcase(file.mime_type.lower(), m.lower()) for m in rules.mime):

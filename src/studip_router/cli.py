@@ -790,7 +790,8 @@ def rules_suggest(
             except AuthFailed as exc:  # do not repeat a rejected login for every course
                 raise fail(str(exc), 3) from None
             except ApiError as exc:
-                err.print(f"[yellow]{esc(c.name)}: {esc(exc)}[/yellow]")
+                why = "files closed to you, skipped" if exc.no_access else str(exc)
+                err.print(f"[yellow]{esc(c.name)}: {esc(why)}[/yellow]")
                 continue
             existing = {r.id for r in c.rules}
             known_folders = {r.match.folder for r in c.rules if r.match.folder}

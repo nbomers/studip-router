@@ -71,7 +71,12 @@ def _check_paths(cfg: Config) -> Iterator[Check]:
                 f"course {label}", Level.INFO, f"target {directory} is outside the root folder"
             )
         if not directory.is_dir():
-            yield Check(f"course {label}", Level.FAIL, f"target {directory} does not exist")
+            yield Check(
+                f"course {label}",
+                Level.FAIL,
+                f"folder {directory} does not exist - renamed or moved? "
+                "Courses (c): Enter chooses its folder",
+            )
             continue
         missing = [
             t

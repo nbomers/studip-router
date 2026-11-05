@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Merge slides is set up in the UI: Enter on a course picks its slides folder (slide
+  folders first), `m` merges now; no config editing needed.
+- A progress bar wherever the UI waits for Stud.IP (sync preview course by course,
+  courses, announcements, dates, rule suggestions, merging, doctor, setup login).
+- Each course has its own colour, the same on every screen.
+- Settings: the essentials on top, the rest under *advanced* (opens in place).
+  `,` opens the settings from every screen, `+` shows more actions on the home screen.
+
+### Fixed
+- A course whose announcements, dates or files are closed to you (HTTP 403/404) no
+  longer stops announcements, rule suggestions or the home screen for all others;
+  it is skipped and named.
+- Files operating systems leave behind (`.DS_Store`, `Thumbs.db`, `desktop.ini`,
+  `._*`) are no longer downloaded from Stud.IP.
+
+### Changed
+- What's new has a coloured course column and shows the folder inside the course.
+- Doctor: course folders that are fine are one line, paths are shortened
+  ("iCloud Drive/…"), a missing course folder says how to fix it.
+- Shorter menu texts, help screen and hints; the selected row is highlighted.
+
 ## [0.3.0] - 2026-11-05
 
 ### Changed

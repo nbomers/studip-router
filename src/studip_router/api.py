@@ -26,7 +26,14 @@ RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
 class ApiError(Exception):
-    pass
+    def __init__(self, message: str = "", status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status  # HTTP status, when the server answered
+
+    @property
+    def no_access(self) -> bool:
+        """403/404: this part of the course is switched off or closed to you."""
+        return self.status in (403, 404)
 
 
 class AuthFailed(ApiError):
@@ -158,7 +165,7 @@ class StudipClient:
                 if stream:
                     response.read()
                 response.close()
-                raise ApiError(f"HTTP {response.status_code} for {url}")
+                raise ApiError(f"HTTP {response.status_code} for {url}", response.status_code)
             return response
         raise AssertionError("unreachable")
 

@@ -10,7 +10,7 @@ from textual.widgets import DataTable, Input, OptionList, RichLog, SelectionList
 from studip_router import paths
 from studip_router.config import load
 from studip_router.tui import ChoiceScreen, ConfirmScreen, HomeScreen, StudipRouterApp
-from studip_router.tui.settings import SettingRow, SettingsScreen
+from studip_router.tui.settings import AdvancedToggle, SettingRow, SettingsScreen
 from studip_router.tui.setup import SetupScreen
 from studip_router.tui.views import NEW_FOLDER, CoursesView
 from studip_router.tui.widgets import HelpScreen
@@ -107,7 +107,14 @@ async def test_settings_change_values_and_keep_comments(course_dir: Path) -> Non
         assert isinstance(app.screen, SettingsScreen)
         rows = list(app.screen.query(SettingRow))
         assert rows[0].has_focus and rows[0].setting.label == "course folders in"
-        next(r for r in rows if r.setting.label == "semester").focus()
+        # "semester" is an advanced setting: closed until opened
+        semester = next(r for r in rows if r.setting.label == "semester")
+        assert not semester.parent.display
+        app.screen.query_one(AdvancedToggle).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert semester.parent.display
+        semester.focus()
         await pilot.press("l")  # current -> all
         assert config().semester == "all"
         await pilot.press("j", "l")  # changed files: version -> overwrite asks first

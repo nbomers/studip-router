@@ -187,6 +187,11 @@ def print_summary(
         console.print("\n[red]Courses that could not be read (the others were synced):[/red]")
         for name, problem in sync_plan.errors:
             console.print(f"  {esc(name)}: {esc(problem)}")
+    if sync_plan.closed:
+        console.print(
+            f"\n[dim]Files closed to you on Stud.IP (skipped): "
+            f"{esc(', '.join(sync_plan.closed))}[/dim]"
+        )
     if sync_plan.warnings:
         console.print(
             f"\n[yellow]{esc(len(sync_plan.warnings))} unexpected record(s) from Stud.IP "
@@ -235,6 +240,7 @@ def plan_json(
         "new_announcements": news,
         "course_errors": [{"course": n, "error": e} for n, e in sync_plan.errors],
         "warnings": sync_plan.warnings,
+        "closed_courses": sync_plan.closed,
         "date_changes": [change_json(c) for c in date_changes or []],
     }
     if result is not None:
