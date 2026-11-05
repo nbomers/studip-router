@@ -62,6 +62,21 @@ def install(router: respx.MockRouter) -> None:
             },
         }
 
+    router.get(f"{API}/users/u1/course-memberships").mock(
+        return_value=httpx.Response(
+            200,
+            json=_page(
+                [
+                    {
+                        "type": "course-memberships",
+                        "id": f"{COURSE}_u1",
+                        "attributes": {"group": 3},
+                        "relationships": {"course": {"data": {"type": "courses", "id": COURSE}}},
+                    }
+                ]
+            ),
+        )
+    )
     router.get(f"{API}/users/u1/courses").mock(
         return_value=httpx.Response(
             200,

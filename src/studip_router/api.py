@@ -286,6 +286,22 @@ class StudipClient:
                 self._skipped(item, exc)
         return result
 
+    def course_groups(self, user_id: str) -> dict[str, int]:
+        """The colour group (0-8) of each of your courses, as in Stud.IP's
+        "My courses" and timetable. Best effort: {} when the server has none."""
+        groups: dict[str, int] = {}
+        try:
+            for item, _ in self._paginate(f"/users/{user_id}/course-memberships"):
+                group = _dict(item.get("attributes")).get("group")
+                course = _rel_id(_dict(item.get("relationships")), "course")
+                if isinstance(group, int) and not isinstance(group, bool) and course:
+                    groups[course] = group
+        except ApiError as exc:
+            if isinstance(exc, AuthFailed):
+                raise
+            log.info("no course colours from Stud.IP: %s", exc)
+        return groups
+
     def folders(self, course_id: str) -> list[Folder]:
         result = []
         for item, _ in self._paginate(f"/courses/{course_id}/folders"):
