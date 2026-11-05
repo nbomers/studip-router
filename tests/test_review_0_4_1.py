@@ -395,3 +395,45 @@ def test_ics_export_is_valid_and_escaped() -> None:
     assert "DTSTART:20270120T090000Z" in text and "STATUS:CANCELLED" in text
     assert "\x1b" not in text
     assert all(len(line.encode()) <= 75 for line in text.split("\r\n"))
+
+
+# -- second review ---------------------------------------------------------------------
+
+
+def test_failed_updates_count_as_pending(state) -> None:
+    from conftest import remote as _remote  # noqa: F401
+
+    state.record_failure("f-new", "x")
+    state.record_failure("f-known", "x")
+    assert state.pending_failures() == 2
+    state.ignore("f-new", COURSE_ID, "a.pdf")
+    assert state.pending_failures() == 1
+
+
+def test_code_check_only_looks_at_the_real_extension() -> None:
+    from studip_router.suggest import file_category
+
+    assert file_category("Folien Kap.C.pdf") == "slides"
+    assert file_category("Slides.Java.pdf") == "slides"
+    assert file_category("script.py") is None
+    assert file_category("script.py.zip") is None
+
+
+def test_own_keywords_with_hyphens_match(root: Path) -> None:
+    from studip_router.suggest import file_category
+
+    cfg = make_config(root, keywords={"reading": ["Quiz-Pack"]})
+    for name in ("Quiz-Pack_3.pdf", "Quiz Pack 3.pdf", "quiz_pack.pdf"):
+        assert file_category(name, cfg.keywords) == "reading", name
+
+
+def test_reorganize_keeps_old_records_placed_by_folder_type(state, root: Path) -> None:
+    cfg = make_config(root)
+    (root / "Example Course" / "Loesungen").mkdir()
+    f = replace(remote("Loesung_3.pdf", folder="Gruppe A"), folder_type="HomeworkFolder")
+    plan = plan_course(cfg, cfg.courses[COURSE_ID], [f], {})
+    execute(plan, state, FakeDownloads(), run_id=1)
+    record = state.get(f.id)
+    assert record.rule_id == "auto:exercises"
+    state.upsert(replace(record, folder_type=""))  # as synced by 0.4.1
+    assert plan_reorganize(cfg, state) == []

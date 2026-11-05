@@ -308,10 +308,10 @@ class State:
         self._db.commit()
 
     def pending_failures(self) -> int:
-        """Files that failed and are still wanted: not synced since, not ignored."""
+        """Files that failed and are still wanted (not ignored). A success clears the
+        failure, so failed updates of files synced before count too."""
         row = self._db.execute(
             "SELECT COUNT(*) FROM failures WHERE file_id NOT IN (SELECT file_id FROM ignored)"
-            " AND file_id NOT IN (SELECT file_id FROM files)"
         ).fetchone()
         return int(row[0])
 

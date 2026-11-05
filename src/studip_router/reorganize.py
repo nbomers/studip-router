@@ -21,8 +21,10 @@ from .planner import build_router
 from .postprocess import extracted_instead
 from .rename import RenameError
 from .state import FileRecord, State
+from .suggest import FOLDER_TYPES
 
 log = logging.getLogger(__name__)
+FOLDER_TYPE_CATEGORIES = frozenset(FOLDER_TYPES.values())
 
 
 @dataclass(frozen=True)
@@ -73,12 +75,14 @@ def plan_reorganize(cfg: Config, state: State, course_id: str | None = None) -> 
             if route.skip:
                 continue
             if (
-                route.by_default
-                and not record.folder_type
+                not record.folder_type
                 and (record.rule_id or "").startswith("auto:")
+                and (record.rule_id or "")[5:] in FOLDER_TYPE_CATEGORIES
+                and route.rule_id != record.rule_id
+                and (route.by_default or (route.rule_id or "").startswith("auto:"))
             ):
                 # Synced before the folder type was stored: it may have placed the
-                # file (a homework folder), so never send it to the default folder.
+                # file (a homework folder), so automatic sorting alone never moves it.
                 continue
             if route.rule_id in semester_rules:
                 dst = course_dir / route.subdir / src.name  # already carries any "_v2"

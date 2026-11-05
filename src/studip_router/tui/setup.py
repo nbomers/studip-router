@@ -239,6 +239,7 @@ class SetupScreen(Screen):
             self.root_paths.append(fresh)
             options.append(Option(f"{esc(display_path(fresh, self.home))}  [dim](new)[/dim]"))
         choices = self.query_one("#root-choices", OptionList)
+        choices.clear_options()  # connecting again after Esc: never twice the options
         choices.add_options(options)
         found = bool(roots and roots[0].matches)
         self.query_one("#root-title", Static).update(

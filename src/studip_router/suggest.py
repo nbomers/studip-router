@@ -267,6 +267,9 @@ def auto_target(folder_path: str, subdirs: list[str]) -> tuple[str, str] | None:
 FOLDER_TYPES = {"homeworkfolder": "exercises"}
 
 
+_ARCHIVE_EXT = frozenset({"zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar"})
+
+
 # Program files: "script.py" or "lecture_demo.m" is code, not a lecture script.
 _CODE_EXT = frozenset(
     {
@@ -302,8 +305,12 @@ def file_category(name: str, own: Keywords | None = None) -> str | None:
     if ext.lower() == "ipynb":  # Jupyter notebooks are worked on like exercise sheets
         return "exercises"
     category = _category(stem, own)
-    # "script.py", and "script.py.zip" too: any code extension, not only the last
-    if category == "slides" and any(e in _CODE_EXT for e in name.lower().split(".")[1:]):
+    # "script.py", and "script.py.zip" too: the last extension, or the one before an
+    # archive extension. Not any part: "Folien Kap.C.pdf" is still slides.
+    parts = name.lower().split(".")[1:]
+    if parts and parts[-1] in _ARCHIVE_EXT:
+        parts = parts[-2:-1]
+    if category == "slides" and parts and parts[-1] in _CODE_EXT:
         return None
     return category
 

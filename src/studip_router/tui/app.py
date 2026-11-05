@@ -332,10 +332,15 @@ class HomeScreen(Screen):
 
     def _remote_status(self) -> None:
         app: StudipRouterApp = self.app  # type: ignore[assignment]
+        generation = app.status_generation
         try:
             self._fetch_remote_status(app)
         finally:
             app.status_fetching = False
+        if app.status_generation != generation:  # changed meanwhile (news read, sync)
+            app.invalidate_status()
+            with contextlib.suppress(RuntimeError):
+                app.call_from_thread(self.refresh_status)
 
     def _fetch_remote_status(self, app: StudipRouterApp) -> None:
         cfg = app.cfg
@@ -464,6 +469,7 @@ class StudipRouterApp(App):
     STATUS_TTL = 300  # seconds; the home screen must not hammer Stud.IP
     OFFLINE_TTL = 60  # not reachable: try again after a minute, not on every screen change
     status_fetching = False
+    status_generation = 0
 
     def status_cache(self) -> dict | None:
         if self._status:
@@ -477,6 +483,7 @@ class StudipRouterApp(App):
 
     def invalidate_status(self) -> None:
         self._status = None
+        self.status_generation += 1  # a fetch already running must not cache old numbers
 
     def on_mount(self) -> None:
         from ..report import setup_file_logging

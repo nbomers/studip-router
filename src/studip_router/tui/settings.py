@@ -628,8 +628,8 @@ class SettingsScreen(Screen):
                 severity="error",
                 timeout=10,
             )
-            # Settings cannot work without a config: back to home, which shows the
-            # problem and opens the file again with Enter.
+            # Settings cannot work without a config: back to the previous screen
+            # (the home screen shows the problem; e opens the file again).
             self.app.pop_screen()
             return
         for row in self.query(SettingRow):

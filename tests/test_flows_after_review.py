@@ -253,3 +253,29 @@ async def test_tui_light_theme_switch(env: Path) -> None:
         app.theme = "textual-dark"
         await pilot.pause()
         assert not widgets._light
+
+
+@respx.mock
+async def test_tui_setup_connect_back_and_connect_again(root: Path, monkeypatch) -> None:
+    from textual.widgets import Input, OptionList
+
+    from studip_router.tui import StudipRouterApp
+    from studip_router.tui.setup import SetupScreen
+
+    install(respx.mock)
+    monkeypatch.setenv("HOME", str(root.parent))
+    app = StudipRouterApp()
+    async with app.run_test(size=(120, 50)) as pilot:
+        s = app.screen
+        assert isinstance(s, SetupScreen)
+        for field, val in (("url", BASE), ("username", "jdoe"), ("password", "pw")):
+            s.query_one(f"#{field}", Input).value = val
+        for _ in range(2):  # connect, Esc back to step 1, connect again
+            await pilot.click("#connect")
+            await wait_for(pilot, lambda: s.query_one("#step2").display)
+            choices = s.query_one("#root-choices", OptionList)
+            assert choices.option_count == len(s.root_paths)
+            await pilot.press("escape")
+        choices.highlighted = choices.option_count - 1  # used to raise IndexError
+        await pilot.pause()
+        assert app.is_running

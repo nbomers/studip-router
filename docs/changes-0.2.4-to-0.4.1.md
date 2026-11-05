@@ -443,7 +443,22 @@ Severity: **high** = data loss, wrong files, a crash or a broken promise in `SEC
 | ◐ partly fixed | U13 (two short options kept on purpose) |
 | ⏸ not changed, on purpose | U12 (keys) |
 
-The fixes are covered by 27 new tests in `tests/test_review_0_4_1.py` (501 tests in total, `ruff` and `mypy` clean). The tests for S3 and B4 were checked to fail against the 0.4.1 code.
+The fixes are covered by 31 tests in `tests/test_review_0_4_1.py` and 11 end-to-end flows in `tests/test_flows_after_review.py` (516 tests in total, `ruff` and `mypy` clean). The tests for S3, B4 and the second-review fixes were checked to fail without their fix.
+
+### Verification after the fixes
+
+- **Second, independent review** of the whole diff since 0.4.1 found six problems *in the fixes themselves*, all fixed:
+  - Setup: Esc back to step 1 and connecting again doubled the folder choices; choosing one of them crashed (`IndexError`). This was only reachable because Esc no longer quits.
+  - "Try again" on the home screen ignored failed *updates* of files synced before.
+  - Failure records (back-off) were dropped although a course could not be fully listed (missing course folder, closed course). They are now only dropped after a complete listing.
+  - The code check ("script.py.zip") looked at every part of the name, so "Folien Kap.C.pdf" was no longer slides. Now it checks the last extension, or the one before an archive extension.
+  - Own keywords with `-`, `_`, `.` or `+` ("Lab-Report") never matched.
+  - In `config.example.toml`, the new keywords block split a comment from its section.
+  - Also fixed: a status fetch that was already running could cache old numbers for five minutes after announcements were read. And a file that 0.4.1 placed by folder type (homework folder) could be moved by reorganize after the update.
+- **Update from 0.4.1, checked with the real 0.4.1 code:** 0.4.1 syncs against the fake Stud.IP, then the new code syncs again. Result: nothing downloaded twice, nothing to reorganize, schema migrated to 2. In the other direction, 0.4.1 refuses the new database with "written by a newer studip-router".
+- **Package:** `uv build` builds wheel and sdist; installed in a fresh venv, `studip --version`, `studip open` and `studip dates --ics` work. The shell completion files are not part of the package (as before for fish); they are copied from the repository.
+- **bash completion** tested with simulated input, including course folders with spaces. zsh and fish could not be run here.
+- **Still not checked:** a real Stud.IP instance, macOS (notifications, `open`, keychain), a real terminal with a light theme.
 
 ### Fix first (all fixed now)
 
@@ -713,4 +728,4 @@ New or changed:
 - **Settings:** the advanced settings are closed until opened.
 - **Colours:** ten configured courses get ten colours, and a Stud.IP colour group overrides the fallback.
 - Tests that used "Blatt" as a neutral file name use neutral names now, because such files are now sorted into exercises.
-- **After the review (not released):** `tests/test_review_0_4_1.py` with 27 tests for the fixes of [section 16](#16-review-findings-after-041-bugs-ux-and-security) and the roadmap items built, 501 tests in total. One known flaky warning: `test_untrusted_content.py::test_tui_sync_preview_survives_markup_in_names` sometimes reports "coroutine … was never awaited" from the home screen's status thread when the test app closes (`tui/app.py`, `call_from_thread` after exit). It was seen once in several runs and does not fail the test; whether it also occurs without the fixes was not established.
+- **After the review (not released):** `tests/test_review_0_4_1.py` (31 tests) and `tests/test_flows_after_review.py` (11 end-to-end flows) for the fixes of [section 16](#16-review-findings-after-041-bugs-ux-and-security) and the roadmap items built, 516 tests in total. One known flaky warning: `test_untrusted_content.py::test_tui_sync_preview_survives_markup_in_names` sometimes reports "coroutine … was never awaited" from the home screen's status thread when the test app closes (`tui/app.py`, `call_from_thread` after exit). It was seen once in several runs and does not fail the test; whether it also occurs without the fixes was not established.

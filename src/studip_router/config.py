@@ -6,6 +6,7 @@ TOML syntax errors additionally carry line and column from ``tomllib``.
 
 from __future__ import annotations
 
+import re
 import tomllib
 import unicodedata
 from dataclasses import dataclass, field
@@ -163,7 +164,10 @@ def _keywords(v: Any, data: Any) -> dict[str, tuple[str, ...]]:
         if not isinstance(words, list) or not all(isinstance(w, str) and w.strip() for w in words):
             v.problems.append(f"{where}: expected a list of words")
             continue
-        result[category] = tuple(normalise_name(w.strip()) for w in words)
+        # the same spelling the names get before matching: "Lab-Report" -> "lab report"
+        result[category] = tuple(
+            re.sub(r"[_\-.+]+", " ", normalise_name(w.strip())).strip() for w in words
+        )
     return result
 
 

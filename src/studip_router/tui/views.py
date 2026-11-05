@@ -360,7 +360,17 @@ class SyncView(View):
         try:
             with self.client() as client, State(paths.state_db()) as state:
                 plan = build_plan(client, self.cfg, state, on_course=progress)
-                if not plan.errors:  # a complete listing: failures of vanished files go
+                complete = (  # every configured course listed all its files
+                    not plan.errors
+                    and not plan.closed
+                    and not plan.missing
+                    and not any(
+                        a.kind is Kind.ERROR and a.file is None
+                        for p in plan.plans
+                        for a in p.actions
+                    )
+                )
+                if complete:  # only then: failures of files Stud.IP no longer lists go
                     state.forget_failures_except(
                         {a.file.id for p in plan.plans for a in p.actions if a.file}
                     )
