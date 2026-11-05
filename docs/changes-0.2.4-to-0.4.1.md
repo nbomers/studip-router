@@ -389,7 +389,7 @@ This happens every six months and is currently the only routine task that requir
 
 ### Less friction when installing and setting up
 
-3. ✅ **Shell completions for zsh and bash.** *Built:* `shell/zsh/_studip`, `shell/bash/studip`, installation in the README. The bash file was syntax-checked; zsh was not available for a test. *Checked:* only fish completions exist (`shell/fish`), but macOS uses zsh by default. Typer/Click can generate them with little effort.
+3. ✅ **Shell completions for zsh and bash.** *Built:* `studip completion zsh|bash|fish` prints the script, which ships in the package (`src/studip_router/completions/`), so a PyPI install has it too; installation in the README. The bash file was syntax-checked; zsh was not available for a test. *Checked:* only fish completions exist (`shell/fish`), but macOS uses zsh by default. Typer/Click can generate them with little effort.
 4. **Homebrew tap:** `brew install studip-router` instead of installing `uv` first. For non-developers on macOS that is one hurdle less.
 5. **Optional update notice.** *Checked:* the README promises "no update checks". A one-time notice such as "0.5 is available – `uv tool upgrade …`", only when switched on, would keep that promise.
 6. ✅ **Check the instance before asking for the password.** *Built, slightly different:* when the login fails, setup asks `…/discovery` (without the password) and says "Your university has not enabled the JSON:API" or "The address cannot be reached". A list of known instances is still open. In setup step 1, first test whether `jsonapi.php/v1/discovery` is reachable. If not, say "Your university has not enabled the JSON:API" instead of showing a cryptic error. A list of known instances to choose from would also save typing the URL.
@@ -431,7 +431,7 @@ This happens every six months and is currently the only routine task that requir
 
 ## 16. Review findings after 0.4.1: bugs, UX and security
 
-A code review of 0.4.1 (state of `main` at 2210848, line numbers from there) found the problems below. All but two are fixed on the branch `claude/busy-ramanujan-trqb68` and wait for the next release (0.4.2); each finding says its status. Every finding was checked in the code; those marked *reproduced* were also triggered in a test run (TUI headless with `App.run_test` against `tests/fake_studip.py`, or a Python snippet). Section 14 lists limits that are known and accepted; this section lists defects.
+A code review of 0.4.1 (state of `main` at 2210848, line numbers from there) found the problems below. All are fixed on the branch `claude/busy-ramanujan-trqb68` (most in PR 21, U12 and the rest of U13 after it) and wait for the next release (0.4.2); each finding says its status. Every finding was checked in the code; those marked *reproduced* were also triggered in a test run (TUI headless with `App.run_test` against `tests/fake_studip.py`, or a Python snippet). Section 14 lists limits that are known and accepted; this section lists defects.
 
 Severity: **high** = data loss, wrong files, a crash or a broken promise in `SECURITY.md`; **medium** = wrong result or a clearly misleading screen; **low** = annoyance or hardening.
 
@@ -439,11 +439,9 @@ Severity: **high** = data loss, wrong files, a crash or a broken promise in `SEC
 
 | Status | Findings |
 |---|---|
-| ✅ fixed (not released) | S1–S7 · B1–B11 · U1–U11, U14 |
-| ◐ partly fixed | U13 (two short options kept on purpose) |
-| ⏸ not changed, on purpose | U12 (keys) |
+| ✅ fixed (not released) | S1–S7 · B1–B11 · U1–U14 |
 
-The fixes are covered by 31 tests in `tests/test_review_0_4_1.py` and 11 end-to-end flows in `tests/test_flows_after_review.py` (516 tests in total, `ruff` and `mypy` clean). The tests for S3, B4 and the second-review fixes were checked to fail without their fix.
+The fixes are covered by 31 tests in `tests/test_review_0_4_1.py`, 11 end-to-end flows in `tests/test_flows_after_review.py` and 19 tests in `tests/test_open_items_0_4_2.py` for the points left open after PR 21 (535 tests in total, `ruff` and `mypy` clean). The tests for S3, B4 and the second-review fixes were checked to fail without their fix.
 
 ### Verification after the fixes
 
@@ -537,7 +535,7 @@ The fixes are covered by 31 tests in `tests/test_review_0_4_1.py` and 11 end-to-
 - Result: the normal files of that course (already fetched) are skipped too. Nothing is deleted, but nothing new arrives, and the course is shown as "closed to you".
 
 **B4. Reorganize routes without folder type and semester.** *Medium. Checked in code.*
-- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. New column `folder_type` in the state (added automatically, no schema bump). Files synced before have no folder type: reorganize never sends such an auto-placed file to the default folder. A rule whose `rename` uses `{semester}` keeps the current name and only changes the folder.
+- Status: ✅ **Fixed** on `claude/busy-ramanujan-trqb68`, not released yet. New column `folder_type` in the state (added automatically, no schema bump). Files synced before have no folder type: reorganize never sends such an auto-placed file to the default folder. After PR 21: the next sync fills in the folder type of these files (only where it is empty), so this special case only lasts until then. A rule whose `rename` uses `{semester}` keeps the current name and only changes the folder.
 - Where: `reorganize.py:38-49` builds the `RemoteFile` without `folder_type` (the `FileRecord` does not store it); `reorganize.py:56` calls `build_router(cfg, course)` without the semester that `sync.py` passes.
 - Result (folder type): `Meier.pdf` in a homework folder "Gruppe A" is synced to `Übungen` (step 3 of section 1). Reorganize does not know the folder type, routes it to the default folder, offers a move, and `studip reorganize` moves it there. The home screen promotes exactly this as the next step.
 - Result (semester): a rule with `rename = "{semester}_{orig_name}"` makes reorganize want to rename every file to `_name.pdf`.
@@ -651,11 +649,11 @@ Accepting the suggestions makes sorting *worse* than without them.
 - Where: `tui/app.py:160-161`, `344`: when the remote status arrives, the list is refilled but the cursor index stays. Pressing Enter at that moment can trigger, say, "Choose whether to sync" instead of "Sync now". Not destructive: sync and reorganize always ask first.
 
 **U12. The same key means different things.** *Low.*
-- Status: ⏸ **Not changed, on purpose.** Renaming keys would break habits of existing users. Each screen shows its keys in the footer and `?` (now everywhere) lists them. To be decided before 1.0.
+- Status: ✅ **Fixed after the merge of PR 21, not released yet.** Inside screens, `r` and `o` no longer mean something else: Ctrl+R lists again in the sync screen, `f` shows a file in its folder in "What's new" (Enter opens it). The old keys still work there, hidden from the footer, so habits do not break; remove them at 1.0. `a` stays "show all" in lists. In a list it reads as "all", and the home screen's `a` (Announcements) is never reachable from there.
 - `r`: Rules (home), Refresh (sync), Reveal (What's new). `o`: Reorganize (home), Open (What's new). `a`: Announcements (home), "all" (Courses, News). No hard conflict, but it trains the wrong reflex.
 
 **U13. CLI inconsistencies.** *Low. Checked with `--help`.*
-- Status: ◐ **Partly fixed.** All options have help texts; `studip merge --help` points to the UI. Not changed, on purpose: `-n` stays `--limit` for `history` (scripts use it); `--json` and `-p` stay options of `studip` itself (`studip --json sync`), as the help shows.
+- Status: ✅ **Fixed** (the last part after the merge of PR 21, not released yet). All options have help texts; `studip merge --help` points to the UI. `--json` and `-p/--profile` also work after the command: they are moved to the front before parsing, and nothing after `--` is touched. `history` takes `-l` for `--limit`; `-n` still works there but prints a note.
 - `-n` is `--dry-run` for `sync` and `reorganize`, but `--limit` for `history`.
 - No help text: `sync --semester`, `reorganize --dry-run/--yes`, `undo --yes`, `history --limit`, `news --keep-unread`, `doctor --offline`, `rules test --mime`.
 - `studip sync --json` and `studip sync -p x` fail with "No such option": both only work before the subcommand (`studip --json sync`). Users try the other order first.
@@ -728,4 +726,4 @@ New or changed:
 - **Settings:** the advanced settings are closed until opened.
 - **Colours:** ten configured courses get ten colours, and a Stud.IP colour group overrides the fallback.
 - Tests that used "Blatt" as a neutral file name use neutral names now, because such files are now sorted into exercises.
-- **After the review (not released):** `tests/test_review_0_4_1.py` (31 tests) and `tests/test_flows_after_review.py` (11 end-to-end flows) for the fixes of [section 16](#16-review-findings-after-041-bugs-ux-and-security) and the roadmap items built, 516 tests in total. One known flaky warning: `test_untrusted_content.py::test_tui_sync_preview_survives_markup_in_names` sometimes reports "coroutine … was never awaited" from the home screen's status thread when the test app closes (`tui/app.py`, `call_from_thread` after exit). It was seen once in several runs and does not fail the test; whether it also occurs without the fixes was not established.
+- **After the review (not released):** `tests/test_review_0_4_1.py` (31 tests) and `tests/test_flows_after_review.py` (11 end-to-end flows) for the fixes of [section 16](#16-review-findings-after-041-bugs-ux-and-security) and the roadmap items built, 516 tests in total. A flaky warning ("coroutine … was never awaited" from the home screen's status thread when the app closes) is fixed after PR 21: the thread no longer calls into an app that has quit (`tui/app.py`, `_to_ui`). The warning was rare and could not be reproduced on purpose, so the fix is checked by a unit test, not by the original failure.

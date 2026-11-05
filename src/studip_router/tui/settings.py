@@ -628,9 +628,10 @@ class SettingsScreen(Screen):
                 severity="error",
                 timeout=10,
             )
-            # Settings cannot work without a config: back to the previous screen
-            # (the home screen shows the problem; e opens the file again).
-            self.app.pop_screen()
+            # Settings cannot work without a config, nor can the screen it was
+            # opened from (sync, rules): back home, which shows the problem and
+            # opens the file again with e.
+            self.app.go_home()  # type: ignore[attr-defined]
             return
         for row in self.query(SettingRow):
             row.set_value(row.setting.current(self.app.cfg))  # type: ignore[attr-defined]

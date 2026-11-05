@@ -1,6 +1,6 @@
 #compdef studip
 # zsh completions for studip-router (`studip`)
-# Install: mkdir -p ~/.zfunc && cp shell/zsh/_studip ~/.zfunc/
+# Install: mkdir -p ~/.zfunc && studip completion zsh > ~/.zfunc/_studip
 #          then in ~/.zshrc, before compinit: fpath=(~/.zfunc $fpath)
 
 _studip_courses() {
@@ -34,6 +34,7 @@ _studip() {
     'merge:Merge slide PDFs'
     'doctor:Check setup'
     'tui:Terminal UI'
+    'completion:Print a shell completion script'
     'auth:Stored password'
     'config:Configuration'
     'rules:Routing rules'
@@ -68,7 +69,8 @@ _studip() {
             '(-n --dry-run)'{-n,--dry-run}'[Only show what would move]' \
             '(-y --yes)'{-y,--yes}'[Do not ask]' ;;
         undo) _arguments '(-y --yes)'{-y,--yes}'[Do not ask]' ;;
-        history) _arguments '(-n --limit)'{-n,--limit}'[Number of files]:number:' ;;
+        history) _arguments '(-l --limit)'{-l,--limit}'[Number of files]:number:' ;;
+        completion) _arguments '1:shell:(zsh bash fish)' ;;
         news) _arguments '--course[Course]:course:_studip_courses' '--all[Include read ones]' '--keep-unread[Do not mark as read]' ;;
         merge) _arguments '--course[Course]:course:_studip_courses' '--force[Download iCloud-only PDFs]' ;;
         dates) _arguments '--days[Changes of the last N days]:days:' '--offline[Do not contact Stud.IP]' '--ics[Write a calendar file]:file:_files' ;;

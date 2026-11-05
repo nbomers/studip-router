@@ -319,7 +319,8 @@ class SyncView(View):
         Binding("s,enter", "start", "Sync now"),
         Binding("v", "toggle_skipped", "Show skipped"),
         Binding("i", "ignore", "Never download"),
-        Binding("r", "refresh", "Refresh"),
+        Binding("ctrl+r", "refresh", "Refresh"),
+        Binding("r", "refresh", show=False),  # before 0.4.2; r is Rules on the home screen
         Binding("j", "cursor('down')", show=False),
         Binding("k", "cursor('up')", show=False),
     ]
@@ -857,11 +858,13 @@ NEW_FOLDER = "\0new"
 
 class HistoryView(View):
     TITLE = "What's new"
-    HINT = "Enter open · r show in folder · Space preview"
+    HINT = "Enter open · f show in folder · Space preview"
     BINDINGS: ClassVar = [
         *View.BINDINGS,
-        Binding("o", "open", "Open"),
-        Binding("r", "reveal", "Reveal"),
+        Binding("f", "reveal", "Show in folder"),
+        # before 0.4.2; o and r are Reorganize and Rules on the home screen
+        Binding("o", "open", show=False),
+        Binding("r", "reveal", show=False),
         Binding("space", "preview", "Preview"),
         Binding("i", "ignore", "Never download"),
     ]

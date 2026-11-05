@@ -99,6 +99,19 @@ def _ago(iso: str | None) -> str:
     return then.astimezone().strftime("%d.%m.%Y")
 
 
+def _to_ui(app: App, callback: Callable[..., object], *args: object) -> None:
+    """Run ``callback`` on the UI thread from a plain thread, unless the app has quit.
+
+    ``call_from_thread`` on a closed app creates a coroutine that is never awaited
+    (a RuntimeWarning); the status thread is a daemon that may outlive the app.
+    """
+    loop = getattr(app, "_loop", None)
+    if not app.is_running or loop is None or loop.is_closed():
+        return
+    with contextlib.suppress(RuntimeError):  # closed between the check and the call
+        app.call_from_thread(callback, *args)
+
+
 class HomeScreen(Screen):
     """One suggested next step, five everyday actions, the rest behind "More"."""
 
@@ -339,8 +352,7 @@ class HomeScreen(Screen):
             app.status_fetching = False
         if app.status_generation != generation:  # changed meanwhile (news read, sync)
             app.invalidate_status()
-            with contextlib.suppress(RuntimeError):
-                app.call_from_thread(self.refresh_status)
+            _to_ui(app, self.refresh_status)
 
     def _fetch_remote_status(self, app: StudipRouterApp) -> None:
         cfg = app.cfg
@@ -365,16 +377,14 @@ class HomeScreen(Screen):
             # Say so, and do not ask again on every return to this screen.
             offline: dict = {"offline": True}
             app.set_status_cache(offline)
-            with contextlib.suppress(RuntimeError):
-                app.call_from_thread(self._show_status, offline)
+            _to_ui(app, self._show_status, offline)
             return
         remote = {
             "unread": len(fresh),
             "new_courses": sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED),
         }
         app.set_status_cache(remote)
-        with contextlib.suppress(RuntimeError):  # app already closed
-            app.call_from_thread(self._show_status, remote)
+        _to_ui(app, self._show_status, remote)
 
     def action_move(self, step: int) -> None:
         actions = self.query_one(OptionList)
@@ -524,6 +534,12 @@ class StudipRouterApp(App):
         for screen in self.screen_stack:
             if isinstance(screen, HomeScreen):
                 screen.refresh_status()
+
+    def go_home(self) -> None:
+        """Close every screen above the home screen (e.g. the config became invalid)."""
+        while len(self.screen_stack) > 1 and not isinstance(self.screen, HomeScreen):
+            self.pop_screen()
+        self.refresh_home()
 
     def action_show_help(self) -> None:
         if not isinstance(self.screen, HelpScreen):

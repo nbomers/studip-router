@@ -111,6 +111,8 @@ class CoursePlan:
     unchanged: int = 0
     remote_deleted: list[FileRecord] = field(default_factory=list)  # newly deleted only
     reappeared: list[str] = field(default_factory=list)  # ids marked gone that are back
+    # Folder types for records synced before 0.4.2 stored them (id -> type)
+    folder_types: dict[str, str] = field(default_factory=dict)
     max_bytes: int | None = None  # size limit (sync.exclude.max_size_mb), checked while downloading
 
 
@@ -277,6 +279,11 @@ def plan_course(
             replaced_by_name.setdefault((nfc(r.remote_folder_path), name_key(r.remote_name)), r)
     replaced: set[str] = set()
     plan.reappeared = [fid for fid, r in records.items() if r.gone and fid in remote_ids]
+    plan.folder_types = {
+        f.id: f.folder_type
+        for f in remote_files
+        if f.folder_type and f.id in records and not records[f.id].folder_type
+    }
     ctx = _Ctx(cfg, plan, claims, route_file, by_name, by_base, adopted, planned_dirs)
 
     for file in sorted(remote_files, key=lambda f: (f.folder_path, nfc(f.name))):

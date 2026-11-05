@@ -269,6 +269,14 @@ class State:
         )
         self._db.commit()
 
+    def set_folder_types(self, types: dict[str, str]) -> None:
+        """Fill in the folder type of records synced before 0.4.2 (only where empty)."""
+        self._db.executemany(
+            "UPDATE files SET folder_type = ? WHERE file_id = ? AND folder_type = ''",
+            [(t, fid) for fid, t in types.items()],
+        )
+        self._db.commit()
+
     # -- ignored files ------------------------------------------------------------
 
     def ignored_ids(self) -> set[str]:

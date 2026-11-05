@@ -177,7 +177,7 @@ it brings its own Python). The unreleased state of `main`:
 zsh (the macOS default):
 
 ```bash
-mkdir -p ~/.zfunc && cp shell/zsh/_studip ~/.zfunc/
+mkdir -p ~/.zfunc && studip completion zsh > ~/.zfunc/_studip
 ```
 
 Then add `fpath=(~/.zfunc $fpath)` to `~/.zshrc` before `compinit`.
@@ -185,17 +185,17 @@ Then add `fpath=(~/.zfunc $fpath)` to `~/.zshrc` before `compinit`.
 bash:
 
 ```bash
-mkdir -p ~/.local/share/bash-completion/completions && cp shell/bash/studip ~/.local/share/bash-completion/completions/studip
+mkdir -p ~/.local/share/bash-completion/completions && studip completion bash > ~/.local/share/bash-completion/completions/studip
 ```
 
 fish:
 
 ```bash
-cp shell/fish/completions/studip.fish ~/.config/fish/completions/
+studip completion fish > ~/.config/fish/completions/studip.fish
 ```
 
-Completes subcommands, flags and your course folders.
-`shell/fish/functions/studip.fish` is an optional wrapper for running from a
+Completes subcommands, flags and your course folders. Run the command again after
+an update. `shell/studip.fish` is an optional fish wrapper for running from a
 source checkout.
 
 </details>
@@ -411,6 +411,7 @@ From scripts: `studip config set sync.on_update skip`.
 | `studip history` / `studip news` | recently synced files / unread announcements |
 | `studip dates [--offline] [--days 14] [--ics FILE]` | changed course dates and upcoming exams; `--ics` writes all dates as a calendar file |
 | `studip open COURSE` | open a course folder in Finder / the file manager |
+| `studip completion zsh` | print the shell completion script (zsh, bash, fish) |
 | `studip merge` | merge slide PDFs |
 | `studip schedule install --every 120` / `run-now` / `uninstall` | background sync (opt-in) |
 | `studip ignore add / list / remove` | files you never want |

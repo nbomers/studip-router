@@ -1,5 +1,5 @@
 # fish completions for studip-router (`studip`)
-# Install: cp shell/fish/completions/studip.fish ~/.config/fish/completions/
+# Install: studip completion fish > ~/.config/fish/completions/studip.fish
 
 function __studip_courses
     command studip _complete courses 2>/dev/null
@@ -9,7 +9,7 @@ function __studip_profiles
     command studip _complete profiles 2>/dev/null
 end
 
-set -l cmds init open courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore pdf-password dates
+set -l cmds init open courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore pdf-password dates completion
 complete -c studip -f
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -s p -l profile -xa '(__studip_profiles)' -d 'Config/state profile'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -l json -d 'Machine-readable output'
@@ -27,6 +27,7 @@ complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a news -d 'Course
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a merge -d 'Merge slide PDFs'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a doctor -d 'Check setup'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a tui -d 'Terminal UI'
+complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a completion -d 'Print a shell completion script'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a auth -d 'Stored password'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a config -d 'Configuration'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a rules -d 'Routing rules'
@@ -53,7 +54,8 @@ complete -c studip -n "__fish_seen_subcommand_from merge" -l force -d 'Download 
 complete -c studip -n "__fish_seen_subcommand_from dates" -l days -x -d 'Changes of the last N days'
 complete -c studip -n "__fish_seen_subcommand_from dates" -l ics -rF -d 'Write a calendar file'
 complete -c studip -n "__fish_seen_subcommand_from status doctor dates" -l offline -d 'Do not contact Stud.IP'
-complete -c studip -n "__fish_seen_subcommand_from history" -s n -l limit -x -d 'Number of files'
+complete -c studip -n "__fish_seen_subcommand_from history" -s l -l limit -x -d 'Number of files'
+complete -c studip -n "__fish_seen_subcommand_from completion" -xa 'zsh bash fish'
 complete -c studip -n "__fish_seen_subcommand_from init" -l force -d 'Overwrite config'
 
 complete -c studip -n "__fish_seen_subcommand_from auth; and not __fish_seen_subcommand_from login status logout" -a 'login status logout'
