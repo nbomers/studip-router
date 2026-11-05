@@ -151,6 +151,12 @@ same setup in the terminal.
 |---|---|---|
 | [uv](https://docs.astral.sh/uv/) | `uv tool install studip-router` | `uv tool upgrade studip-router` |
 | [pipx](https://pipx.pypa.io/) | `pipx install studip-router` | `pipx upgrade studip-router` |
+| pip (in a [venv](https://docs.python.org/3/library/venv.html)) | `python3 -m venv ~/.venvs/studip && ~/.venvs/studip/bin/pip install studip-router` | `~/.venvs/studip/bin/pip install -U studip-router` |
+
+`uv` and `pipx` put the `studip` command on your `PATH` and keep it apart from other
+Python packages. Plain `pip install studip-router` into the system Python is refused
+by Homebrew and most Linux distributions ("externally-managed-environment"); with a
+venv, call `~/.venvs/studip/bin/studip` or link it into a folder on your `PATH`.
 
 Releases come from [PyPI](https://pypi.org/project/studip-router/), built and
 uploaded by this repository's GitHub Actions ([changes](https://github.com/nbomers/studip-router/blob/main/CHANGELOG.md)). A specific

@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- README: installing with plain `pip` into a venv is documented next to uv and pipx.
+- The release workflow can be started by hand as a dry run (checks, build, artifact
+  hand-over, no upload), to test it after Dependabot updates its actions.
+
 ## [0.2.4] - 2026-10-15
 
 ### Changed
