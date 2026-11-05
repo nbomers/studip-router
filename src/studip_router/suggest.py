@@ -35,6 +35,7 @@ REMOTE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "zettel",
         "abgabe",
         "lab",
+        "labor",
         "notebook",  # Jupyter notebooks ("Notebooks", "notebook-03") are worked on like sheets
     ),
     "slides": (
@@ -51,6 +52,8 @@ REMOTE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "chapter",
         "vl",
     ),
+    # Only used when a local folder for it exists ("Literatur", "Reading", ...).
+    "reading": ("literatur", "reader", "reading", "lektuere"),
 }
 LOCAL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "exams": ("klausur", "exam", "pruefung"),
@@ -69,8 +72,10 @@ LOCAL_KEYWORDS: dict[str, tuple[str, ...]] = {
         "tutori",
         "praktikum",
         "lab",
+        "labor",
     ),
     "slides": ("skript", "script", "folie", "slide", "vorlesung", "lecture", "notes", "unterlagen"),
+    "reading": ("literatur", "reading", "reader", "lektuere", "paper"),
     "misc": ("sonstig", "misc", "other", "allgemein", "general", "divers", "inbox", "extra"),
 }
 # Words that contain a keyword but mean something else ("Examples" is no exam,
@@ -155,6 +160,72 @@ def auto_target(folder_path: str, subdirs: list[str]) -> tuple[str, str] | None:
         return None
     target = _local_target(category, subdirs)
     return (category, target) if target is not None else None
+
+
+# Stud.IP folder types whose purpose is fixed, whatever the folder is called.
+FOLDER_TYPES = {"homeworkfolder": "exercises"}
+
+
+# Program files: "script.py" or "lecture_demo.m" is code, not a lecture script.
+_CODE_EXT = frozenset(
+    {
+        "py",
+        "r",
+        "m",
+        "jl",
+        "java",
+        "c",
+        "h",
+        "cpp",
+        "hpp",
+        "cs",
+        "js",
+        "ts",
+        "sh",
+        "bash",
+        "ps1",
+        "sql",
+        "scala",
+        "kt",
+        "go",
+        "rs",
+        "rb",
+        "pl",
+    }
+)
+
+
+def file_category(name: str) -> str | None:
+    """Category a file name reveals ("Uebungsblatt_3.pdf" -> exercises), if any."""
+    stem, _, ext = name.rpartition(".") if "." in name else (name, "", "")
+    category = _category(stem.replace("_", " "))
+    if category == "slides" and ext.lower() in _CODE_EXT:
+        return None
+    return category
+
+
+def auto_route(
+    folder_path: str, folder_type: str, name: str, subdirs: list[str]
+) -> tuple[str, str, str] | None:
+    """(category, local folder, why) for a file no rule matches.
+
+    The Stud.IP folder name decides first, then the Stud.IP folder type, then the
+    file name - but the name only when the folder says nothing ("Material",
+    "Allgemeiner Dateiordner", the course root): a folder called "Folien" keeps
+    everything in it together.
+    """
+    candidates: list[tuple[str, str]] = []
+    if (category := folder_category(folder_path)) is not None:
+        candidates.append((category, "folder name"))
+    elif (category := FOLDER_TYPES.get(folder_type.casefold())) is not None:
+        candidates.append((category, "Stud.IP folder type"))
+    elif (category := file_category(name)) is not None:
+        candidates.append((category, "file name"))
+    for category, why in candidates:
+        target = _local_target(category, subdirs)
+        if target is not None:
+            return category, target, why
+    return None
 
 
 def local_category_dirs(subdirs: list[str], category: str) -> list[str]:

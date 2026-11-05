@@ -134,24 +134,24 @@ def test_identical_content_never_becomes_v2(cfg, state, root: Path) -> None:
 
 def test_reupload_with_new_id_becomes_new_version(cfg, state, root: Path) -> None:
     folder = root / "Example Course" / "Sonstiges"
-    _sync(cfg, state, [remote("Blatt.pdf", id="old")], FakeDownloads({"old": b"abc"}))
+    _sync(cfg, state, [remote("Info.pdf", id="old")], FakeDownloads({"old": b"abc"}))
     plan = _sync(
         cfg,
         state,
-        [remote("Blatt.pdf", id="new", size=4, chdate=D2)],
+        [remote("Info.pdf", id="new", size=4, chdate=D2)],
         FakeDownloads({"new": b"abcd"}),
     )
     assert [a.kind for a in plan.actions] == [Kind.NEW_VERSION]
     assert plan.remote_deleted == []
-    assert _names(folder) == ["Blatt.pdf", "Blatt_v2.pdf"]
+    assert _names(folder) == ["Info.pdf", "Info_v2.pdf"]
     assert set(state.for_course(COURSE_ID)) == {"new"}
 
 
 def test_identical_reupload_is_just_relinked(cfg, state, root: Path) -> None:
     folder = root / "Example Course" / "Sonstiges"
-    _sync(cfg, state, [remote("Blatt.pdf", id="old")], FakeDownloads({"old": b"abc"}))
-    _sync(cfg, state, [remote("Blatt.pdf", id="new", chdate=D2)], FakeDownloads({"new": b"abc"}))
-    assert _names(folder) == ["Blatt.pdf"]
+    _sync(cfg, state, [remote("Info.pdf", id="old")], FakeDownloads({"old": b"abc"}))
+    _sync(cfg, state, [remote("Info.pdf", id="new", chdate=D2)], FakeDownloads({"new": b"abc"}))
+    assert _names(folder) == ["Info.pdf"]
     assert set(state.for_course(COURSE_ID)) == {"new"}
 
 

@@ -7,7 +7,7 @@ import pytest
 from conftest import COURSE_ID, remote
 
 from studip_router.config import load
-from studip_router.suggest import auto_target, suggest_rules
+from studip_router.suggest import auto_route, auto_target, file_category, suggest_rules
 from studip_router.tomlwrite import append_blocks, rule_block
 
 
@@ -181,3 +181,52 @@ def test_a_rule_still_wins_over_notebook_routing(tmp_path: Path) -> None:
     assert (route.subdir, route.rule_id) == ("Code", "nb")
     other = build_router(cfg, cfg.courses["c1"])(remote("b.ipynb", folder="Lecture Notebooks"))
     assert (other.subdir, other.rule_id) == ("Übungen", "auto:exercises")
+
+
+# -- automatic routing: folder name, then folder type, then file name ----------------
+
+LOCAL = ["Folien", "Übungen", "Klausur", "Literatur", "Sonstiges"]
+
+
+def test_file_name_decides_when_the_folder_says_nothing() -> None:
+    assert auto_route("", "", "Uebungsblatt_3.pdf", LOCAL) == ("exercises", "Übungen", "file name")
+    assert auto_route("Allgemeiner Dateiordner", "", "VL03_Einleitung.pdf", LOCAL) == (
+        "slides",
+        "Folien",
+        "file name",
+    )
+    assert auto_route("Material", "", "Altklausur_2024.pdf", LOCAL)[:2] == ("exams", "Klausur")
+
+
+def test_a_telling_folder_name_wins_over_the_file_name() -> None:
+    # an exercise sheet the lecturer put next to the slides stays with the slides
+    assert auto_route("Folien", "", "Blatt_3.pdf", LOCAL) == ("slides", "Folien", "folder name")
+
+
+def test_homework_folder_type_means_exercises() -> None:
+    assert auto_route("Abgabe-Ordner XY", "HomeworkFolder", "x.pdf", LOCAL)[1] == "Übungen"
+    assert auto_route("Irgendwas", "HomeworkFolder", "x.pdf", LOCAL) == (
+        "exercises",
+        "Übungen",
+        "Stud.IP folder type",
+    )
+
+
+def test_nothing_telling_stays_with_the_default_folder() -> None:
+    assert auto_route("Material", "StandardFolder", "Organisatorisches.pdf", LOCAL) is None
+    assert auto_route("", "", "Orga.pdf", LOCAL) is None
+
+
+def test_reading_needs_its_own_local_folder() -> None:
+    assert auto_route("Literatur", "", "x.pdf", LOCAL) == ("reading", "Literatur", "folder name")
+    assert auto_route("Literatur", "", "x.pdf", ["Folien", "Sonstiges"]) is None
+
+
+def test_labor_is_an_exercise_folder() -> None:
+    assert auto_route("Labor", "", "x.pdf", LOCAL)[:2] == ("exercises", "Übungen")
+
+
+def test_file_category_ignores_the_extension_and_underscores() -> None:
+    assert file_category("Loesung_2.pdf") == "solutions"
+    assert file_category("script.py") is None  # a "Scripts"/script file is no lecture script
+    assert file_category("Beispiel_Blatt.pdf") == "exercises"

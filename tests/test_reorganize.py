@@ -11,11 +11,11 @@ from studip_router.planner import plan_course
 from studip_router.reorganize import apply_reorganize, apply_undo, plan_reorganize, plan_undo
 
 
-def _cfg(root: Path, rules: list[dict]):
+def _cfg(root: Path, rules: list[dict], auto_route: bool = True):
     return parse(
         {
             "server": {"base_url": "https://studip.example.edu", "username": "jdoe"},
-            "sync": {"root": str(root)},
+            "sync": {"root": str(root), "auto_route": auto_route},
             "courses": {COURSE_ID: {"target": "Example Course", "rules": rules}},
         },
         Path("c.toml"),
@@ -34,7 +34,8 @@ SHEETS = [
 
 def test_reorganize_then_undo(root: Path, state) -> None:
     course = root / "Example Course"
-    before = _cfg(root, [])
+    # without automatic routing, so "Blatt 1" lands in the default folder first
+    before = _cfg(root, [], auto_route=False)
     files = [remote("Blatt 1.pdf"), remote("notes.pdf")]
     execute(
         plan_course(before, before.courses[COURSE_ID], files, {}), state, FakeDownloads(), run_id=1

@@ -60,8 +60,10 @@ courseware = false
 notify = true
 
 # A file that no rule matches goes to the local folder its Stud.IP folder name
-# points to ("Übungen", "Tutorium", "Folien", "Slides", "Vorlesung", ...) when
-# that is clear; otherwise to default_target. Your rules always win.
+# points to ("Übungen", "Tutorium", "Folien", "Slides", "Vorlesung", "Literatur",
+# ...) or, when the folder says nothing ("Material", the course root), its file
+# name points to ("Uebungsblatt_3.pdf", "VL03.pdf"); otherwise to default_target.
+# Only existing local folders are used. Your rules always win.
 auto_route = true
 
 # After each sync, compare the course dates with the last check and report

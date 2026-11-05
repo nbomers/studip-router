@@ -164,6 +164,7 @@ HELP = """\
   ?                     this help
 
 [b]Home[/b]
+  Enter  on the first line: do the suggested next step
   s   Sync now (summary, then confirm)
   p   Preview: every file and where it goes
   w   What's new: recently synced files

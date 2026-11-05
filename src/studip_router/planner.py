@@ -31,7 +31,7 @@ from .postprocess import extracted_instead, unzip_target
 from .rename import RenameError, target_name
 from .rules import first_match
 from .state import FileRecord
-from .suggest import auto_target, local_subdirs
+from .suggest import auto_route, local_subdirs
 
 
 class Kind(StrEnum):
@@ -67,6 +67,7 @@ class Route:
     by_default: bool = False
     skip: bool = False
     unzip: bool = False
+    why: str = ""  # automatic routing: what decided ("folder name", "file name", ...)
 
 
 @dataclass
@@ -130,9 +131,11 @@ def build_router(cfg: Config, course: CourseConfig, semester: str = "") -> Route
         rule, regex_match = first_match(course.rules, file)
         if rule is None:
             name = target_name(file, None, options)
-            if found := auto_target(file.folder_path, subdirs):
-                category, target = found
-                return Route(target, name, rule_id=f"auto:{category}", unzip=unzip)
+            if subdirs and (
+                found := auto_route(file.folder_path, file.folder_type, file.name, subdirs)
+            ):
+                category, target, why = found
+                return Route(target, name, rule_id=f"auto:{category}", unzip=unzip, why=why)
             return Route(default_target, name, by_default=True, unzip=unzip)
         if rule.skip:
             return Route(

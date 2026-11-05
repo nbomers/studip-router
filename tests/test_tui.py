@@ -5,14 +5,14 @@ from pathlib import Path
 import pytest
 import respx
 from fake_studip import BASE, COURSE, OTHER, install
-from textual.widgets import DataTable, Input, RichLog, SelectionList, Static
+from textual.widgets import DataTable, Input, OptionList, RichLog, SelectionList, Static
 
 from studip_router import paths
 from studip_router.config import load
 from studip_router.tui import ChoiceScreen, ConfirmScreen, HomeScreen, StudipRouterApp
 from studip_router.tui.settings import SettingRow, SettingsScreen
 from studip_router.tui.setup import SetupScreen
-from studip_router.tui.views import NEW_FOLDER
+from studip_router.tui.views import NEW_FOLDER, CoursesView
 from studip_router.tui.widgets import HelpScreen
 
 
@@ -42,15 +42,29 @@ def config():
 
 
 @respx.mock
-async def test_home_shows_status_cards(course_dir: Path) -> None:
+async def test_home_suggests_the_next_step(course_dir: Path) -> None:
     install(respx.mock)
     app = StudipRouterApp()
     async with app.run_test(size=(120, 36)) as pilot:
         assert isinstance(app.screen, HomeScreen)
-        news = app.screen.query_one("#card-news", Static)
-        await wait_for(pilot, lambda: "1" in str(news.render()))
-        todo = str(app.screen.query_one("#card-todo", Static).render())
-        assert "1 new course" in todo
+        facts = app.screen.query_one("#facts", Static)
+        await wait_for(pilot, lambda: "unread" in str(facts.render()))
+        step = str(app.screen.query_one("#next", Static).render())
+        assert "1 new course" in step
+        actions = app.screen.query_one("#actions", OptionList)
+        assert actions.highlighted == 0 and actions.get_option_at_index(0).id == "next:c"
+        # the rarely used actions sit behind "More"; their keys work anyway
+        ids = [actions.get_option_at_index(i).id for i in range(actions.option_count)]
+        assert "d" not in ids and "more" in ids
+        actions.highlighted = ids.index("more")
+        await pilot.press("enter")
+        ids = [actions.get_option_at_index(i).id for i in range(actions.option_count)]
+        assert "d" in ids
+        actions.highlighted = 0
+        await pilot.press("enter")  # Enter on the suggestion opens Courses
+        await wait_for(pilot, lambda: isinstance(app.screen, CoursesView))
+        await pilot.press("escape")
+        await wait_for(pilot, lambda: isinstance(app.screen, HomeScreen))
         await pilot.press("question_mark")
         assert isinstance(app.screen, HelpScreen)
 
@@ -62,7 +76,7 @@ async def test_sync_now_asks_once_then_downloads(course_dir: Path) -> None:
     async with app.run_test(size=(120, 36)) as pilot:
         await pilot.press("s")
         await wait_for(pilot, lambda: isinstance(app.screen, ConfirmScreen))
-        assert "3 new" in app.screen.detail
+        assert "[b]3 new[/b]" in app.screen.detail
         await pilot.press("y")
         await wait_for(pilot, lambda: (course_dir / "Sonstiges" / "Orga.pdf").exists())
         await wait_for(pilot, lambda: not app.screen.running)

@@ -29,7 +29,8 @@ unless something changed on Stud.IP.
 
 ![Home screen of the terminal UI](https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/menu.svg)
 
-<sub>The home screen: status cards on top, every common action on one key.
+<sub>The home screen: one suggested next step (Enter does it), five everyday
+actions, the rest behind *More*.
 All course names in the screenshots are made up.</sub>
 
 > [!IMPORTANT]
@@ -64,7 +65,7 @@ All course names in the screenshots are made up.</sub>
 | **Root** | The folder that contains your course folders, e.g. `~/Uni/Semester 5` (`sync.root`). |
 | **Target** | Where a course or a rule puts its files, relative to the root or the course folder. |
 | **Rule** | A per-course *if this file looks like X, put it into folder Y and name it Z*. **First match wins.** |
-| **Auto-route** | No rule matches, but the Stud.IP folder name is clear (`Übungen`, `Slides`, …): the file goes to your matching folder. |
+| **Auto-route** | No rule matches, but the Stud.IP folder name (`Übungen`, `Slides`, …), a homework folder or — when the folder says nothing — the file name (`Uebungsblatt_3.pdf`, `VL03.pdf`) is clear: the file goes to your matching folder. |
 | **Default folder** | Where files go that no rule matches (`sync.default_target`, e.g. `Sonstiges`). |
 | **Suggestion** | A rule the tool proposes by comparing Stud.IP folder names with your local folder names (German and English). |
 | **Adopt** | A file you already downloaded by hand is *recorded* instead of downloaded a second time. |
@@ -151,6 +152,12 @@ same setup in the terminal.
 |---|---|---|
 | [uv](https://docs.astral.sh/uv/) | `uv tool install studip-router` | `uv tool upgrade studip-router` |
 | [pipx](https://pipx.pypa.io/) | `pipx install studip-router` | `pipx upgrade studip-router` |
+| pip (in a [venv](https://docs.python.org/3/library/venv.html)) | `python3 -m venv ~/.venvs/studip && ~/.venvs/studip/bin/pip install studip-router` | `~/.venvs/studip/bin/pip install -U studip-router` |
+
+`uv` and `pipx` put the `studip` command on your `PATH` and keep it apart from other
+Python packages. Plain `pip install studip-router` into the system Python is refused
+by Homebrew and most Linux distributions ("externally-managed-environment"); with a
+venv, call `~/.venvs/studip/bin/studip` or link it into a folder on your `PATH`.
 
 Releases come from [PyPI](https://pypi.org/project/studip-router/), built and
 uploaded by this repository's GitHub Actions ([changes](https://github.com/nbomers/studip-router/blob/main/CHANGELOG.md)). A specific
@@ -183,6 +190,11 @@ source checkout.
 
 ### The terminal UI
 
+The home screen shows **one next step** — a new course to set up, files that
+landed in the default folder, a failed sync, or simply *Sync now* — and `Enter`
+does it. Below are the everyday actions; *More* holds the rest. Every key works
+whether its line is shown or not:
+
 | Key | | Key | |
 |---|---|---|---|
 | `s` | **Sync now** (summary → confirm) | `r` | Rules: suggestions, test a file name |
@@ -200,7 +212,9 @@ source checkout.
   <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/settings.svg" width="49%" alt="Settings screen with options side by side">
 </p>
 
-<sub>Left the preview — every file, its target and the rule that placed it.
+<sub>Left the preview — every file, its target and why it goes there; files bound
+for the default folder are marked `!` and listed first, files not downloaded are
+counted with their reason (`v` shows them).
 Right the settings — saved immediately, comments in the config file are kept.</sub>
 
 <details>
@@ -248,7 +262,7 @@ Setup, add the suggested rules, see exactly what would happen, do it.
 | Folder with your course folders | found by the setup | settings (`,`) → *course folders in* · `sync.root` |
 | Subfolders of a new course folder | your existing structure, else `Folien, Übungen, Klausur, Sonstiges` | settings → *new course gets* · `sync.course_folders` |
 | Files nothing places | `Sonstiges` (created when needed) | settings → *default folder* · `sync.default_target` |
-| Sorting by Stud.IP folder name (`Übungen` → your exercise folder, …) | on | settings → *auto-route* · `sync.auto_route` |
+| Sorting by Stud.IP folder name, then file name (`Übungen` → your exercise folder, …) | on | settings → *auto-route* · `sync.auto_route` |
 | Your own routing and renaming | none needed | `r` (suggestions, test a name) · `[[courses.<id>.rules]]` |
 | New course mid-semester | listed as *new* | `c` → pick a folder or *+ new folder* |
 | Videos, files > 200 MB, Courseware import images | skipped | settings → *skip videos*, *size limit* · `sync.exclude` |
@@ -269,7 +283,7 @@ every change is saved at once. The config file (`e` in the settings,
 ~/Uni/Semester 5/                  sync.root — you pick it in the setup
 ├── Quantum Cooking/               one folder per course (its target)
 │   ├── Exercises/                 by a rule, or automatically from a Stud.IP
-│   ├── Slides/                    folder name like "Übungen" or "Folien"
+│   ├── Slides/                    folder name like "Übungen" or "Folien", else the file name
 │   └── Sonstiges/                 everything else (sync.default_target)
 └── Underwater Basket Weaving/
 ```
@@ -278,7 +292,7 @@ every change is saved at once. The config file (`e` in the settings,
 |---|---|---|
 | **Root** (`sync.root`) | asked in the setup; files go into the course folders inside it (unless you give a course an absolute target). `/`, your home folder itself and system folders are refused | the setup in the UI expects an existing folder; `studip init` creates it together with the course folders |
 | **Course folder** | the setup matches each course to an existing folder in the root | the setup (UI and `studip init`) offers to create missing ones; for a new course choose *+ new folder* under `c`. A course folder that disappears later is an error (renamed or moved?), never silently recreated |
-| **Default folder** (`Sonstiges`) | files that no rule and no folder name places | **yes**, the first time a file needs it |
+| **Default folder** (`Sonstiges`) | files that no rule, folder name or file name places | **yes**, the first time a file needs it |
 | **Rule targets** | `target` of your rules | no: a missing one is an error, so a typo never creates folders. `sync.create_missing_dirs = true` creates them |
 | **Automatic targets** | your existing folders whose names match (`Übungen`, `Folien`, …) | never needed: only existing folders are used |
 
@@ -347,7 +361,7 @@ Rule sheets
 | `sync.create_missing_dirs` | `false` | create rule target folders that do not exist (the default folder is always created) |
 | `sync.unzip` | `false` | extract `.zip` downloads into a folder named like them and remove the archive (fetched again only when it changes) |
 | `sync.notify` | `true` | notification after background syncs |
-| `sync.auto_route` | `true` | no rule matches: use the Stud.IP folder name (Übung, Folien, …) before the default folder |
+| `sync.auto_route` | `true` | no rule matches: use the Stud.IP folder name (Übung, Folien, Literatur, …), a homework folder, then the file name before the default folder |
 | `sync.watch_dates` | `true` | report cancelled, moved and re-roomed dates after a sync |
 | `sync.follow_renames` | `true` | rename the local copy when a file is renamed on Stud.IP |
 | `sync.courseware` | `false` | also sync files from Courseware pages (per course: `courses.<id>.courseware`) |

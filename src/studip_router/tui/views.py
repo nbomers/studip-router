@@ -70,6 +70,16 @@ from ..wizard import (
 from .widgets import ChoiceScreen, ConfirmScreen
 
 
+def clip(text: str, width: int) -> str:
+    """Cut long names for display: "Introduction to Quantum Coo…"."""
+    return text if len(text) <= width else text[: width - 1].rstrip() + "…"
+
+
+def plural(n: int, word: str, many: str = "") -> str:
+    """ "[b]3[/b] files" - the number bold, the noun pluralised."""
+    return f"[b]{n}[/b] {word if n == 1 else (many or word + 's')}"
+
+
 def rel(path: Path, base: Path) -> str:
     try:
         return str(path.relative_to(base))
@@ -170,22 +180,81 @@ class View(Screen):
 
 
 def plan_summary(plan: SyncPlan) -> str:
+    """Confirm dialog text (markup): "[b]3 new[/b] · [b]1[/b] to the default folder"."""
     counts = summarize(plan)
     parts = []
     for key, label in (
         ("download", "new"),
         ("new-version", "new version(s)"),
         ("overwrite", "updated"),
-        ("adopt", "already on disk (recorded)"),
+        ("adopt", "already on disk"),
         ("mkdir", "folder(s) to create"),
         ("error", "problem(s)"),
     ):
         if counts.get(key):
-            parts.append(f"{counts[key]} {label}")
+            parts.append(f"[b]{counts[key]} {label}[/b]")
     default = counts.get("default-routed", 0)
     if default:
-        parts.append(f"{default} via default folder")
+        parts.append(f"[yellow][b]{default}[/b] to the [b]default folder[/b][/yellow]")
+    skipped = sum(skipped_reasons(plan).values())
+    if skipped:
+        parts.append(f"[dim]{skipped} not downloaded[/dim]")
     return " · ".join(parts) or "nothing to do"
+
+
+def plan_summary_short(plan: SyncPlan) -> str:
+    """Headline of the preview (markup): "[b]3 new[/b] files · [b]1 updated[/b]"."""
+    counts = summarize(plan)
+    new = counts.get("download", 0)
+    updated = counts.get("new-version", 0) + counts.get("overwrite", 0)
+    parts = []
+    if new:
+        parts.append(f"[b]{new} new[/b] file" + ("s" if new != 1 else ""))
+    if updated:
+        parts.append(f"[b]{updated} updated[/b]")
+    other = sum(counts.get(k, 0) for k in ("adopt", "refresh", "rename", "mkdir"))
+    if other and not parts:
+        parts.append(f"[b]{other}[/b] small change(s)")
+    return " · ".join(parts) or "nothing to download"
+
+
+def skipped_reasons(plan: SyncPlan) -> dict[str, int]:
+    """Why files are not downloaded, most frequent first: {"too large": 3, ...}."""
+    reasons: dict[str, int] = {}
+    for p in plan.plans:
+        for a in p.actions:
+            if a.kind is Kind.SKIP:
+                reasons[a.reason or "skipped"] = reasons.get(a.reason or "skipped", 0) + 1
+    return dict(sorted(reasons.items(), key=lambda kv: -kv[1]))
+
+
+def is_default_routed(action: Action) -> bool:
+    return bool(action.route and action.route.by_default and action.kind is Kind.DOWNLOAD)
+
+
+def why(action: Action) -> tuple[str, str]:
+    """(text, style) for the "Why" column: what placed the file, or what went wrong."""
+    route = action.route
+    if action.kind is Kind.ERROR:
+        return action.reason, "red"
+    if action.kind is Kind.SKIP:
+        return action.reason or "skipped", "dim"
+    if is_default_routed(action):
+        return "nothing matched", "yellow"
+    extra = f" · {action.reason or action.note}" if (action.reason or action.note) else ""
+    if action.unzips:
+        extra += " · unzip"
+    if route and route.rule_id and route.rule_id.startswith("auto:"):
+        return f"by {route.why or 'folder name'}{extra}", "dim"
+    if route and route.rule_id:
+        return f"your rule {route.rule_id}{extra}", "dim"
+    return extra.lstrip(" ·"), "dim"
+
+
+def _names(actions: list[Action], limit: int = 8) -> str:
+    names = [a.file.name for a in actions if a.file][:limit]
+    more = len(actions) - len(names)
+    return ", ".join(names) + (f" … +{more}" if more > 0 else "")
 
 
 class SyncView(View):
@@ -220,7 +289,7 @@ class SyncView(View):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns(" ", "Course", "Stud.IP", "→ Local", "Note")
+        self.query_one(DataTable).add_columns(" ", "Course", "On Stud.IP", "→ Saved as", "Why")
         self.query_one(ProgressBar).display = False
         self.query_one(RichLog).display = False
         self.load_plan()
@@ -241,46 +310,70 @@ class SyncView(View):
         table = self.query_one(DataTable)
         table.clear()
         self.row_actions: list[Action] = []
+
+        def order(a: Action) -> int:  # problems first, then what needs a look
+            if a.kind is Kind.ERROR:
+                return 0
+            if is_default_routed(a):
+                return 1
+            return 3 if a.kind is Kind.SKIP else 2
+
         for course_plan in plan.plans:
             name = course_plan.course.name or course_plan.course.target
-            for a in course_plan.actions:
+            for a in sorted(course_plan.actions, key=order):
                 if a.kind is Kind.SKIP and not self.show_skipped:
                     continue
                 remote = f"{a.file.folder_path}/{a.file.name}".lstrip("/") if a.file else ""
                 local = rel(a.dest, course_plan.course_dir) if a.dest else ""
-                note = a.reason or a.note
-                if a.route and a.route.by_default and a.kind is Kind.DOWNLOAD:
-                    note = (note + "; " if note else "") + "default folder"
-                elif a.route and a.route.rule_id and a.kind is not Kind.SKIP:
-                    note = (note + "; " if note else "") + f"rule {a.route.rule_id}"
-                if a.unzips:
-                    note += "; + unzip"
+                note, note_style = why(a)
+                flagged = is_default_routed(a)
+                row_style = "yellow" if flagged else ("dim" if a.kind is Kind.SKIP else "")
                 self.row_actions.append(a)
                 table.add_row(
-                    Text(SYMBOL[a.kind], style=STYLE[a.kind]),
-                    Text(name),
-                    Text(remote),
-                    Text(local),
-                    Text(note, style="dim"),
+                    Text("!" if flagged else SYMBOL[a.kind], style=STYLE[a.kind]),
+                    Text(clip(name, 24), style=row_style),
+                    Text(clip(remote, 40), style=row_style),
+                    Text(clip(local, 40), style=row_style),
+                    Text(note, style=note_style),
                 )
         todo = self._todo()
         sem = plan.semester.title if plan.semester else "all semesters"
-        extra = ""
+        lines: list[str] = []
+        counts = summarize(plan)
+        if counts.get("error"):
+            lines.append(
+                f"[red]✗ [b]{esc(counts['error'])}[/b] problem(s)[/red] [dim]- at the top[/dim]"
+            )
+        if counts.get("default-routed"):
+            n = counts["default-routed"]
+            lines.append(
+                f"[yellow]! [b]{esc(n)}[/b] {'file goes' if n == 1 else 'files go'} to "
+                f"[b]{esc(self.cfg.default_target)}[/b][/yellow] [dim]- nothing matched "
+                f"{'it' if n == 1 else 'them'}; a rule fixes that (home: More → Rules)[/dim]"
+            )
+        skipped = skipped_reasons(plan)
+        if skipped:
+            detail = ", ".join(f"{n} {r}" for r, n in skipped.items())
+            toggle = "v hides them" if self.show_skipped else "v shows them"
+            lines.append(
+                f"[dim]◎ {esc(sum(skipped.values()))} not downloaded ({esc(detail)}) - "
+                f"{toggle}[/dim]"
+            )
         if plan.errors:
             names = ", ".join(n for n, _ in plan.errors)
-            extra += (
-                f"\n[red]Could not read {len(plan.errors)} course(s): {esc(names)}[/red] "
+            lines.append(
+                f"[red]Could not read {len(plan.errors)} course(s): {esc(names)}[/red] "
                 "[dim](the others are fine; details in the log)[/dim]"
             )
         if plan.unconfigured:
-            extra += (
-                f"\n[yellow]{len(plan.unconfigured)} course(s) not set up yet[/yellow] "
-                "[dim]→ Courses (c on the home screen)[/dim]"
+            lines.append(
+                f"[yellow][b]{len(plan.unconfigured)}[/b] new course(s) not set up yet[/yellow] "
+                "[dim]- Courses on the home screen[/dim]"
             )
+        extra = "".join(f"\n{line}" for line in lines)
         if todo:
             self.status(
-                f"{esc(sem)} · {esc(plan_summary(plan))}\n[b]s[/b] or [b]Enter[/b] syncs, "
-                f"[b]v[/b] shows skipped files{extra}"
+                f"{plan_summary_short(plan)} [dim]· {esc(sem)}[/dim]  → [b]Enter[/b] syncs{extra}"
             )
         else:
             self.status(f"[green]✓ Everything is up to date.[/green] {esc(sem)}{extra}")
@@ -397,22 +490,26 @@ class SyncView(View):
         bar.display = True
         bar.update(total=total, progress=0)
         self.query_one(RichLog).display = True
-        self.status(f"Syncing {total} change(s)…  [dim]Esc stops after the current file[/dim]")
+        self.status(
+            f"Syncing [b]{total}[/b] change(s)…  [dim]Esc stops after the current file[/dim]"
+        )
 
     def _log_action(self, action: Action) -> None:
         self.query_one(ProgressBar).advance(1)
         name = action.dest.name if action.dest else ""
         self.query_one(RichLog).write(
-            f"[{STYLE[action.kind]}]{SYMBOL[action.kind]}[/] {esc(name)}"
-            f"  [dim]{action.kind.value}[/]"
+            f"[{STYLE[action.kind]}]{SYMBOL[action.kind]}[/] {esc(clip(name, 60))}"
+            + ("" if action.kind is Kind.DOWNLOAD else f"  [dim]{action.kind.value}[/]")
         )
 
     def _finish_run(self, result) -> None:
         log = self.query_one(RichLog)
         new = sum(1 for a in result.outcome.done if a.transfers)
         log.write("")
+        failed_count = len(result.outcome.failed)
         log.write(
-            f"[b]Done.[/b] {esc(new)} downloaded, {esc(len(result.outcome.failed))} failed"
+            f"[b]Done.[/b] [b]{esc(new)}[/b] downloaded"
+            + (f", [red][b]{esc(failed_count)}[/b] failed[/red]" if failed_count else "")
             + (
                 f", {esc(len(result.outcome.extracted))} archive(s) extracted"
                 if result.outcome.extracted
@@ -422,6 +519,30 @@ class SyncView(View):
         )
         for action, msg in result.outcome.failed:
             log.write(f"[red]✗ {esc(action.file.name if action.file else '')}: {esc(msg)}[/red]")
+        failed_ids = {id(a) for a, _ in result.outcome.failed}
+        if self.plan is not None:
+            for course_plan in self.plan.plans:
+                label = course_plan.course.name or course_plan.course.target
+                default_folder = self.cfg.course_default_target(course_plan.course)
+                defaulted = [
+                    a
+                    for a in course_plan.actions
+                    if is_default_routed(a) and id(a) not in failed_ids
+                ]
+                if defaulted:
+                    log.write(
+                        f"[yellow]! [b]{esc(clip(label, 30))}[/b]: [b]{len(defaulted)}[/b] in "
+                        f"[b]{esc(default_folder)}[/b][/yellow] [dim]{esc(_names(defaulted))}[/dim]"
+                    )
+                by_reason: dict[str, list[Action]] = {}
+                for a in course_plan.actions:
+                    if a.kind is Kind.SKIP:
+                        by_reason.setdefault(a.reason or "skipped", []).append(a)
+                for reason, actions in by_reason.items():
+                    log.write(
+                        f"[dim]◎ {esc(clip(label, 30))}: {len(actions)} not downloaded, "
+                        f"{esc(reason)}: {esc(_names(actions))}[/dim]"
+                    )
         for m in result.merges:
             if m.written:
                 log.write(f"[green]✓[/green] merged slides: {esc(m.output)}")
@@ -435,10 +556,10 @@ class SyncView(View):
             log.write(reorganize_hint(to_move))
         failed = len(result.outcome.failed)
         self.status(
-            "[green]✓ Sync finished.[/green]"
+            f"[green]✓ [b]Sync finished[/b][/green] - [b]{esc(new)}[/b] new  [dim]Esc: back[/dim]"
             if not failed
-            else f"[yellow]Sync finished with {esc(failed)} problem(s)[/yellow] - they are "
-            "retried next time."
+            else f"[yellow][b]Sync finished with {esc(failed)} problem(s)[/b][/yellow] - "
+            "retried next time"
         )
         self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
 
@@ -448,7 +569,7 @@ class SyncView(View):
 
 class CoursesView(View):
     TITLE = "Courses"
-    HINT = "Space: sync on/off · Enter: choose folder"
+    HINT = "Space on/off · Enter folder · a all semesters"
     BINDINGS: ClassVar = [
         *View.BINDINGS,
         Binding("space", "toggle_course", "On/off"),
@@ -469,7 +590,7 @@ class CoursesView(View):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns("Sync", "Course", "Type", "Semester", "Folder")
+        self.query_one(DataTable).add_columns("Sync", "Course", "Semester", "→ Folder")
         self.load()
 
     @work(thread=True, exclusive=True)
@@ -498,19 +619,30 @@ class CoursesView(View):
         }
         for e in entries:
             folder = e.config.target if e.config and e.config.target else ""
+            is_new = e.status is CourseStatus.UNCONFIGURED
             table.add_row(
                 marks[e.status],
-                Text(e.course.title),
-                Text(e.course.course_type[:22], style="dim"),
-                Text(e.course.semester_title),
-                folder,
+                Text(
+                    clip(e.course.title, 48),
+                    style="bold"
+                    if is_new
+                    else ("dim" if e.status is CourseStatus.EXCLUDED else ""),
+                ),
+                Text(e.course.semester_title, style="dim"),
+                Text(clip(folder, 32)) if folder else Text("Enter: choose", style="yellow dim"),
             )
         if entries:
             table.move_cursor(row=min(cursor, len(entries) - 1))
-        note = f"{esc(label)} · {esc(len(entries))} courses"
+        on = sum(1 for e in entries if e.status is CourseStatus.ACTIVE)
+        new = sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED)
+        note = f"{plural(on, 'course')} synced [dim]of {len(entries)} · {esc(label)}[/dim]"
+        if new:
+            note += f'\n[yellow][b]{new} new[/b][/yellow] - Enter: choose a folder or "don\'t sync"'
         if missing:
-            note += f" · [yellow]{esc(missing)} configured course(s) not found on Stud.IP[/yellow]"
-        self.status(note + "  [dim]a: switch current/all semesters[/dim]")
+            note += (
+                f"\n[yellow][b]{esc(missing)}[/b] set-up course(s) not found on Stud.IP[/yellow]"
+            )
+        self.status(note)
 
     def _selected(self) -> CourseEntry | None:
         table = self.query_one(DataTable)
@@ -600,7 +732,7 @@ NEW_FOLDER = "\0new"
 
 class HistoryView(View):
     TITLE = "What's new"
-    HINT = "Enter/o open · r reveal · Space preview"
+    HINT = "Enter open · r show in folder · Space preview"
     BINDINGS: ClassVar = [
         *View.BINDINGS,
         Binding("o", "open", "Open"),
@@ -611,6 +743,7 @@ class HistoryView(View):
 
     def compose(self) -> ComposeResult:
         yield from self.compose_header()
+        yield Static(id="status", classes="status")
         yield DataTable(id="history", cursor_type="row", zebra_stripes=True)
         yield Footer()
 
@@ -619,17 +752,37 @@ class HistoryView(View):
         table.add_columns("When", "File", "Folder")
         with State(paths.state_db()) as state:
             records = state.recent_files(300)
+        today = datetime.now().astimezone().date()
+        week = 0
         for r in records:
             p = Path(r.local_path)
-            when = r.synced_at.replace("T", " ")[:16]
+            try:
+                synced = datetime.fromisoformat(r.synced_at).astimezone()
+            except ValueError:
+                synced = None
+            if synced is None:
+                when = r.synced_at[:10]
+            elif synced.date() == today:
+                when = f"today {synced:%H:%M}"
+            elif (today - synced.date()).days == 1:
+                when = f"yesterday {synced:%H:%M}"
+            else:
+                when = f"{synced:%d.%m.%Y}"
+            if synced is not None and (today - synced.date()).days < 7:
+                week += 1
             table.add_row(
-                when,
-                Text(p.name),
-                Text(rel(p.parent, self.cfg.root), style="dim"),
+                Text(when, style="bold" if when.startswith("today") else "dim"),
+                Text(clip(p.name, 50)),
+                Text(clip(rel(p.parent, self.cfg.root), 40), style="dim"),
                 key=r.local_path,
             )
         if not records:
             table.add_row("", "Nothing synced yet.", "")
+        self.status(
+            f"{plural(week, 'file')} in the last 7 days [dim]· newest first[/dim]"
+            if records
+            else "Nothing synced yet - press s on the home screen."
+        )
 
     def _selected(self) -> Path | None:
         table = self.query_one(DataTable)
@@ -690,7 +843,7 @@ class HistoryView(View):
 
 class DatesView(View):
     TITLE = "Dates"
-    HINT = "changed dates of your courses and upcoming exams"
+    HINT = "changed dates and upcoming exams"
 
     def compose(self) -> ComposeResult:
         yield from self.compose_header()
@@ -720,16 +873,16 @@ class DatesView(View):
                 if datetime.fromisoformat(r["start"]) >= now
             ]
             exams = upcoming_exams(state, now)
-        lines = ["[b]Changed dates[/b] [dim](last 14 days)[/dim]"]
-        lines += [f"  [yellow]●[/yellow] {esc(r['text'])}" for r in changes] or [
+        lines = [f"[b]Changed dates[/b] ({len(changes)}) [dim]last 14 days[/dim]"]
+        lines += [f"  [yellow]●[/yellow] {esc(clip(r['text'], 100))}" for r in changes] or [
             "  [dim]none[/dim]"
         ]
-        lines += ["", "[b]Exams[/b]"]
+        lines += ["", f"[b]Exams[/b] ({len(exams)})"]
         lines += [
-            f"  {esc(d.when())}  {esc(d.course)}"
-            + (f" · {esc(d.location)}" if d.location else "")
-            + f"  [dim]in {esc((d.start.date() - now.date()).days)} days[/dim]"
-            + ("  [red]cancelled[/red]" if d.cancelled else "")
+            f"  [b]{esc(d.when())}[/b]  {esc(clip(d.course, 40))}"
+            + (f" [dim]· {esc(clip(d.location, 30))}[/dim]" if d.location else "")
+            + f"  in [b]{esc((d.start.date() - now.date()).days)}[/b] days"
+            + ("  [red][b]cancelled[/b][/red]" if d.cancelled else "")
             for d in exams
         ] or ["  [dim]none in Stud.IP yet[/dim]"]
         for line in lines:
@@ -741,7 +894,7 @@ class DatesView(View):
 
 class NewsView(View):
     TITLE = "Announcements"
-    HINT = "a: show read ones too"
+    HINT = "a show read ones too"
     BINDINGS: ClassVar = [*View.BINDINGS, Binding("a", "toggle_all", "Show all")]
 
     def __init__(self) -> None:
@@ -785,8 +938,17 @@ class NewsView(View):
         options.clear_options()
         for n in items:
             when = n.published.strftime("%d.%m.") if n.published else ""
-            options.add_option(Option(f"{esc(when)} {n.course[:20]}: {esc(n.title)}"))
-        self.query_one("#news-text", Static).update("No unread announcements." if not items else "")
+            options.add_option(
+                Option(
+                    f"[dim]{esc(when)}[/dim] [b]{esc(clip(n.course, 18))}[/b] "
+                    f"{esc(clip(n.title, 40))}"
+                )
+            )
+        self.query_one("#news-text", Static).update(
+            "[green]✓ No unread announcements.[/green] [dim]a shows the read ones[/dim]"
+            if not items
+            else ""
+        )
         if items:
             options.highlighted = 0
 
@@ -849,7 +1011,9 @@ class RulesView(View):
         for c in self.cfg.courses.values():
             if c.exclude:
                 continue
-            lines.append(f"[b]{esc(c.name or c.target)}[/b]  [dim]→ {esc(c.target)}[/dim]")
+            lines.append(
+                f"[b]{esc(clip(c.name or c.target, 50))}[/b]  [dim]→ {esc(c.target)}[/dim]"
+            )
             for i, r in enumerate(c.rules, 1):
                 m = r.match
                 what = (
@@ -867,11 +1031,14 @@ class RulesView(View):
                 )
                 target = "[dim]skip[/dim]" if r.skip else r.target
                 rename = f"  [dim]rename {esc(r.rename)}[/dim]" if r.rename else ""
-                lines.append(f"  {esc(i)}. {esc(r.id)}: {esc(what)} → {esc(target)}{rename}")
+                lines.append(
+                    f"  {esc(i)}. [b]{esc(r.id)}[/b]: {esc(clip(what, 60))} → [b]{esc(target)}[/b]"
+                    f"{rename}"
+                )
+            if not c.rules:
+                lines.append("  [dim]no rules - folder and file names decide[/dim]")
             lines.append(f"  [dim]otherwise → {esc(self.cfg.course_default_target(c))}[/dim]\n")
-        lines.append(
-            "[dim]Edit rules in the config file (Settings → e). Syntax: config.example.toml[/dim]"
-        )
+        lines.append("[dim]Rules live in the config file: Settings, then e.[/dim]")
         self.query_one("#rule-list", Static).update("\n".join(lines))
 
     @work(thread=True)
@@ -908,17 +1075,18 @@ class RulesView(View):
             )
             selection.add_option(
                 (
-                    f"{esc(names[cid])}: {esc(what)} → {esc(s.rule['target'])}"
-                    f"  [dim]({s.files} files)[/dim]",
+                    f"[b]{esc(clip(names[cid], 28))}[/b]: {esc(clip(what, 40))} → "
+                    f"[b]{esc(s.rule['target'])}[/b]  [dim]({s.files} "
+                    f"file{'s' if s.files != 1 else ''})[/dim]",
                     i,
                     True,
                 )
             )
         self.status(
-            f"{esc(len(found))} suggestion(s). Space toggles, [b]w[/b] adds the selected "
-            "ones to your config."
+            f"{plural(len(found), 'suggestion')} - [b]w[/b] adds the ticked ones "
+            "[dim](Space ticks)[/dim]"
             if found
-            else "[green]✓ No new suggestions[/green] - your rules cover the Stud.IP folders."
+            else "[green]✓ No new suggestions[/green] [dim]- your Stud.IP folders are covered[/dim]"
         )
 
     def action_write(self) -> None:
@@ -954,7 +1122,7 @@ class RulesView(View):
         folder = self.query_one("#test-folder", Input).value.strip()
         result = self.query_one("#test-result", Static)
         if not query or not name:
-            result.update("[dim]Type a course and a file name.[/dim]")
+            result.update("[dim]Type a course and a file name to see where it would go.[/dim]")
             return
         hits = [
             c
@@ -988,9 +1156,14 @@ class RulesView(View):
         if route.skip:
             result.update(f"Rule [b]{esc(route.rule_id)}[/b]: not downloaded (skip)")
             return
-        where = f"{esc(course.target)}/{esc(route.subdir)}/{esc(route.name)}"
-        rule = route.rule_id or "no rule matches → default folder"
-        result.update(f"[b]{esc(rule)}[/b]\n→ {where}")
+        where = f"{esc(course.target)}/[b]{esc(route.subdir)}[/b]/{esc(route.name)}"
+        if route.by_default:
+            reason = "[yellow]nothing matched - default folder[/yellow]"
+        elif route.rule_id and route.rule_id.startswith("auto:"):
+            reason = f"by {esc(route.why or 'folder name')}"
+        else:
+            reason = f"your rule [b]{esc(route.rule_id)}[/b]"
+        result.update(f"→ {where}\n[dim]{reason}[/dim]")
 
 
 # -- reorganize / merge / doctor --------------------------------------------------------
@@ -998,7 +1171,7 @@ class RulesView(View):
 
 class ReorganizeView(View):
     TITLE = "Reorganize"
-    HINT = "move synced files to where the current rules want them"
+    HINT = "move synced files to where they belong now"
     BINDINGS: ClassVar = [
         *View.BINDINGS,
         Binding("enter", "apply", "Move files"),
@@ -1016,7 +1189,7 @@ class ReorganizeView(View):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns("From", "To", "Note")
+        self.query_one(DataTable).add_columns("Now", "→ Moves to", "Problem")
         self.reload()
 
     def reload(self) -> None:
@@ -1026,17 +1199,17 @@ class ReorganizeView(View):
             self.moves = plan_reorganize(self.cfg, state)
         for m in self.moves:
             table.add_row(
-                Text(rel(m.src, self.cfg.root)),
-                Text(rel(m.dst, self.cfg.root)),
-                Text(m.problem, style="yellow"),
+                Text(clip(rel(m.src, self.cfg.root), 45), style="dim"),
+                Text(clip(rel(m.dst, self.cfg.root), 45)),
+                Text(clip(m.problem, 30), style="yellow"),
             )
         ok = sum(1 for m in self.moves if not m.problem)
+        table.display = bool(self.moves)
         self.status(
-            f"{ok} file(s) can be moved. [b]Enter[/b] moves them, [b]u[/b] undoes the "
-            "last reorganisation."
+            f"{plural(ok, 'file')} can move - [b]Enter[/b] moves them [dim](u undoes)[/dim]"
             if ok
-            else "[green]✓ Everything is where the rules want it.[/green]  "
-            "[dim]u: undo the last reorganisation[/dim]"
+            else "[green]✓ [b]Everything is in place.[/b][/green]  "
+            "[dim]u undoes the last move[/dim]"
         )
 
     @on(DataTable.RowSelected)
@@ -1099,7 +1272,9 @@ class MergeView(View):
             )
         for m in results:
             mark = "[green]✓[/green]" if m.written else "[dim]◎[/dim]"
-            self.app.call_from_thread(log.write, f"{mark} {esc(m.course)}: {esc(m.reason)}")
+            self.app.call_from_thread(
+                log.write, f"{mark} [b]{esc(clip(m.course, 40))}[/b]  {esc(m.reason)}"
+            )
 
 
 class DoctorView(View):
@@ -1122,7 +1297,30 @@ class DoctorView(View):
             "fail": "[red]✗[/red]",
         }
         log = self.query_one(RichLog)
-        for check in doctor.run_checks():
+        checks = list(doctor.run_checks())
+        rank = {"fail": 0, "warn": 1, "info": 2, "ok": 3}
+        counts = {level: sum(1 for c in checks if c.level == level) for level in rank}
+        summary = (
+            "[green]✓ [b]All checks passed[/b][/green]"
+            if not counts["fail"] and not counts["warn"]
+            else " · ".join(
+                part
+                for part in (
+                    f"[red][b]{counts['fail']}[/b] failed[/red]" if counts["fail"] else "",
+                    f"[yellow][b]{counts['warn']}[/b] warning(s)[/yellow]"
+                    if counts["warn"]
+                    else "",
+                    f"[b]{counts['ok']}[/b] ok",
+                )
+                if part
+            )
+        )
+        self.app.call_from_thread(log.write, summary + "\n")
+        for check in sorted(checks, key=lambda c: rank.get(c.level, 9)):
+            detail = check.detail if check.level in ("fail", "warn") else clip(check.detail, 90)
+            dim = "[dim]" if check.level in ("ok", "info") else ""
             self.app.call_from_thread(
-                log.write, f"{marks[check.level]} [b]{esc(check.name)}[/b]: {esc(check.detail)}"
+                log.write,
+                f"{marks[check.level]} [b]{esc(check.name)}[/b]  {dim}{esc(detail)}"
+                + ("[/dim]" if dim else ""),
             )

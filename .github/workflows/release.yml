@@ -3,9 +3,14 @@ name: Release
 # Publishes to PyPI when a version tag (v1.2.3) is pushed. Uses PyPI Trusted
 # Publishing: no token is stored anywhere, PyPI trusts this workflow file of this
 # repository in the "pypi" environment (configured once on pypi.org).
+#
+# Started by hand (Actions -> Release -> Run workflow) it is a dry run: the same
+# checks, build and artifact hand-over, but the publish job does not run. Use it
+# after the workflow or its actions changed, before tagging a real release.
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,8 +27,10 @@ jobs:
         run: |
           version=$(uv run --no-sync python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           code=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/studip_router/__init__.py)
-          echo "tag ${GITHUB_REF_NAME}, pyproject ${version}, __version__ ${code}"
-          test "${GITHUB_REF_NAME}" = "v${version}"
+          echo "ref ${GITHUB_REF_NAME}, pyproject ${version}, __version__ ${code}"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            test "${GITHUB_REF_NAME}" = "v${version}"
+          fi
           test "${version}" = "${code}"
           grep -q "^## \[${version}\]" CHANGELOG.md
       - run: uv sync --locked
@@ -42,7 +49,24 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  dry-run:
+    # Manual runs only: proves the artifact hand-over between jobs works
+    # without uploading anything.
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - name: Wheel and sdist arrived
+        run: |
+          ls -l dist/
+          ls dist/*.whl dist/*.tar.gz
+
   publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     environment:

@@ -53,7 +53,10 @@ Screenshots in the README come from `uv run python scripts/make_screenshots.py` 
    heading and add its compare link at the bottom.
 2. Set the same version in `pyproject.toml` and `src/studip_router/__init__.py`,
    then `uv lock`.
-3. Merge to `main`, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. If `.github/workflows/release.yml` or one of its actions changed since the last
+   release (Dependabot bumps included), run it by hand first: *Actions → Release →
+   Run workflow*. That is a dry run: checks, build and artifact hand-over, no upload.
+4. Merge to `main`, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 The `Release` workflow checks that tag, versions and changelog agree, runs the
 checks and tests, builds, smoke-tests the wheel and publishes to PyPI via Trusted
