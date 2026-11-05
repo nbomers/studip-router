@@ -24,6 +24,15 @@ from .state import State
 log = logging.getLogger(__name__)
 
 
+def _implicit_target(title: str) -> str:
+    """Folder below the sync root for a course that is not in the config.
+
+    Always relative: a title "~" or "~user" must not expand to a home folder.
+    """
+    name = sanitize_filename(title)
+    return "_" + name[1:] if name.startswith("~") else name
+
+
 class CourseStatus(StrEnum):
     ACTIVE = "active"
     EXCLUDED = "excluded"
@@ -166,7 +175,7 @@ def build_plan(
     ]
     if not cfg.only_configured_courses:  # sync everything into folders named like the course
         selected += [
-            (c, CourseConfig(id=c.id, name=c.title, target=sanitize_filename(c.title)), True)
+            (c, CourseConfig(id=c.id, name=c.title, target=_implicit_target(c.title)), True)
             for c in result.unconfigured
         ]
         result.unconfigured = []
@@ -247,6 +256,7 @@ def execute_plan(
     client: StudipClient,
     on_progress: Callable[[Action], None] | None = None,
     on_course: Callable[[CoursePlan], None] | None = None,
+    on_failed: Callable[[Action, str], None] | None = None,
 ) -> RunResult:
     """Execute all course plans, then regenerate merged slide PDFs.
 
@@ -254,7 +264,7 @@ def execute_plan(
     syncs) fails fast with ``Locked`` instead of racing for the same files.
     """
     with exclusive_lock(paths.lock_file()):
-        return _execute_locked(sync_plan, cfg, state, client, on_progress, on_course)
+        return _execute_locked(sync_plan, cfg, state, client, on_progress, on_course, on_failed)
 
 
 def _execute_locked(
@@ -264,6 +274,7 @@ def _execute_locked(
     client: StudipClient,
     on_progress: Callable[[Action], None] | None,
     on_course: Callable[[CoursePlan], None] | None,
+    on_failed: Callable[[Action, str], None] | None = None,
 ) -> RunResult:
     run_id = state.start_run("sync")
     result = RunResult(Outcome())
@@ -276,7 +287,9 @@ def _execute_locked(
                 if on_course:
                     on_course(plan)
                 password = auth.get_pdf_password(plan.course.id)
-                part = execute(plan, state, client.download, run_id, on_progress, password)
+                part = execute(
+                    plan, state, client.download, run_id, on_progress, password, on_failed
+                )
                 result.outcome.done += part.done
                 result.outcome.failed += part.failed
                 result.outcome.extracted += part.extracted

@@ -28,7 +28,12 @@ def set_profile(name: str | None) -> None:
 
 
 def profile() -> str | None:
-    return _profile or os.environ.get("STUDIP_ROUTER_PROFILE") or None
+    if _profile:
+        return _profile
+    name = os.environ.get("STUDIP_ROUTER_PROFILE") or None
+    if name is not None and not _PROFILE_RE.match(name):
+        raise ValueError("STUDIP_ROUTER_PROFILE may contain letters, digits, '-' and '_' only")
+    return name
 
 
 def config_dir() -> Path:

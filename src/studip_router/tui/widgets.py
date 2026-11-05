@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, ClassVar
 
@@ -13,6 +14,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
+from .. import paths
 from ..config import Config
 from ..report import esc
 
@@ -46,14 +48,48 @@ FALLBACK_COLORS = (
     "#94e2d5",
     "#f2cdcd",
 )
+# For light themes: the original Stud.IP colours and darker fallbacks, each darkened
+# to a contrast of at least 4.6:1 on light grey (#efefef; WCAG AA for text is 4.5:1).
+STUDIP_GROUP_COLORS_LIGHT = (
+    "#682c8b",
+    "#b02e7c",
+    "#0e7671",
+    "#b04f00",
+    "#007010",
+    "#8f4e3a",
+    "#487209",
+    "#c00000",
+    "#8a5f00",
+)
+FALLBACK_COLORS_LIGHT = (
+    "#1d69b5",
+    "#8e44ad",
+    "#13727e",
+    "#985c27",
+    "#b03a86",
+    "#3557c4",
+    "#a35126",
+    "#5b5fc7",
+    "#167767",
+    "#a14d4d",
+)
 _groups: dict[str, int] = {}
 _order: dict[str, int] = {}
+_light = False
+
+
+def use_light_colors(light: bool) -> None:
+    """Called when the theme changes: course colours for a light or dark background."""
+    global _light
+    _light = light
 
 
 def _colors_file():
     from .. import paths
 
-    return paths.state_dir() / "course-colors.json"
+    # One file per profile, like the state database: two universities, two sets.
+    name = f"course-colors-{paths.profile()}.json" if paths.profile() else "course-colors.json"
+    return paths.state_dir() / name
 
 
 def set_course_order(course_ids: list[str]) -> None:
@@ -70,7 +106,13 @@ def load_course_groups() -> None:
         data = json.loads(_colors_file().read_text())
         if isinstance(data, dict):
             _groups.clear()
-            _groups.update({k: v for k, v in data.items() if isinstance(v, int) and 0 <= v <= 8})
+            _groups.update(
+                {
+                    k: v
+                    for k, v in data.items()
+                    if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 8
+                }
+            )
 
 
 def save_course_groups(groups: dict[str, int]) -> bool:
@@ -81,25 +123,31 @@ def save_course_groups(groups: dict[str, int]) -> bool:
     clean = {k: v for k, v in groups.items() if 0 <= v <= 8}
     if not clean or clean == _groups:
         return False
-    _groups.clear()
+    # No clear() first: a screen drawn meanwhile must not fall back to other colours.
+    for gone in set(_groups) - set(clean):
+        _groups.pop(gone, None)
     _groups.update(clean)
     with contextlib.suppress(OSError):
         path = _colors_file()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(clean))
+        paths.private_dir(path.parent)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(clean))
+        os.replace(tmp, path)  # never a half-written file
     return True
 
 
 def course_color(course_id: str) -> str:
     """The colour of a course on every screen."""
+    groups = STUDIP_GROUP_COLORS_LIGHT if _light else STUDIP_GROUP_COLORS
+    fallback = FALLBACK_COLORS_LIGHT if _light else FALLBACK_COLORS
     if course_id in _groups:
-        return STUDIP_GROUP_COLORS[_groups[course_id]]
+        return groups[_groups[course_id]]
     if course_id in _order:
-        return FALLBACK_COLORS[_order[course_id] % len(FALLBACK_COLORS)]
+        return fallback[_order[course_id] % len(fallback)]
     import hashlib
 
     digest = hashlib.sha1(course_id.encode(), usedforsecurity=False).digest()
-    return FALLBACK_COLORS[digest[0] % len(FALLBACK_COLORS)]
+    return fallback[digest[0] % len(fallback)]
 
 
 class ConfirmScreen(ModalScreen[bool]):
@@ -253,13 +301,14 @@ HELP = """\
   Enter  do the suggested step
   s  sync          p  preview
   w  what's new    r  rules
-  a  news          o  reorganize (u undo)
+  a  announcements o reorganize (u undo)
   t  dates         m  merge slides
   c  courses       d  doctor
   +  more / fewer
 
 [b]Lists[/b]
   Space      tick / untick
+  x          announcements: mark all read
   ← →        change a setting (saved at once)
 """
 

@@ -50,12 +50,37 @@ from ..wizard import (
 from .widgets import ConfirmScreen
 
 
+def _diagnose(base_url: str) -> str:
+    """Why logging in failed, in words: no password is sent for this check."""
+    import httpx
+
+    from ..api import ssl_context
+
+    try:
+        r = httpx.get(
+            base_url + "/jsonapi.php/v1/discovery",
+            timeout=15,
+            follow_redirects=True,
+            verify=ssl_context(),
+        )
+    except Exception:  # a diagnosis, best effort: never worse than no hint
+        return "[dim]The address cannot be reached. Is it the address of your Stud.IP?[/dim]"
+    if r.status_code == 404:
+        return (
+            "[yellow]Your university has not enabled the JSON:API of Stud.IP[/yellow] - "
+            "studip-router needs it. [dim]Ask the Stud.IP admins to turn it on.[/dim]"
+        )
+    if r.status_code != 200:
+        return f"[dim]The JSON:API answered HTTP {r.status_code}; try again later.[/dim]"
+    return "[dim]The JSON:API is reachable; the answer to the login was unexpected.[/dim]"
+
+
 def _split(text: str) -> tuple[str, ...]:
     return tuple(p.strip() for p in text.split(",") if p.strip())
 
 
 class SetupScreen(Screen):
-    BINDINGS: ClassVar = [Binding("escape", "app.quit", "Quit")]
+    BINDINGS: ClassVar = [Binding("escape", "back", "Back")]
 
     def __init__(self) -> None:
         super().__init__()
@@ -64,6 +89,27 @@ class SetupScreen(Screen):
         self.semester = ""
         self.root_paths: list[Path] = []
         self.home = Path.home()
+
+    def action_back(self) -> None:
+        """Esc goes one step back, as everywhere else; on step 1 it asks before quitting."""
+        step2, step3 = self.query_one("#step2"), self.query_one("#step3")
+        if step3.display:
+            step3.display = False
+            step2.display = True
+            self.query_one("#root-choices").focus()
+        elif step2.display:
+            step2.display = False
+            self.query_one("#step1").display = True
+            self.query_one("#url", Input).focus()
+        else:
+
+            def confirmed(ok: bool | None) -> None:
+                if ok:
+                    self.app.exit()
+
+            self.app.push_screen(
+                ConfirmScreen("Quit the setup?", "Nothing is saved yet."), confirmed
+            )
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -164,8 +210,7 @@ class SetupScreen(Screen):
         except ApiError as exc:
             self.app.call_from_thread(
                 self.query_one("#status", Static).update,
-                f"[red]{esc(exc)}[/red]\n[dim]Is the JSON:API enabled at your university? "
-                "Try the address in a browser: …/jsonapi.php/v1/discovery[/dim]",
+                f"[red]{esc(exc)}[/red]\n{_diagnose(values['url'].rstrip('/'))}",
             )
             return
         except Exception as exc:  # unexpected answer: report it, never crash with locals
@@ -194,6 +239,7 @@ class SetupScreen(Screen):
             self.root_paths.append(fresh)
             options.append(Option(f"{esc(display_path(fresh, self.home))}  [dim](new)[/dim]"))
         choices = self.query_one("#root-choices", OptionList)
+        choices.clear_options()  # connecting again after Esc: never twice the options
         choices.add_options(options)
         found = bool(roots and roots[0].matches)
         self.query_one("#root-title", Static).update(
@@ -335,6 +381,7 @@ class SetupScreen(Screen):
             path = paths.config_file()
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
+            paths.private_file(path)
             self.values.pop("password", None)  # stored in the keychain; drop the copy
             self.app.finish_setup()  # type: ignore[attr-defined]
 

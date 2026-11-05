@@ -31,7 +31,7 @@ from .fsutil import Locked, exclusive_lock
 from .models import RemoteFile
 from .news import fetch_news, unread
 from .notify import dates_message, notify, sync_message
-from .planner import build_router
+from .planner import Kind, build_router
 from .rename import RenameError
 from .reorganize import apply_reorganize, apply_undo, pending_moves, plan_reorganize, plan_undo
 from .report import esc
@@ -177,6 +177,7 @@ def main_callback(
         raise typer.Exit()
     try:
         paths.set_profile(profile)
+        paths.profile()  # also checks STUDIP_ROUTER_PROFILE
     except ValueError as exc:
         raise fail(str(exc), 2) from None
     OPTS.json = as_json
@@ -401,6 +402,7 @@ def init_cmd(
     if path.exists():
         shutil.copy2(path, path.with_name(path.name + ".bak"))
     path.write_text(text, encoding="utf-8")
+    paths.private_file(path)
     console.print(f"\n[green]✓[/green] Wrote {esc(path)}")
     console.print(
         "Next: [bold]studip rules suggest --write[/bold], then [bold]studip sync --dry-run[/bold]."
@@ -452,7 +454,10 @@ def courses_cmd(
 def sync_cmd(
     config: ConfigOpt = None,
     course: CourseOpt = None,
-    semester: Annotated[str | None, typer.Option("--semester", "-s")] = None,
+    semester: Annotated[
+        str | None,
+        typer.Option("--semester", "-s", help='"current", "all" or "WiSe 2026/27".'),
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", "-n", help="Only show the plan.")] = False,
     include_large: Annotated[
         bool, typer.Option("--include-large", help="Ignore the size limit for this run.")
@@ -521,6 +526,9 @@ def sync_cmd(
                         f"  [{report.STYLE[a.kind]}]{report.SYMBOL[a.kind]}[/] "
                         + esc(a.dest.name if a.dest else "")
                     ),
+                    on_failed=lambda a, msg: out.print(
+                        f"  [red]✗[/] {esc(a.dest.name if a.dest else '')}  [dim]{esc(msg)}[/]"
+                    ),
                 )
             except Locked as exc:
                 raise fail(f"{exc} - try again in a moment", 75) from None
@@ -569,7 +577,14 @@ def sync_cmd(
                     err.print(
                         f"[red]✗[/red] {esc(action.file.name if action.file else '')}: {esc(msg)}"
                     )
+                for action in (a for p in sync_plan.plans for a in p.actions):
+                    if action.kind is Kind.ERROR:
+                        name = action.file.name if action.file else ""
+                        err.print(f"[red]✗[/red] {esc(name)}: {esc(action.reason)}")
         failed = len(result.outcome.failed) if result else 0
+        # Files the plan already knew it could not place ("target folder does not
+        # exist", a rename that fails, on_conflict = "error") are problems too.
+        failed += sum(1 for p in sync_plan.plans for a in p.actions if a.kind is Kind.ERROR)
         if background and cfg.notify:
             message = sync_message(result.new_by_course(sync_plan) if result else {}, news_count)
             problems = failed + len(sync_plan.errors)
@@ -582,7 +597,7 @@ def sync_cmd(
             if dates := dates_message([c.text() for c in date_changes]):
                 notify("Stud.IP dates", dates)
         if failed or sync_plan.errors:
-            raise typer.Exit(1)
+            raise typer.Exit(1)  # planned errors included
 
 
 def _pause_auto_sync(background: bool) -> None:
@@ -729,7 +744,9 @@ def rules_test(
     filename: str,
     folder: Annotated[str, typer.Option("--folder", "-f", help="Stud.IP folder path.")] = "",
     size_mb: Annotated[float, typer.Option("--size", help="File size in MB.")] = 0.1,
-    mime: Annotated[str, typer.Option("--mime")] = "application/octet-stream",
+    mime: Annotated[
+        str, typer.Option("--mime", help="MIME type to test with (adds a missing extension).")
+    ] = "application/octet-stream",
     config: ConfigOpt = None,
 ) -> None:
     """Show which rule a file would match and where it would end up (no download)."""
@@ -797,7 +814,9 @@ def rules_suggest(
             known_folders = {r.match.folder for r in c.rules if r.match.folder}
             suggestions = [
                 s
-                for s in suggest_rules(files, cfg.course_dir(c), existing)
+                for s in suggest_rules(
+                    files, cfg.course_dir(c), existing, by_name=not cfg.auto_route
+                )
                 if s.rule["match"].get("folder") not in known_folders
             ]
             found[c.id] = suggestions
@@ -832,8 +851,10 @@ def rules_suggest(
 @app.command("reorganize")
 def reorganize_cmd(
     course: CourseOpt = None,
-    dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
-    yes: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", "-n", help="Only show what would move.")
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask before moving.")] = False,
     config: ConfigOpt = None,
 ) -> None:
     """Move already synced files to where the current rules would put them."""
@@ -867,7 +888,11 @@ def reorganize_cmd(
 
 
 @app.command("undo")
-def undo_cmd(yes: Annotated[bool, typer.Option("--yes", "-y")] = False) -> None:
+def undo_cmd(
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Do not ask before moving back.")
+    ] = False,
+) -> None:
     """Revert the last `studip reorganize` (downloads are never deleted)."""
     with State(paths.state_db()) as state:
         run_id, steps = plan_undo(state)
@@ -893,8 +918,30 @@ def _rel(path: Path, base: Path) -> str:
 # -- history / news / merge -------------------------------------------------------------
 
 
+@app.command("open")
+def open_cmd(
+    course: Annotated[str, typer.Argument(help="Course ID, title or target (substring).")],
+    config: ConfigOpt = None,
+) -> None:
+    """Open a course folder in Finder or the file manager."""
+    cfg = load_config(config)
+    folder = cfg.course_dir(find_course(cfg, course))
+    if not folder.is_dir():
+        raise fail(f"{folder} does not exist yet - sync first", 1)
+    if OPTS.json:
+        emit_json({"path": str(folder)})
+        return
+    opener = "open" if sys.platform == "darwin" else "xdg-open"
+    if not shutil.which(opener):
+        console.print(esc(folder))  # no file manager (server, SSH): the path at least
+        return
+    subprocess.run([opener, str(folder)], check=False)
+
+
 @app.command("history")
-def history_cmd(limit: Annotated[int, typer.Option("--limit", "-n")] = 30) -> None:
+def history_cmd(
+    limit: Annotated[int, typer.Option("--limit", "-n", help="How many files to show.")] = 30,
+) -> None:
     """Files that arrived most recently."""
     with State(paths.state_db()) as state:
         records = state.recent_files(limit)
@@ -927,7 +974,9 @@ def history_cmd(limit: Annotated[int, typer.Option("--limit", "-n")] = 30) -> No
 def news_cmd(
     course: CourseOpt = None,
     show_all: Annotated[bool, typer.Option("--all", help="Include read announcements.")] = False,
-    keep_unread: Annotated[bool, typer.Option("--keep-unread")] = False,
+    keep_unread: Annotated[
+        bool, typer.Option("--keep-unread", help="Do not mark the shown ones as read.")
+    ] = False,
     config: ConfigOpt = None,
 ) -> None:
     """Show (unread) course announcements."""
@@ -966,7 +1015,7 @@ def merge_cmd(
     force: Annotated[bool, typer.Option("--force", help="Download iCloud-only PDFs.")] = False,
     config: ConfigOpt = None,
 ) -> None:
-    """Merge lecture PDFs into one file per course (needs `merge` in the course config)."""
+    """Merge lecture PDFs into one file per course (set up in the UI: Merge slides)."""
     cfg = load_config(config)
     courses = [find_course(cfg, course)] if course else list(cfg.courses.values())
     with State(paths.state_db()) as state:
@@ -990,7 +1039,7 @@ def merge_cmd(
 @schedule_app.command("install")
 def schedule_install(
     every: Annotated[int, typer.Option("--every", help="Interval in minutes.")] = 120,
-    yes: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask before installing.")] = False,
 ) -> None:
     """Run `studip sync --notify` periodically (launchd on macOS, systemd on Linux)."""
     if every < 15:
@@ -1056,7 +1105,7 @@ def schedule_status() -> None:
 
 @app.command("doctor")
 def doctor_cmd(
-    offline: Annotated[bool, typer.Option("--offline")] = False,
+    offline: Annotated[bool, typer.Option("--offline", help="Do not contact Stud.IP.")] = False,
     test_notification: Annotated[
         bool, typer.Option("--test-notification", help="Send a test desktop notification.")
     ] = False,
@@ -1160,6 +1209,10 @@ def dates_cmd(
     config: ConfigOpt = None,
     offline: Annotated[bool, typer.Option("--offline", help="Do not contact Stud.IP.")] = False,
     days: Annotated[int, typer.Option("--days", help="Changes found in the last N days.")] = 14,
+    ics: Annotated[
+        Path | None,
+        typer.Option("--ics", help="Write all known course dates to this calendar file."),
+    ] = None,
 ) -> None:
     """Cancelled, moved or re-roomed course dates, and upcoming exams."""
     cfg = load_config(config)
@@ -1180,6 +1233,18 @@ def dates_cmd(
             if datetime.fromisoformat(r["start"]) >= now
         ]
         exams = upcoming_exams(state, now)
+        if ics is not None:
+            from .ics import to_ics
+
+            active = {c.id for c in cfg.courses.values() if not c.exclude}
+            target = ics.expanduser()
+            target.write_text(
+                to_ics(d for d in state.all_course_dates() if d.course_id in active),
+                encoding="utf-8",
+                newline="",
+            )
+            if not OPTS.json:
+                console.print(f"[green]✓[/green] Calendar written: {esc(target)}")
     if OPTS.json:
         emit_json(
             {

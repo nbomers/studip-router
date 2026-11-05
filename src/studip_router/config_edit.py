@@ -18,6 +18,7 @@ import tomlkit
 from tomlkit.items import Table
 
 from .config import Config, parse
+from .paths import private_file
 
 _backed_up: set[Path] = set()
 
@@ -34,6 +35,7 @@ def _save(path: Path, doc: tomlkit.TOMLDocument) -> Config:
         _backed_up.add(path)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(text, encoding="utf-8")
+    private_file(tmp)  # user name and course names: readable only by the user
     tmp.replace(path)
     return config
 

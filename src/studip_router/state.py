@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS files (
     description        TEXT NOT NULL DEFAULT '',
     content_id         TEXT NOT NULL DEFAULT '',
     gone               INTEGER NOT NULL DEFAULT 0,
-    local_sha256       TEXT
+    local_sha256       TEXT,
+    folder_type        TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS ignored (
     file_id   TEXT PRIMARY KEY,
@@ -117,6 +118,7 @@ class FileRecord:
     content_id: str = ""
     gone: bool = False  # deleted on Stud.IP and already reported
     local_sha256: str | None = None  # local content if it differs (decrypted PDF)
+    folder_type: str = ""  # Stud.IP type of the parent folder; "" for files synced before 0.4.2
 
     @property
     def local_digest(self) -> str | None:
@@ -129,7 +131,9 @@ def now_iso() -> str:
 
 
 # Bumped whenever the schema changes; older files are migrated, newer ones refused.
-SCHEMA_VERSION = 1
+# 2: files.folder_type (0.4.2). 0.4.1 would crash on the unknown column; with the
+# bump it stops with "written by a newer studip-router" instead.
+SCHEMA_VERSION = 2
 
 
 class StateError(Exception):
@@ -172,6 +176,7 @@ class State:
             ("content_id", "TEXT NOT NULL DEFAULT ''"),
             ("gone", "INTEGER NOT NULL DEFAULT 0"),
             ("local_sha256", "TEXT"),
+            ("folder_type", "TEXT NOT NULL DEFAULT ''"),
         ):
             if name not in columns:
                 self._db.execute(f"ALTER TABLE files ADD COLUMN {name} {kind}")
@@ -302,6 +307,20 @@ class State:
         self._db.execute("DELETE FROM failures WHERE file_id = ?", (file_id,))
         self._db.commit()
 
+    def pending_failures(self) -> int:
+        """Files that failed and are still wanted (not ignored). A success clears the
+        failure, so failed updates of files synced before count too."""
+        row = self._db.execute(
+            "SELECT COUNT(*) FROM failures WHERE file_id NOT IN (SELECT file_id FROM ignored)"
+        ).fetchone()
+        return int(row[0])
+
+    def forget_failures_except(self, file_ids: set[str]) -> None:
+        """Drop failures of files Stud.IP no longer lists (deleted, course closed)."""
+        stale = [f for f in self.failures() if f not in file_ids]
+        self._db.executemany("DELETE FROM failures WHERE file_id = ?", [(f,) for f in stale])
+        self._db.commit()
+
     def delete_file_record(self, file_id: str) -> None:
         """Forget a file (used by undo); the local file itself is never touched here."""
         self._db.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
@@ -389,8 +408,12 @@ class State:
         )
 
 
+_RECORD_FIELDS = set(FileRecord.__dataclass_fields__)
+
+
 def _record(row: sqlite3.Row) -> FileRecord:
-    data = dict(row)
+    # Columns a newer version added are ignored, never a crash.
+    data = {k: v for k, v in dict(row).items() if k in _RECORD_FIELDS}
     data["routed_by_default"] = bool(data["routed_by_default"])
     data["gone"] = bool(data.get("gone", 0))
     return FileRecord(**data)

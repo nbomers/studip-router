@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -134,6 +135,7 @@ class View(Screen):
     BINDINGS: ClassVar = [
         Binding("escape,q", "app.pop_screen", "Back"),
         Binding("comma", "app.open_settings", "Settings"),
+        Binding("question_mark", "app.show_help", "Help", show=False),  # "? everywhere"
         Binding("j", "cursor('down')", show=False),
         Binding("k", "cursor('up')", show=False),
     ]
@@ -175,14 +177,21 @@ class View(Screen):
 
     def counted(self, items: list, label=lambda item: str(item)):
         """Iterate ``items`` and move the bar: "Reading 3/8: Quantum Cooking…"."""
-        for index, item in enumerate(items):
-            self.busy(
-                index,
-                len(items),
-                f"Reading [b]{index + 1}/{len(items)}[/b]: {esc(clip(label(item), 50))}…",
-            )
-            yield item
-        self.idle()
+        try:
+            for index, item in enumerate(items):
+                self.busy(
+                    index,
+                    len(items),
+                    f"Reading [b]{index + 1}/{len(items)}[/b]: {esc(clip(label(item), 50))}…",
+                )
+                yield item
+        finally:  # also when the caller stops early or fails: never a stuck bar
+            self.idle()
+
+    def short_paths(self, text: str) -> str:
+        """Error texts name absolute paths; inside the sync folder the rest is enough."""
+        root = str(self.cfg.root)
+        return text.replace(root + "/", "").replace(str(Path.home()), "~")
 
     @property
     def cfg(self) -> Config:
@@ -322,6 +331,7 @@ class SyncView(View):
         self.show_skipped = False
         self.running = False
         self.cancel = False
+        self.used = False  # the plan was executed (or tried): it is stale now
         self.date_changes: list[Change] = []
 
     def compose(self) -> ComposeResult:
@@ -350,6 +360,20 @@ class SyncView(View):
         try:
             with self.client() as client, State(paths.state_db()) as state:
                 plan = build_plan(client, self.cfg, state, on_course=progress)
+                complete = (  # every configured course listed all its files
+                    not plan.errors
+                    and not plan.closed
+                    and not plan.missing
+                    and not any(
+                        a.kind is Kind.ERROR and a.file is None
+                        for p in plan.plans
+                        for a in p.actions
+                    )
+                )
+                if complete:  # only then: failures of files Stud.IP no longer lists go
+                    state.forget_failures_except(
+                        {a.file.id for p in plan.plans for a in p.actions if a.file}
+                    )
         except ApiError as exc:
             self.idle()
             self.check_login(exc)
@@ -360,6 +384,11 @@ class SyncView(View):
 
     def show_plan(self, plan: SyncPlan) -> None:
         self.plan = plan
+        self.used = False
+        # Back from a finished or stopped run: the table again, not the old log.
+        self.query_one("#progress", ProgressBar).display = False
+        self.query_one(RichLog).display = False
+        self.query_one(DataTable).display = True
         table = self.query_one(DataTable)
         table.clear()
         self.row_actions: list[Action] = []
@@ -422,6 +451,12 @@ class SyncView(View):
                 f"[dim]◎ files closed to you: {esc(', '.join(clip(n, 30) for n in plan.closed))}"
                 "[/dim]"
             )
+        if plan.missing:
+            names = ", ".join(clip(c.name or c.target, 30) for c in plan.missing)
+            lines.append(
+                f"[yellow]! not on Stud.IP any more: {esc(names)}[/yellow] "
+                "[dim](deleted, or you left it - your files stay)[/dim]"
+            )
         if plan.unconfigured:
             lines.append(
                 f"[yellow][b]{len(plan.unconfigured)}[/b] new course(s) not set up yet[/yellow] "
@@ -434,9 +469,10 @@ class SyncView(View):
             )
         else:
             self.status(f"[green]✓ Everything is up to date.[/green] {esc(sem)}{extra}")
-        if self.auto and todo:
+        if self.auto:
             self.auto = False
-            self.action_start()
+            if todo:
+                self.action_start()
 
     def _todo(self) -> int:
         if not self.plan:
@@ -464,6 +500,7 @@ class SyncView(View):
                 self.notify(f"{esc(action.file.name)} will be synced again.")
             else:
                 state.ignore(action.file.id, action.course_id, action.file.name)
+                state.clear_failure(action.file.id)
                 self.notify(f"{esc(action.file.name)} will never be downloaded.")
         self.action_refresh()
 
@@ -488,7 +525,14 @@ class SyncView(View):
             self.app.pop_screen()
 
     def action_start(self) -> None:
-        if self.running or not self._todo() or self.plan is None:
+        if self.running or self.plan is None:
+            return
+        if self.used:  # never run a plan twice: its files exist now ("refusing to overwrite")
+            self.status("Fetching course data from Stud.IP…")
+            self.auto = True
+            self.load_plan()
+            return
+        if not self._todo():
             return
 
         def confirmed(ok: bool | None) -> None:
@@ -501,6 +545,7 @@ class SyncView(View):
     def run_sync(self) -> None:
         assert self.plan is not None
         self.running = True
+        self.used = True
         self.cancel = False
         self.app.call_from_thread(self._prepare_run, self._todo())
 
@@ -509,9 +554,16 @@ class SyncView(View):
             if self.cancel:
                 raise KeyboardInterrupt
 
+        def failed(action: Action, message: str) -> None:
+            self.app.call_from_thread(self._log_failed, action, message)
+            if self.cancel:  # Esc works even when every file fails (network down)
+                raise KeyboardInterrupt
+
         try:
             with self.client() as client, State(paths.state_db()) as state:
-                result = execute_plan(self.plan, self.cfg, state, client, on_progress=progress)
+                result = execute_plan(
+                    self.plan, self.cfg, state, client, on_progress=progress, on_failed=failed
+                )
                 if self.cfg.watch_dates:
                     courses = [
                         (p.course.id, p.course.name or p.course.target) for p in self.plan.plans
@@ -561,6 +613,13 @@ class SyncView(View):
             + ("" if action.kind is Kind.DOWNLOAD else f"  [dim]{action.kind.value}[/]")
         )
 
+    def _log_failed(self, action: Action, message: str) -> None:
+        self.query_one("#progress", ProgressBar).advance(1)
+        name = action.dest.name if action.dest else ""
+        self.query_one(RichLog).write(
+            f"[red]✗[/] {esc(clip(name, 60))}  [dim]{esc(clip(self.short_paths(message), 80))}[/]"
+        )
+
     def _finish_run(self, result) -> None:
         log = self.query_one(RichLog)
         new = sum(1 for a in result.outcome.done if a.transfers)
@@ -577,7 +636,8 @@ class SyncView(View):
             + "."
         )
         for action, msg in result.outcome.failed:
-            log.write(f"[red]✗ {esc(action.file.name if action.file else '')}: {esc(msg)}[/red]")
+            name = action.file.name if action.file else ""
+            log.write(f"[red]✗ {esc(name)}: {esc(self.short_paths(msg))}[/red]")
         failed_ids = {id(a) for a, _ in result.outcome.failed}
         if self.plan is not None:
             for course_plan in self.plan.plans:
@@ -971,13 +1031,20 @@ class DatesView(View):
 
 class NewsView(View):
     TITLE = "Announcements"
-    HINT = "a show read ones too"
-    BINDINGS: ClassVar = [*View.BINDINGS, Binding("a", "toggle_all", "Show all")]
+    HINT = "a show read ones too · x mark all read"
+    BINDINGS: ClassVar = [
+        *View.BINDINGS,
+        Binding("a", "toggle_all", "Show all"),
+        Binding("x", "read_all", "All read"),
+    ]
 
     def __init__(self) -> None:
         super().__init__()
         self.items: list[News] = []
         self.show_all = False
+        self.marked = False  # something was marked read: home recounts once, on leaving
+        self.current: int | None = None  # index shown right now
+        self.moved = False  # the user moved through the list
 
     def compose(self) -> ComposeResult:
         yield from self.compose_header()
@@ -1012,6 +1079,7 @@ class NewsView(View):
 
     def fill(self, items: list[News]) -> None:
         self.items = items
+        self.current = None  # a new list: nothing shown yet
         options = self.query_one(OptionList)
         options.clear_options()
         for n in items:
@@ -1040,9 +1108,42 @@ class NewsView(View):
         self.query_one("#news-text", Static).update(
             f"[b]{esc(n.title)}[/b]\n[dim]{esc(n.course)} · {esc(when)}[/dim]\n\n{esc(n.text)}"
         )
+        # Read = looked at and moved on (or Enter): the one shown when the screen
+        # opens is not read just because it was first in the list.
+        if self.current is not None and self.current != event.option_index:
+            self._mark(self.current)
+            self.moved = True
+        self.current = event.option_index
+
+    @on(OptionList.OptionSelected)
+    def read(self, event: OptionList.OptionSelected) -> None:
+        self._mark(event.option_index)
+
+    def _mark(self, index: int) -> None:
+        if index >= len(self.items):
+            return
+        n = self.items[index]
         with State(paths.state_db()) as state:
             state.mark_news_seen([(n.id, n.course_id)])
-        self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
+        # The home screen recounts once, on leaving: not a full fetch per cursor move.
+        self.marked = True
+
+    def on_unmount(self) -> None:
+        if self.moved and self.current is not None:
+            self._mark(self.current)
+        if self.marked:
+            with contextlib.suppress(Exception):  # the app may be closing
+                self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
+
+    def action_read_all(self) -> None:
+        if not self.items:
+            return
+        with State(paths.state_db()) as state:
+            state.mark_news_seen([(n.id, n.course_id) for n in self.items])
+        self.marked = True
+        self.notify(f"{len(self.items)} announcement(s) marked as read.")
+        if not self.show_all:
+            self.load()
 
     def action_toggle_all(self) -> None:
         self.show_all = not self.show_all
@@ -1110,11 +1211,10 @@ class RulesView(View):
                     )
                     or "everything"
                 )
-                target = "[dim]skip[/dim]" if r.skip else r.target
+                target = "[dim]skip[/dim]" if r.skip else f"[b]{esc(r.target)}[/b]"
                 rename = f"  [dim]rename {esc(r.rename)}[/dim]" if r.rename else ""
                 lines.append(
-                    f"  {esc(i)}. [b]{esc(r.id)}[/b]: {esc(clip(what, 60))} → [b]{esc(target)}[/b]"
-                    f"{rename}"
+                    f"  {esc(i)}. [b]{esc(r.id)}[/b]: {esc(clip(what, 60))} → {target}{rename}"
                 )
             if not c.rules:
                 lines.append("  [dim]no rules - folder and file names decide[/dim]")
@@ -1143,7 +1243,12 @@ class RulesView(View):
                             )
                         )
                         continue
-                    for s in suggest_rules(files, self.cfg.course_dir(c), {r.id for r in c.rules}):
+                    for s in suggest_rules(
+                        files,
+                        self.cfg.course_dir(c),
+                        {r.id for r in c.rules},
+                        by_name=not self.cfg.auto_route,
+                    ):
                         if s.rule["match"].get("folder") not in known:
                             found.append((c.id, s))
         except ApiError as exc:
@@ -1371,9 +1476,7 @@ class MergeView(View):
 
     def on_mount(self) -> None:
         self.query_one(DataTable).add_columns("Course", "Slides from", "→ One PDF", "Last run")
-        self.fill()
-        if any(c.merge for c in self.courses):
-            self.action_merge()
+        self.fill()  # merging writes files: only on "m" (and after each sync)
 
     def fill(self) -> None:
         self.courses = [c for c in self.cfg.courses.values() if not c.exclude]

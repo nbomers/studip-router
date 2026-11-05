@@ -47,6 +47,7 @@ def execute(
     run_id: int,
     on_progress: Callable[[Action], None] | None = None,
     pdf_password: str | None = None,
+    on_failed: Callable[[Action, str], None] | None = None,
 ) -> Outcome:
     """Apply ``plan``. With ``pdf_password``, new files of the course that are PDFs
     locked with exactly this password are stored without it.
@@ -54,6 +55,8 @@ def execute(
     One failing file never stops the others, whatever the error; only a rejected
     login (``AuthFailed``) ends the run, so a wrong password is not retried for
     every file (that could lock the account).
+    ``on_progress`` runs after each finished file, ``on_failed`` after each failed
+    one; either may raise KeyboardInterrupt to stop the run there.
     """
     outcome = Outcome()
     for action in plan.actions:
@@ -75,14 +78,18 @@ def execute(
             outcome.failed.append((action, message))
             if action.file is not None:
                 state.record_failure(action.file.id, message)
+            if on_failed:
+                on_failed(action, message)  # moves the progress bar, may stop the run
             continue
         if action.file is not None:  # done, also when it turned out unchanged (REFRESH)
             state.clear_failure(action.file.id)
         outcome.done.append(action)
-        if on_progress:
-            on_progress(action)
+        # Extract before reporting progress: a stop requested there must not leave a
+        # recorded archive that the next sync sees as unchanged and never extracts.
         if action.unzips:
             _unzip(action, state, run_id, outcome)
+        if on_progress:
+            on_progress(action)
     return outcome
 
 
@@ -251,6 +258,7 @@ def _apply(
         unless_sha=known,
         before_replace=before_replace,
         max_bytes=max_bytes,
+        no_clobber=action.kind is not Kind.OVERWRITE,
     )
     if not written:
         assert previous is not None
@@ -374,6 +382,7 @@ def fetch_verified(
     unless_sha: str | None = None,
     before_replace: Callable[[], None] | None = None,
     max_bytes: int | None = None,
+    no_clobber: bool = False,
 ) -> tuple[str, bool]:
     """Download into ``dest`` atomically; return (sha256, written).
 
@@ -385,6 +394,7 @@ def fetch_verified(
     ``before_replace`` runs right before ``dest`` is replaced and may raise to keep it.
     A transfer far bigger than announced, or bigger than ``max_bytes``, is stopped
     at once and not retried.
+    ``no_clobber`` refuses to replace a ``dest`` that appeared during the download.
     """
     mismatch: tuple[int, str] | None = None  # (size, sha256) of a complete-looking transfer
     for attempt in range(1, attempts + 1):
@@ -397,7 +407,7 @@ def fetch_verified(
                     before_replace()
                 return True
 
-            with atomic_writer(dest, commit) as (fh, digest):
+            with atomic_writer(dest, commit, no_clobber=no_clobber) as (fh, digest):
                 guard = _Guard(file, fh.write, size_limit(file, max_bytes))
                 download(file.id, guard.write)
                 if file.size > 0 and guard.size != file.size:
@@ -474,6 +484,7 @@ def _record(
         description=file.description,
         content_id=file.content_id,
         local_sha256=local_sha,
+        folder_type=file.folder_type,
     )
 
 

@@ -167,7 +167,11 @@ _FALSE_FRIENDS = re.compile(
     r"example\w*|exemplar\w*"
     r"|cheat ?sheets?|data ?sheets?|spread ?sheets?|cover ?sheets?|info ?sheets?"
     r"|(?:merk|deck|info|daten|hinweis|bei|anmelde|formel)blae?tt\w*"
-    r"|laufzettel\w*|stundenzettel\w*"
+    r"|laufzettel\w*|stundenzettel\w*|(?:spick|notiz|hand)zettel\w*"
+    r"|(?:titel|kalender)blae?tt\w*|sheet ?music"
+    r"|(?:labor|praktikums|uebungs)ordnung\w*"
+    r"|(?:klausur|pruefungs?)anmeldung\w*"
+    r"|facebook\w*|wallpaper\w*"
     r"|(?<![a-z])scripts(?![a-z])|(?<![a-z])(?:source ?)?code(?![a-z])"
     r"|pruefungs?(?:ordnung|amt|ausschuss|recht)\w*"
     r"|vorlesungs(?:verzeichnis|frei|zeit|plan|beginn|ende)\w*"
@@ -189,7 +193,8 @@ def normalise_name(text: str) -> str:
 def _has_keyword(text: str, keywords: tuple[str, ...]) -> bool:
     for kw in keywords:
         if len(kw) <= 3:  # short ones ("vl", "lab", "alt", "old") only as whole words
-            if re.search(rf"(?<![a-z]){re.escape(kw)}(?![a-z])", text):
+            # whole word, plural too: "Labs", "HWs", "VLs"
+            if re.search(rf"(?<![a-z]){re.escape(kw)}s?(?![a-z])", text):
                 return True
         elif kw in text:
             return True
@@ -225,8 +230,15 @@ def local_subdirs(course_dir: Path, depth: int = 2) -> list[str]:
     return result
 
 
-def _category(text: str) -> str | None:
+Keywords = dict[str, tuple[str, ...]]
+
+
+def _category(text: str, own: Keywords | None = None) -> str | None:
     words = re.sub(r"[_\-.+]+", " ", normalise_name(text))
+    if own:  # your own words first ([sync.keywords] in the config): they say what you mean
+        for name in REMOTE_KEYWORDS:
+            if _has_keyword(words, own.get(name, ())):
+                return name
     words = _FALSE_FRIENDS.sub(" ", words)
     for name, keywords in REMOTE_KEYWORDS.items():
         if _has_keyword(words, keywords):
@@ -234,10 +246,10 @@ def _category(text: str) -> str | None:
     return None
 
 
-def folder_category(folder_path: str) -> str | None:
+def folder_category(folder_path: str, own: Keywords | None = None) -> str | None:
     """Category of the first of the top three Stud.IP folders whose name reveals one."""
     for part in [p for p in folder_path.split("/") if p][:3]:
-        if (category := _category(part)) is not None:
+        if (category := _category(part, own)) is not None:
             return category
     return None
 
@@ -253,6 +265,9 @@ def auto_target(folder_path: str, subdirs: list[str]) -> tuple[str, str] | None:
 
 # Stud.IP folder types whose purpose is fixed, whatever the folder is called.
 FOLDER_TYPES = {"homeworkfolder": "exercises"}
+
+
+_ARCHIVE_EXT = frozenset({"zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar"})
 
 
 # Program files: "script.py" or "lecture_demo.m" is code, not a lecture script.
@@ -284,19 +299,28 @@ _CODE_EXT = frozenset(
 )
 
 
-def file_category(name: str) -> str | None:
+def file_category(name: str, own: Keywords | None = None) -> str | None:
     """Category a file name reveals ("Uebungsblatt_3.pdf" -> exercises), if any."""
     stem, _, ext = name.rpartition(".") if "." in name else (name, "", "")
     if ext.lower() == "ipynb":  # Jupyter notebooks are worked on like exercise sheets
         return "exercises"
-    category = _category(stem)
-    if category == "slides" and ext.lower() in _CODE_EXT:
+    category = _category(stem, own)
+    # "script.py", and "script.py.zip" too: the last extension, or the one before an
+    # archive extension. Not any part: "Folien Kap.C.pdf" is still slides.
+    parts = name.lower().split(".")[1:]
+    if parts and parts[-1] in _ARCHIVE_EXT:
+        parts = parts[-2:-1]
+    if category == "slides" and parts and parts[-1] in _CODE_EXT:
         return None
     return category
 
 
 def auto_route(
-    folder_path: str, folder_type: str, name: str, subdirs: list[str]
+    folder_path: str,
+    folder_type: str,
+    name: str,
+    subdirs: list[str],
+    own: Keywords | None = None,
 ) -> tuple[str, str, str] | None:
     """(category, local folder, why) for a file no rule matches.
 
@@ -306,11 +330,11 @@ def auto_route(
     everything in it together.
     """
     candidates: list[tuple[str, str]] = []
-    if (category := folder_category(folder_path)) is not None:
+    if (category := folder_category(folder_path, own)) is not None:
         candidates.append((category, "folder name"))
     elif (category := FOLDER_TYPES.get(folder_type.casefold())) is not None:
         candidates.append((category, "Stud.IP folder type"))
-    elif (category := file_category(name)) is not None:
+    elif (category := file_category(name, own)) is not None:
         candidates.append((category, "file name"))
     for category, why in candidates:
         target = _local_target(category, subdirs)
@@ -325,7 +349,14 @@ def local_category_dirs(subdirs: list[str], category: str) -> list[str]:
     scored: list[tuple[int, str]] = []
     for rel in subdirs:
         parts = [normalise_name(p) for p in rel.split("/")]
-        if any(_has_keyword(p, _ARCHIVE) for p in parts):
+        old_exams = (
+            category == "exams"
+            and len(parts) > 1
+            and _has_keyword(parts[0], keywords)
+            and _has_keyword(parts[-1], (*_PAST, "altklausur"))
+        )
+        # "Klausur/Alt" is where old exams belong, not an archive to keep away from
+        if not old_exams and any(_has_keyword(p, _ARCHIVE) for p in parts):
             continue
         if not _has_keyword(parts[-1], keywords) and not (
             category == "exams"
@@ -348,6 +379,17 @@ def _local_target(category: str, subdirs: list[str]) -> str | None:
     if category == "solutions":  # no own folder: solutions go with the exercises
         return _local_target("exercises", subdirs)
     return None
+
+
+def _raw_spelling(pattern: str) -> str:
+    """A pattern over normalised names ("ue", spaces) for names as they are."""
+    pattern = pattern.replace("ae?", "(?:ae?|ä)")  # "blae?tt": Blatt, Blaetter, Blätter
+    for plain, umlaut in (("ae", "ä"), ("oe", "ö"), ("ue", "ü")):
+        pattern = re.sub(rf"{plain}(?![?|)])", f"(?:{plain}|{umlaut})", pattern)
+    return pattern.replace(" ?", "[ _.+-]?")
+
+
+_RAW_FALSE_FRIENDS = _raw_spelling(_FALSE_FRIENDS.pattern)
 
 
 def _with_umlauts(keyword: str) -> str:
@@ -376,12 +418,18 @@ def _slug(text: str) -> str:
 
 
 def suggest_rules(
-    files: list[RemoteFile], course_dir: Path, existing_ids: set[str] | None = None
+    files: list[RemoteFile],
+    course_dir: Path,
+    existing_ids: set[str] | None = None,
+    *,
+    by_name: bool = True,
 ) -> list[Suggestion]:
     """One rule per top-level Stud.IP folder whose name reveals its category.
 
-    Files in the course root are classified by file name instead, so that e.g.
-    "Altklausur_2024.pdf" gets its own name-based rule.
+    With ``by_name``, files in the course root are classified by file name too, so
+    that e.g. "Altklausur_2024.pdf" gets its own name-based rule. Pass False when
+    automatic sorting is on: it already sorts by file name, with the exclusion list
+    and the category order that a regex rule cannot reproduce.
     """
     subdirs = local_subdirs(course_dir)
     taken = set(existing_ids or ())
@@ -430,16 +478,27 @@ def suggest_rules(
             )
         )
 
+    if not by_name:
+        return suggestions
     root_files = [f for f in files if not f.folder_path]
     by_category: dict[str, int] = Counter(
-        c for f in root_files if (c := _category(f.name)) is not None
+        c for f in root_files if (c := file_category(f.name)) is not None
     )
     keywords = REMOTE_KEYWORDS
-    for category, count in sorted(by_category.items()):
+    # Rules apply in order: the same order as the classifier (exams before solutions
+    # before exercises ...), so "Lösung Blatt 3" is a solution, not an exercise.
+    priority = list(REMOTE_KEYWORDS)
+    for category in sorted(by_category, key=priority.index):
+        count = by_category[category]
+        if any(i == f"{category}-by-name" or i.startswith(f"{category}-by-name-") for i in taken):
+            continue  # added before: do not offer "-2", "-3", ... on every run
         target = _local_target(category, subdirs)
         if target is None:
             continue
-        pattern = "|".join(_with_umlauts(k) for k in keywords[category] if len(k) > 3)
+        words = "|".join(_with_umlauts(k) for k in keywords[category] if len(k) > 3)
+        # Never "Merkblatt", "Examples", "Laufzettel": the classifier's exclusion list
+        # as a look-ahead, so the rule does not undo what automatic sorting knows.
+        pattern = f"^(?!.*(?:{_RAW_FALSE_FRIENDS}))(?:.*(?:{words}))"
         rule_id = _unique(f"{category}-by-name", taken)
         suggestions.append(
             Suggestion(

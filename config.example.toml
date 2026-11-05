@@ -70,6 +70,13 @@ auto_route = true
 # cancelled, moved and re-roomed dates and new exam dates (`studip dates`).
 watch_dates = true
 
+# Your own words for automatic sorting, checked before the built-in lists.
+# Categories: exams, solutions, exercises, slides, reading. Words of up to three
+# letters count only as whole words.
+# [sync.keywords]
+# exercises = ["Werkstatt", "Lab-Report"]
+# slides = ["Handreichung"]
+
 # Files never downloaded (in addition to per-course rules).
 [sync.exclude]
 globs = ["*.mp4", "*.mkv"]

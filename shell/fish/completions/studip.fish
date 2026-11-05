@@ -9,13 +9,14 @@ function __studip_profiles
     command studip _complete profiles 2>/dev/null
 end
 
-set -l cmds init courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore pdf-password dates
+set -l cmds init open courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore pdf-password dates
 complete -c studip -f
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -s p -l profile -xa '(__studip_profiles)' -d 'Config/state profile'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -l json -d 'Machine-readable output'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -l version -d 'Show version'
 
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a init -d 'Interactive setup'
+complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a open -d 'Open a course folder'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a courses -d 'List courses and sync status'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a sync -d 'Download new and changed files'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a status -d 'Open issues'
@@ -34,6 +35,8 @@ complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a ignore -d 'File
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a dates -d 'Changed dates and exams'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a pdf-password -d "Unlock a course's PDFs"
 
+complete -c studip -n "__fish_seen_subcommand_from open" -xa '(__studip_courses)'
+
 # options taking a course
 for sub in sync reorganize news merge
     complete -c studip -n "__fish_seen_subcommand_from $sub" -l course -xa '(__studip_courses)' -d Course
@@ -48,6 +51,7 @@ complete -c studip -n "__fish_seen_subcommand_from reorganize undo schedule" -s 
 complete -c studip -n "__fish_seen_subcommand_from news" -l all -d 'Include read ones'
 complete -c studip -n "__fish_seen_subcommand_from merge" -l force -d 'Download iCloud-only PDFs'
 complete -c studip -n "__fish_seen_subcommand_from dates" -l days -x -d 'Changes of the last N days'
+complete -c studip -n "__fish_seen_subcommand_from dates" -l ics -rF -d 'Write a calendar file'
 complete -c studip -n "__fish_seen_subcommand_from status doctor dates" -l offline -d 'Do not contact Stud.IP'
 complete -c studip -n "__fish_seen_subcommand_from history" -s n -l limit -x -d 'Number of files'
 complete -c studip -n "__fish_seen_subcommand_from init" -l force -d 'Overwrite config'

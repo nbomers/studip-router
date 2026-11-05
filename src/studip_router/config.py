@@ -6,6 +6,7 @@ TOML syntax errors additionally carry line and column from ``tomllib``.
 
 from __future__ import annotations
 
+import re
 import tomllib
 import unicodedata
 from dataclasses import dataclass, field
@@ -87,6 +88,7 @@ class Config:
     courseware: bool = False  # also sync files from Courseware pages (more requests)
     watch_dates: bool = True  # report cancelled, moved and re-roomed course dates
     auto_route: bool = True  # no rule matches: use the Stud.IP folder name (Übung, Folien...)
+    keywords: dict[str, tuple[str, ...]] = field(default_factory=dict)  # your own, per category
     course_folders: tuple[str, ...] = DEFAULT_COURSE_FOLDERS  # subfolders of new course folders
     rename: RenameOptions = field(default_factory=RenameOptions)
     courses: dict[str, CourseConfig] = field(default_factory=dict)
@@ -141,6 +143,32 @@ _SYSTEM_DIRS = (  # not /var, /private, /opt: temp folders and Homebrew live the
     "/Applications",
     "/private/etc",  # macOS: /etc is a symlink to it
 )
+
+
+KEYWORD_CATEGORIES = ("exams", "solutions", "exercises", "slides", "reading")
+
+
+def _keywords(v: Any, data: Any) -> dict[str, tuple[str, ...]]:
+    """[sync.keywords]: exercises = ["Werkstatt"] - own words per category."""
+    from .suggest import normalise_name
+
+    if not isinstance(data, dict):
+        v.problems.append("sync.keywords: expected a table")
+        return {}
+    result: dict[str, tuple[str, ...]] = {}
+    for category, words in data.items():
+        where = f"sync.keywords.{category}"
+        if category not in KEYWORD_CATEGORIES:
+            v.problems.append(f"{where}: unknown category, use {', '.join(KEYWORD_CATEGORIES)}")
+            continue
+        if not isinstance(words, list) or not all(isinstance(w, str) and w.strip() for w in words):
+            v.problems.append(f"{where}: expected a list of words")
+            continue
+        # the same spelling the names get before matching: "Lab-Report" -> "lab report"
+        result[category] = tuple(
+            re.sub(r"[_\-.+]+", " ", normalise_name(w.strip())).strip() for w in words
+        )
+    return result
 
 
 def unsafe_folder(value: str) -> str | None:
@@ -315,6 +343,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
             "watch_dates",
             "auto_route",
             "course_folders",
+            "keywords",
         },
     )
     root = v.get(sync, "root", "sync", str, "", required=True)
@@ -413,6 +442,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         courseware=v.get(sync, "courseware", "sync", bool, False),
         watch_dates=v.get(sync, "watch_dates", "sync", bool, True),
         auto_route=v.get(sync, "auto_route", "sync", bool, True),
+        keywords=_keywords(v, sync.get("keywords", {})),
         course_folders=course_folders,
         rename=rename,
         courses=courses,

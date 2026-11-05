@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import re
 import ssl
 import time
 from collections.abc import Callable, Iterator
@@ -23,6 +25,21 @@ PAGE_LIMIT = 100
 MAX_PAGES = 1000  # 100 000 records: far more than any course has
 _sleep = time.sleep  # replaced in tests
 RETRY_STATUS = {429, 500, 502, 503, 504}
+# C0 controls except \t \n \r, DEL and C1 controls (ESC, CSI, OSC, ...). Text from
+# Stud.IP is written by other people and must never drive the terminal. "\r" stays:
+# it is part of the macOS system file name "Icon\r", which is recognised and skipped.
+_TERMINAL_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def _clean(value: Any) -> Any:
+    """Every string in a JSON answer without terminal control characters."""
+    if isinstance(value, str):
+        return _TERMINAL_CONTROL.sub("", value)
+    if isinstance(value, list):
+        return [_clean(v) for v in value]
+    if isinstance(value, dict):
+        return {_clean(k): _clean(v) for k, v in value.items()}
+    return value
 
 
 class ApiError(Exception):
@@ -173,9 +190,12 @@ class StudipClient:
     def _retry_after(response: httpx.Response) -> float | None:
         value = response.headers.get("Retry-After")
         try:
-            return min(float(value), 60.0) if value else None
+            seconds = float(value) if value else None
         except ValueError:
             return None
+        if seconds is None or math.isnan(seconds):
+            return None
+        return min(max(seconds, 0.0), 60.0)
 
     def _get_json(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         url = path if path.startswith("http") else self.api_url + path
@@ -190,7 +210,7 @@ class StudipClient:
             ) from None
         if not isinstance(doc, dict):
             raise ApiError(f"unexpected JSON from {url}")
-        return doc
+        return _clean(doc)
 
     def _paginate(
         self, path: str, params: dict[str, Any] | None = None
@@ -369,17 +389,25 @@ class StudipClient:
                 continue
             elements: dict[str, dict] = {}
             included: list[dict] = []
-            doc = self._get_json(
-                f"/courseware-structural-elements/{root}", {"include": "containers.blocks"}
-            )
-            elements[root] = doc["data"]
-            included += doc.get("included") or []
-            for item, inc in self._paginate(
-                f"/courseware-structural-elements/{root}/descendants",
-                {"include": "containers.blocks"},
-            ):
-                elements[item["id"]] = item
-                included += inc
+            try:
+                doc = self._get_json(
+                    f"/courseware-structural-elements/{root}", {"include": "containers.blocks"}
+                )
+                elements[root] = doc["data"]
+                included += doc.get("included") or []
+                for item, inc in self._paginate(
+                    f"/courseware-structural-elements/{root}/descendants",
+                    {"include": "containers.blocks"},
+                ):
+                    elements[item["id"]] = item
+                    included += inc
+            except ApiError as exc:
+                # One unit closed to you (403/404) must not close the whole course:
+                # its normal files and the other units are still synced.
+                if isinstance(exc, AuthFailed) or not exc.no_access:
+                    raise
+                self.warnings.append(f"{course_id}: a Courseware unit is closed to you, skipped")
+                continue
             containers = {x["id"]: x for x in included if x.get("type") == "courseware-containers"}
             for block in (x for x in included if x.get("type") == "courseware-blocks"):
                 container = containers.get(_rel_id(block.get("relationships") or {}, "container"))

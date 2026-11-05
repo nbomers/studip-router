@@ -172,7 +172,23 @@ it brings its own Python). The unreleased state of `main`:
 > `studip doctor` warns about it.
 
 <details>
-<summary><b>Shell integration (fish)</b></summary>
+<summary><b>Shell completions (zsh, bash, fish)</b></summary>
+
+zsh (the macOS default):
+
+```bash
+mkdir -p ~/.zfunc && cp shell/zsh/_studip ~/.zfunc/
+```
+
+Then add `fpath=(~/.zfunc $fpath)` to `~/.zshrc` before `compinit`.
+
+bash:
+
+```bash
+mkdir -p ~/.local/share/bash-completion/completions && cp shell/bash/studip ~/.local/share/bash-completion/completions/studip
+```
+
+fish:
 
 ```bash
 cp shell/fish/completions/studip.fish ~/.config/fish/completions/
@@ -362,6 +378,7 @@ Rule sheets
 | `sync.unzip` | `false` | extract `.zip` downloads into a folder named like them and remove the archive (fetched again only when it changes) |
 | `sync.notify` | `true` | notification after background syncs |
 | `sync.auto_route` | `true` | no rule matches: use the Stud.IP folder name (Übung, Folien, Literatur, …), a homework folder, then the file name before the default folder |
+| `sync.keywords` | none | your own words per category for that sorting, e.g. `exercises = ["Werkstatt"]` (categories: `exams`, `solutions`, `exercises`, `slides`, `reading`) |
 | `sync.watch_dates` | `true` | report cancelled, moved and re-roomed dates after a sync |
 | `sync.follow_renames` | `true` | rename the local copy when a file is renamed on Stud.IP |
 | `sync.courseware` | `false` | also sync files from Courseware pages (per course: `courses.<id>.courseware`) |
@@ -392,7 +409,8 @@ From scripts: `studip config set sync.on_update skip`.
 | `studip rules list / test / suggest [--write]` | inspect and create rules |
 | `studip reorganize` / `studip undo` | apply changed rules to synced files / revert |
 | `studip history` / `studip news` | recently synced files / unread announcements |
-| `studip dates [--offline] [--days 14]` | changed course dates and upcoming exams |
+| `studip dates [--offline] [--days 14] [--ics FILE]` | changed course dates and upcoming exams; `--ics` writes all dates as a calendar file |
+| `studip open COURSE` | open a course folder in Finder / the file manager |
 | `studip merge` | merge slide PDFs |
 | `studip schedule install --every 120` / `run-now` / `uninstall` | background sync (opt-in) |
 | `studip ignore add / list / remove` | files you never want |
@@ -603,7 +621,8 @@ uses one password per file; then unlocking does not help —
 
 ## Exit codes and JSON
 
-For scripts: `0` success, `1` some files or courses failed, `2` invalid config or
+For scripts: `0` success, `1` some files or courses failed (or files the plan
+cannot place, such as a missing target folder), `2` invalid config or
 arguments, `3` login or keychain problem, `4` damaged state database, `75` another
 run is in progress, `130` interrupted. With `--json`, errors are printed as
 `{"error": "..."}`; the other fields of `--json` output may still grow, but existing

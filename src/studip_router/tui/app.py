@@ -47,6 +47,7 @@ from .widgets import (
     load_course_groups,
     save_course_groups,
     set_course_order,
+    use_light_colors,
 )
 
 LOGO = "[b]studip[/b][dim]·[/dim]router"
@@ -136,6 +137,13 @@ class HomeScreen(Screen):
         self._next = (next_key, next_label)
         actions = self.query_one("#actions", OptionList)
         highlighted = actions.highlighted
+        # Keep the cursor on the same action, not the same row: when the status
+        # arrives and the list changes, Enter must still do what was shown.
+        previous_id = (  # row 0 is the suggestion: the default, not a choice to keep
+            actions.get_option_at_index(highlighted).id
+            if highlighted and highlighted < actions.option_count
+            else None
+        )
         actions.clear_options()
         if next_key:
             text = Text(no_wrap=True, overflow="ellipsis")
@@ -157,10 +165,11 @@ class HomeScreen(Screen):
             text.append(f"{'More':<15} ")
             text.append(hidden, style="dim")
             actions.add_option(Option(text, id="more"))
-        if highlighted is not None and highlighted < actions.option_count:
-            actions.highlighted = highlighted
+        ids = [actions.get_option_at_index(i).id for i in range(actions.option_count)]
+        if previous_id is not None and not previous_id.startswith("next:") and previous_id in ids:
+            actions.highlighted = ids.index(previous_id)
         else:
-            actions.highlighted = 0
+            actions.highlighted = 0  # the suggested step, also when it changed
 
     def on_mount(self) -> None:
         self._fill_actions()
@@ -194,6 +203,9 @@ class HomeScreen(Screen):
             tracked = len(state.all())
             default_routed = len(state.default_routed())
             to_move = len(pending_moves(cfg, state))
+            # Not the last run's count: a file synced, ignored or gone since then is
+            # no reason to "try again" (that would loop: nothing left to retry).
+            failed = state.pending_failures()
         last_summary: dict = {}
         if last and last["summary"]:
             with contextlib.suppress(ValueError):
@@ -208,7 +220,7 @@ class HomeScreen(Screen):
             "default_routed": default_routed,
             "default_folder": cfg.default_target,
             "to_move": to_move,
-            "failed": int(last_summary.get("failed", 0) or 0),
+            "failed": failed,
             "course_errors": int(last_summary.get("course_errors", 0) or 0),
             "paused": paths.auth_pause_file().exists(),
             "logged_in": logged_in,
@@ -244,7 +256,7 @@ class HomeScreen(Screen):
             steps.append(
                 (f"[red][b]{local['failed']}[/b] file(s) failed last time.[/red]", "s", "Try again")
             )
-        if remote and remote["new_courses"]:
+        if remote and remote.get("new_courses"):
             n = remote["new_courses"]
             steps.append(
                 (
@@ -273,7 +285,7 @@ class HomeScreen(Screen):
                     "Sort them with rules",
                 )
             )
-        if remote and remote["unread"]:
+        if remote and remote.get("unread"):
             steps.append((f"[b]{remote['unread']}[/b] unread announcement(s).", "a", "Read them"))
         return steps
 
@@ -303,17 +315,34 @@ class HomeScreen(Screen):
             f"[b]{local['tracked']}[/b] files in [b]{local['courses']}[/b] "
             f"course{'s' if local['courses'] != 1 else ''}"
         )
-        if remote is not None:
+        if remote is not None and remote.get("offline"):
+            facts.append("[yellow]Stud.IP not reachable[/yellow] [dim](tried again in 1 min)[/dim]")
+        elif remote is not None:
             facts.append(f"[b]{esc(remote['unread'])}[/b] unread")
         self.query_one("#facts", Static).update("  ·  ".join(facts))
 
     def load_remote_status(self) -> None:
         # A daemon thread instead of a worker: quitting must never wait for a slow
         # or unreachable server just to fill the status cards.
+        app: StudipRouterApp = self.app  # type: ignore[assignment]
+        if app.status_fetching:  # one fetch at a time (mount and resume both ask)
+            return
+        app.status_fetching = True
         threading.Thread(target=self._remote_status, daemon=True).start()
 
     def _remote_status(self) -> None:
         app: StudipRouterApp = self.app  # type: ignore[assignment]
+        generation = app.status_generation
+        try:
+            self._fetch_remote_status(app)
+        finally:
+            app.status_fetching = False
+        if app.status_generation != generation:  # changed meanwhile (news read, sync)
+            app.invalidate_status()
+            with contextlib.suppress(RuntimeError):
+                app.call_from_thread(self.refresh_status)
+
+    def _fetch_remote_status(self, app: StudipRouterApp) -> None:
         cfg = app.cfg
         if cfg is None:
             return
@@ -321,6 +350,10 @@ class HomeScreen(Screen):
             with app.make_client() as client, State(paths.state_db()) as state:
                 sem = resolve_semester(client, cfg.semester)
                 entries, _ = list_courses(client, cfg, sem)
+                # Colours before the announcements: one course whose announcements
+                # fail must not cost them (Stud.IP is reachable, the list just came).
+                with contextlib.suppress(Exception):
+                    save_course_groups(client.course_groups(client.me()["id"]))
                 items = [
                     n
                     for c in cfg.courses.values()
@@ -329,12 +362,12 @@ class HomeScreen(Screen):
                 ]
                 fresh = unread(state, items)
         except Exception:  # status cards are best effort, never crash the app
+            # Say so, and do not ask again on every return to this screen.
+            offline: dict = {"offline": True}
+            app.set_status_cache(offline)
+            with contextlib.suppress(RuntimeError):
+                app.call_from_thread(self._show_status, offline)
             return
-        try:  # your Stud.IP colours, for the next screens drawn
-            with app.make_client() as client:
-                save_course_groups(client.course_groups(client.me()["id"]))
-        except Exception:
-            pass
         remote = {
             "unread": len(fresh),
             "new_courses": sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED),
@@ -434,10 +467,15 @@ class StudipRouterApp(App):
         self._status: tuple[float, dict] | None = None  # (time, remote status)
 
     STATUS_TTL = 300  # seconds; the home screen must not hammer Stud.IP
+    OFFLINE_TTL = 60  # not reachable: try again after a minute, not on every screen change
+    status_fetching = False
+    status_generation = 0
 
     def status_cache(self) -> dict | None:
-        if self._status and time.monotonic() - self._status[0] < self.STATUS_TTL:
-            return self._status[1]
+        if self._status:
+            ttl = self.OFFLINE_TTL if self._status[1].get("offline") else self.STATUS_TTL
+            if time.monotonic() - self._status[0] < ttl:
+                return self._status[1]
         return None
 
     def set_status_cache(self, remote: dict) -> None:
@@ -445,6 +483,7 @@ class StudipRouterApp(App):
 
     def invalidate_status(self) -> None:
         self._status = None
+        self.status_generation += 1  # a fetch already running must not cache old numbers
 
     def on_mount(self) -> None:
         from ..report import setup_file_logging
@@ -456,6 +495,11 @@ class StudipRouterApp(App):
             self.push_screen(SetupScreen())
             return
         self.push_screen(HomeScreen())
+
+    def watch_theme(self, theme: str) -> None:
+        """Course colours follow the theme: darker ones on a light background."""
+        current = self.get_theme(theme)
+        use_light_colors(current is not None and not current.dark)
 
     def reload_config(self) -> None:
         try:
@@ -480,6 +524,10 @@ class StudipRouterApp(App):
         for screen in self.screen_stack:
             if isinstance(screen, HomeScreen):
                 screen.refresh_status()
+
+    def action_show_help(self) -> None:
+        if not isinstance(self.screen, HelpScreen):
+            self.push_screen(HelpScreen())
 
     def action_open_settings(self) -> None:
         """Settings from every screen (","); never stacked twice."""

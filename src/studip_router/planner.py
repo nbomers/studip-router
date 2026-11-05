@@ -133,7 +133,9 @@ def build_router(cfg: Config, course: CourseConfig, semester: str = "") -> Route
         if rule is None:
             name = target_name(file, None, options)
             if subdirs and (
-                found := auto_route(file.folder_path, file.folder_type, file.name, subdirs)
+                found := auto_route(
+                    file.folder_path, file.folder_type, file.name, subdirs, cfg.keywords
+                )
             ):
                 category, target, why = found
                 return Route(target, name, rule_id=f"auto:{category}", unzip=unzip, why=why)

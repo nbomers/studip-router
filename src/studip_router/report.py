@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections import Counter
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -18,6 +19,8 @@ from .executor import Outcome
 from .planner import Action, CoursePlan, Kind
 from .sync import CourseEntry, CourseStatus, SyncPlan
 
+_UNPRINTABLE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+
 
 def esc(value: object) -> str:
     """Text from Stud.IP (or the user's files) inside Rich markup: shown as is.
@@ -25,7 +28,7 @@ def esc(value: object) -> str:
     Course titles, file names and announcements are written by other people; they
     must never be read as markup ("[/b]" crashes, "[link=...]" fakes a link).
     """
-    return escape(str(value))
+    return escape(_UNPRINTABLE.sub("", str(value)))
 
 
 STYLE = {
@@ -241,6 +244,7 @@ def plan_json(
         "course_errors": [{"course": n, "error": e} for n, e in sync_plan.errors],
         "warnings": sync_plan.warnings,
         "closed_courses": sync_plan.closed,
+        "missing_courses": [{"id": c.id, "name": c.name} for c in sync_plan.missing],
         "date_changes": [change_json(c) for c in date_changes or []],
     }
     if result is not None:
