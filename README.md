@@ -412,6 +412,7 @@ From scripts: `studip config set sync.on_update skip`.
 | `studip dates [--offline] [--days 14] [--ics FILE]` | changed course dates and upcoming exams; `--ics` writes all dates as a calendar file |
 | `studip open COURSE` | open a course folder in Finder / the file manager |
 | `studip completion zsh` | print the shell completion script (zsh, bash, fish) |
+| `studip config remove-course COURSE` | remove a course you left on Stud.IP from the config (files stay) |
 | `studip merge` | merge slide PDFs |
 | `studip schedule install --every 120` / `run-now` / `uninstall` | background sync (opt-in) |
 | `studip ignore add / list / remove` | files you never want |

@@ -170,3 +170,63 @@ def test_view_keys_do_not_reuse_home_letters_in_the_footer() -> None:
     history = _keys(HistoryView)
     assert "o" not in history and "r" not in history
     assert history["f"] == "reveal"
+
+
+# -- smoke test: a course you left on Stud.IP can be removed --------------------------
+
+GONE = "deadbeefdeadbeefdeadbeefdeadbeef"
+
+
+@pytest.fixture
+def gone_course(course_dir: Path) -> Path:
+    cfg = Path(paths.config_file())
+    cfg.write_text(
+        cfg.read_text()
+        + f"[courses.{GONE}]\nname = 'Funktionale Programmierung'\ntarget = 'FP'\n"
+        + f"[[courses.{GONE}.rules]]\nid = 'sheets'\nmatch = {{}}\ntarget = 'Blätter'\n"
+    )
+    return cfg
+
+
+@respx.mock
+async def test_courses_view_removes_a_course_gone_from_studip(
+    gone_course: Path, course_dir: Path
+) -> None:
+    from studip_router.tui import ConfirmScreen
+    from studip_router.tui.views import CoursesView
+
+    install(respx.mock)
+    app = StudipRouterApp()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.press("c")
+        await _wait(pilot, lambda: isinstance(app.screen, CoursesView) and app.screen.missing)
+        view = app.screen
+        from textual.widgets import DataTable
+
+        table = view.query_one(DataTable)
+        assert table.row_count == len(view.entries) + 1
+        table.move_cursor(row=0)
+        await pilot.press("x")  # a course on Stud.IP: not removable
+        assert not isinstance(app.screen, ConfirmScreen)
+        table.move_cursor(row=table.row_count - 1)
+        await pilot.press("enter")  # Enter on a gone course offers the removal too
+        await _wait(pilot, lambda: isinstance(app.screen, ConfirmScreen))
+        await pilot.press("y")
+        await _wait(pilot, lambda: not view.missing)
+        assert GONE not in app.cfg.courses
+        assert "Funktionale" not in gone_course.read_text()
+        assert "Funktionale" in gone_course.with_name("config.toml.bak").read_text()
+        assert table.row_count == len(view.entries)
+
+
+def test_cli_removes_a_course_by_name(gone_course: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli_app, ["config", "remove-course", "funktionale programmierung"])
+    assert result.exit_code == 1  # asked, and the default is no
+    assert GONE in gone_course.read_text()
+    result = runner.invoke(cli_app, ["config", "remove-course", "FP", "-y"])
+    assert result.exit_code == 0, result.output
+    assert GONE not in gone_course.read_text()
+    assert "sheets" not in gone_course.read_text()  # its rules go with it
+    result = runner.invoke(cli_app, ["config", "remove-course", "FP", "-y"])
+    assert result.exit_code == 2

@@ -285,6 +285,47 @@ def config_set(
     console.print(f"[green]✓[/green] {esc(key)} = {esc(repr(parsed))}")
 
 
+@config_app.command("remove-course")
+def config_remove_course(
+    course: Annotated[str, typer.Argument(help="Course id, folder or name from the config.")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask.")] = False,
+) -> None:
+    """Remove a course and its rules from the config (e.g. one you left on Stud.IP).
+
+    Files already synced stay where they are.
+    """
+    from .config_edit import remove_course
+
+    cfg = load_config(None)
+    wanted = course.casefold()
+    found = [
+        c
+        for c in cfg.courses.values()
+        if wanted in (c.id.casefold(), (c.target or "").casefold(), (c.name or "").casefold())
+    ]
+    if len(found) != 1:
+        problem = "not in the config" if not found else "matches several courses; use the id"
+        raise fail(f"{course!r} {problem} (see `studip courses`)", 2)
+    target = found[0]
+    label = target.name or target.target or target.id
+    rules = len(target.rules)
+    if not yes and not Confirm.ask(
+        f"Remove {esc(label)} from the config"
+        + (f" with its {rules} rule(s)" if rules else "")
+        + "? Files already synced stay",
+        default=False,
+    ):
+        raise typer.Exit(1)
+    try:
+        remove_course(cfg.path, target.id)
+    except (ConfigError, OSError) as exc:
+        raise fail(f"not removed: {exc}") from None
+    if OPTS.json:
+        emit_json({"removed": target.id})
+        return
+    console.print(f"[green]✓[/green] removed {esc(label)} (backup: {esc(cfg.path)}.bak)")
+
+
 @config_app.command("edit")
 def config_edit() -> None:
     """Open the config in $EDITOR and validate it afterwards."""
@@ -447,7 +488,10 @@ def courses_cmd(
         return
     console.print(report.courses_table(entries, sem.title if sem else "all semesters"))
     for c in missing:
-        console.print(f"[yellow]Configured but not on Stud.IP:[/yellow] {esc(c.id)} {esc(c.name)}")
+        console.print(
+            f"[yellow]Configured but not on Stud.IP:[/yellow] {esc(c.id)} {esc(c.name)}"
+            f" [dim](remove: studip config remove-course {esc(c.id)})[/dim]"
+        )
 
 
 @app.command("sync")

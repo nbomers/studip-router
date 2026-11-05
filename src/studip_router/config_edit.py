@@ -86,6 +86,19 @@ def set_course(path: Path, course_id: str, **fields: Any) -> Config:
     return _save(path, doc)
 
 
+def remove_course(path: Path, course_id: str) -> Config:
+    """Delete ``[courses.<id>]`` with its rules (a course that is gone from Stud.IP).
+
+    The first change of a session leaves ``config.toml.bak`` next to the file.
+    """
+    doc = _load(path)
+    courses = doc.get("courses")
+    if courses is None or course_id not in courses:
+        raise KeyError(course_id)
+    del courses[course_id]
+    return _save(path, doc)
+
+
 def open_in_editor(path: Path) -> str | None:
     """Open ``path`` in $VISUAL/$EDITOR (quoted arguments allowed), else nano or vi.
 

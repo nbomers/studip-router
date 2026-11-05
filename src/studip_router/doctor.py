@@ -75,7 +75,8 @@ def _check_paths(cfg: Config) -> Iterator[Check]:
                 f"course {label}",
                 Level.FAIL,
                 f"folder {directory} does not exist - renamed or moved? "
-                "Courses (c): Enter chooses its folder",
+                "Courses (c): Enter chooses its folder. Left the course on Stud.IP? "
+                "Courses (c): x removes it",
             )
             continue
         missing = [

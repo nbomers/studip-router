@@ -64,7 +64,11 @@ Screenshots in the README come from `uv run python scripts/make_screenshots.py` 
    - `studip` (UI): home screen status arrives, `p` preview, `s` sync, Enter again
      after the sync (must reload, never re-run), `a` announcements, `,` settings
    - when the state schema changed: open a copy of an old state database once
-     (copy `state.sqlite` to `state-smoke.sqlite`, then `STUDIP_ROUTER_PROFILE=smoke`)
+     (a profile needs both files: `mkdir -p ~/.config/studip-router/profiles`, copy
+     `~/.config/studip-router/config.toml` to
+     `~/.config/studip-router/profiles/smoke.toml` and
+     `~/.local/state/studip-router/state.sqlite` to `state-smoke.sqlite` in the same
+     folder, then `STUDIP_ROUTER_PROFILE=smoke uv run studip sync --dry-run`)
    Write down in the pull request which instance and version were checked.
 5. Merge to `main`, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
