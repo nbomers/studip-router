@@ -210,7 +210,7 @@ class StudipClient:
             ) from None
         if not isinstance(doc, dict):
             raise ApiError(f"unexpected JSON from {url}")
-        return _clean(doc)  # type: ignore[no-any-return]
+        return _clean(doc)
 
     def _paginate(
         self, path: str, params: dict[str, Any] | None = None

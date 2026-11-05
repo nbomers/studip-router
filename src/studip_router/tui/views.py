@@ -134,6 +134,7 @@ class View(Screen):
     BINDINGS: ClassVar = [
         Binding("escape,q", "app.pop_screen", "Back"),
         Binding("comma", "app.open_settings", "Settings"),
+        Binding("question_mark", "app.show_help", "Help", show=False),  # "? everywhere"
         Binding("j", "cursor('down')", show=False),
         Binding("k", "cursor('up')", show=False),
     ]
@@ -1014,6 +1015,7 @@ class NewsView(View):
         super().__init__()
         self.items: list[News] = []
         self.show_all = False
+        self.marked = False  # something was marked read: home recounts once, on leaving
 
     def compose(self) -> ComposeResult:
         yield from self.compose_header()
@@ -1078,7 +1080,12 @@ class NewsView(View):
         )
         with State(paths.state_db()) as state:
             state.mark_news_seen([(n.id, n.course_id)])
-        self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
+        # Not here: every cursor move would fetch all courses from Stud.IP again.
+        self.marked = True
+
+    def on_unmount(self) -> None:
+        if self.marked:
+            self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
 
     def action_toggle_all(self) -> None:
         self.show_all = not self.show_all
@@ -1146,11 +1153,10 @@ class RulesView(View):
                     )
                     or "everything"
                 )
-                target = "[dim]skip[/dim]" if r.skip else r.target
+                target = "[dim]skip[/dim]" if r.skip else f"[b]{esc(r.target)}[/b]"
                 rename = f"  [dim]rename {esc(r.rename)}[/dim]" if r.rename else ""
                 lines.append(
-                    f"  {esc(i)}. [b]{esc(r.id)}[/b]: {esc(clip(what, 60))} → [b]{esc(target)}[/b]"
-                    f"{rename}"
+                    f"  {esc(i)}. [b]{esc(r.id)}[/b]: {esc(clip(what, 60))} → {target}{rename}"
                 )
             if not c.rules:
                 lines.append("  [dim]no rules - folder and file names decide[/dim]")
@@ -1412,9 +1418,7 @@ class MergeView(View):
 
     def on_mount(self) -> None:
         self.query_one(DataTable).add_columns("Course", "Slides from", "→ One PDF", "Last run")
-        self.fill()
-        if any(c.merge for c in self.courses):
-            self.action_merge()
+        self.fill()  # merging writes files: only on "m" (and after each sync)
 
     def fill(self) -> None:
         self.courses = [c for c in self.cfg.courses.values() if not c.exclude]

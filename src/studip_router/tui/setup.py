@@ -55,7 +55,7 @@ def _split(text: str) -> tuple[str, ...]:
 
 
 class SetupScreen(Screen):
-    BINDINGS: ClassVar = [Binding("escape", "app.quit", "Quit")]
+    BINDINGS: ClassVar = [Binding("escape", "back", "Back")]
 
     def __init__(self) -> None:
         super().__init__()
@@ -64,6 +64,27 @@ class SetupScreen(Screen):
         self.semester = ""
         self.root_paths: list[Path] = []
         self.home = Path.home()
+
+    def action_back(self) -> None:
+        """Esc goes one step back, as everywhere else; on step 1 it asks before quitting."""
+        step2, step3 = self.query_one("#step2"), self.query_one("#step3")
+        if step3.display:
+            step3.display = False
+            step2.display = True
+            self.query_one("#root-choices").focus()
+        elif step2.display:
+            step2.display = False
+            self.query_one("#step1").display = True
+            self.query_one("#url", Input).focus()
+        else:
+
+            def confirmed(ok: bool | None) -> None:
+                if ok:
+                    self.app.exit()
+
+            self.app.push_screen(
+                ConfirmScreen("Quit the setup?", "Nothing is saved yet."), confirmed
+            )
 
     def compose(self) -> ComposeResult:
         yield Static(

@@ -484,6 +484,10 @@ class StudipRouterApp(App):
             if isinstance(screen, HomeScreen):
                 screen.refresh_status()
 
+    def action_show_help(self) -> None:
+        if not isinstance(self.screen, HelpScreen):
+            self.push_screen(HelpScreen())
+
     def action_open_settings(self) -> None:
         """Settings from every screen (","); never stacked twice."""
         if isinstance(self.screen, SettingsScreen):

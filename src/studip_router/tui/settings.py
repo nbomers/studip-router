@@ -303,7 +303,6 @@ class SettingRow(Widget, can_focus=True):
     DEFAULT_CSS = """
     SettingRow { height: 1; padding: 0 2; }
     SettingRow:focus { height: 2; background: $accent 25%; }
-    SettingRow:focus { background: $boost; }
     """
     BINDINGS: ClassVar = [
         Binding("left,h", "move(-1)", "←", show=False),
@@ -471,6 +470,7 @@ class SettingsScreen(Screen):
     TITLE = "Settings"
     BINDINGS: ClassVar = [
         Binding("escape,q", "app.pop_screen", "Back"),
+        Binding("question_mark", "app.show_help", "Help", show=False),
         Binding("j,down", "app.focus_next", "Down", show=False),
         Binding("k,up", "app.focus_previous", "Up", show=False),
         Binding("h,left", "change(-1)", "← change"),
@@ -558,7 +558,10 @@ class SettingsScreen(Screen):
 
     def _save(self, row: SettingRow, value: Any) -> None:
         setting = row.setting
-        cfg: Config = self.app.cfg  # type: ignore[attr-defined]
+        cfg: Config | None = self.app.cfg  # type: ignore[attr-defined]
+        if cfg is None:
+            self.notify("The config file has a problem; fix it first (e).", severity="error")
+            return
         try:
             new_cfg = set_value(cfg.path, setting.keys, setting.to_config(cfg, value))
         except (ConfigError, OSError) as exc:
@@ -571,7 +574,10 @@ class SettingsScreen(Screen):
 
     def _edit_text(self, row: SettingRow) -> None:
         setting = row.setting
-        cfg: Config = self.app.cfg  # type: ignore[attr-defined]
+        cfg: Config | None = self.app.cfg  # type: ignore[attr-defined]
+        if cfg is None:
+            self.notify("The config file has a problem; fix it first (e).", severity="error")
+            return
 
         def save(text: str | None) -> None:
             if text is None or setting.parse is None:
@@ -622,6 +628,9 @@ class SettingsScreen(Screen):
                 severity="error",
                 timeout=10,
             )
+            # Settings cannot work without a config: back to home, which shows the
+            # problem and opens the file again with Enter.
+            self.app.pop_screen()
             return
         for row in self.query(SettingRow):
             row.set_value(row.setting.current(self.app.cfg))  # type: ignore[attr-defined]

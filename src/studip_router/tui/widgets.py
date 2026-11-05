@@ -265,7 +265,7 @@ HELP = """\
   Enter  do the suggested step
   s  sync          p  preview
   w  what's new    r  rules
-  a  news          o  reorganize (u undo)
+  a  announcements o reorganize (u undo)
   t  dates         m  merge slides
   c  courses       d  doctor
   +  more / fewer
