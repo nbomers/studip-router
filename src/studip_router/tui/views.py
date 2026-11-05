@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -186,6 +187,11 @@ class View(Screen):
                 yield item
         finally:  # also when the caller stops early or fails: never a stuck bar
             self.idle()
+
+    def short_paths(self, text: str) -> str:
+        """Error texts name absolute paths; inside the sync folder the rest is enough."""
+        root = str(self.cfg.root)
+        return text.replace(root + "/", "").replace(str(Path.home()), "~")
 
     @property
     def cfg(self) -> Config:
@@ -595,7 +601,7 @@ class SyncView(View):
         self.query_one("#progress", ProgressBar).advance(1)
         name = action.dest.name if action.dest else ""
         self.query_one(RichLog).write(
-            f"[red]✗[/] {esc(clip(name, 60))}  [dim]{esc(clip(message, 80))}[/]"
+            f"[red]✗[/] {esc(clip(name, 60))}  [dim]{esc(clip(self.short_paths(message), 80))}[/]"
         )
 
     def _finish_run(self, result) -> None:
@@ -614,7 +620,8 @@ class SyncView(View):
             + "."
         )
         for action, msg in result.outcome.failed:
-            log.write(f"[red]✗ {esc(action.file.name if action.file else '')}: {esc(msg)}[/red]")
+            name = action.file.name if action.file else ""
+            log.write(f"[red]✗ {esc(name)}: {esc(self.short_paths(msg))}[/red]")
         failed_ids = {id(a) for a, _ in result.outcome.failed}
         if self.plan is not None:
             for course_plan in self.plan.plans:
@@ -1016,6 +1023,8 @@ class NewsView(View):
         self.items: list[News] = []
         self.show_all = False
         self.marked = False  # something was marked read: home recounts once, on leaving
+        self.current: int | None = None  # index shown right now
+        self.moved = False  # the user moved through the list
 
     def compose(self) -> ComposeResult:
         yield from self.compose_header()
@@ -1050,6 +1059,7 @@ class NewsView(View):
 
     def fill(self, items: list[News]) -> None:
         self.items = items
+        self.current = None  # a new list: nothing shown yet
         options = self.query_one(OptionList)
         options.clear_options()
         for n in items:
@@ -1078,14 +1088,32 @@ class NewsView(View):
         self.query_one("#news-text", Static).update(
             f"[b]{esc(n.title)}[/b]\n[dim]{esc(n.course)} · {esc(when)}[/dim]\n\n{esc(n.text)}"
         )
+        # Read = looked at and moved on (or Enter): the one shown when the screen
+        # opens is not read just because it was first in the list.
+        if self.current is not None and self.current != event.option_index:
+            self._mark(self.current)
+            self.moved = True
+        self.current = event.option_index
+
+    @on(OptionList.OptionSelected)
+    def read(self, event: OptionList.OptionSelected) -> None:
+        self._mark(event.option_index)
+
+    def _mark(self, index: int) -> None:
+        if index >= len(self.items):
+            return
+        n = self.items[index]
         with State(paths.state_db()) as state:
             state.mark_news_seen([(n.id, n.course_id)])
-        # Not here: every cursor move would fetch all courses from Stud.IP again.
+        # The home screen recounts once, on leaving: not a full fetch per cursor move.
         self.marked = True
 
     def on_unmount(self) -> None:
+        if self.moved and self.current is not None:
+            self._mark(self.current)
         if self.marked:
-            self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
+            with contextlib.suppress(Exception):  # the app may be closing
+                self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
 
     def action_toggle_all(self) -> None:
         self.show_all = not self.show_all

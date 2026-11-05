@@ -356,6 +356,7 @@ class SetupScreen(Screen):
             path = paths.config_file()
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
+            paths.private_file(path)
             self.values.pop("password", None)  # stored in the keychain; drop the copy
             self.app.finish_setup()  # type: ignore[attr-defined]
 

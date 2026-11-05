@@ -402,6 +402,7 @@ def init_cmd(
     if path.exists():
         shutil.copy2(path, path.with_name(path.name + ".bak"))
     path.write_text(text, encoding="utf-8")
+    paths.private_file(path)
     console.print(f"\n[green]✓[/green] Wrote {esc(path)}")
     console.print(
         "Next: [bold]studip rules suggest --write[/bold], then [bold]studip sync --dry-run[/bold]."

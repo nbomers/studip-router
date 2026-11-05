@@ -167,7 +167,11 @@ _FALSE_FRIENDS = re.compile(
     r"example\w*|exemplar\w*"
     r"|cheat ?sheets?|data ?sheets?|spread ?sheets?|cover ?sheets?|info ?sheets?"
     r"|(?:merk|deck|info|daten|hinweis|bei|anmelde|formel)blae?tt\w*"
-    r"|laufzettel\w*|stundenzettel\w*"
+    r"|laufzettel\w*|stundenzettel\w*|(?:spick|notiz|hand)zettel\w*"
+    r"|(?:titel|kalender)blae?tt\w*|sheet ?music"
+    r"|(?:labor|praktikums|uebungs)ordnung\w*"
+    r"|(?:klausur|pruefungs?)anmeldung\w*"
+    r"|facebook\w*|wallpaper\w*"
     r"|(?<![a-z])scripts(?![a-z])|(?<![a-z])(?:source ?)?code(?![a-z])"
     r"|pruefungs?(?:ordnung|amt|ausschuss|recht)\w*"
     r"|vorlesungs(?:verzeichnis|frei|zeit|plan|beginn|ende)\w*"
@@ -189,7 +193,8 @@ def normalise_name(text: str) -> str:
 def _has_keyword(text: str, keywords: tuple[str, ...]) -> bool:
     for kw in keywords:
         if len(kw) <= 3:  # short ones ("vl", "lab", "alt", "old") only as whole words
-            if re.search(rf"(?<![a-z]){re.escape(kw)}(?![a-z])", text):
+            # whole word, plural too: "Labs", "HWs", "VLs"
+            if re.search(rf"(?<![a-z]){re.escape(kw)}s?(?![a-z])", text):
                 return True
         elif kw in text:
             return True
@@ -290,7 +295,8 @@ def file_category(name: str) -> str | None:
     if ext.lower() == "ipynb":  # Jupyter notebooks are worked on like exercise sheets
         return "exercises"
     category = _category(stem)
-    if category == "slides" and ext.lower() in _CODE_EXT:
+    # "script.py", and "script.py.zip" too: any code extension, not only the last
+    if category == "slides" and any(e in _CODE_EXT for e in name.lower().split(".")[1:]):
         return None
     return category
 
@@ -325,7 +331,14 @@ def local_category_dirs(subdirs: list[str], category: str) -> list[str]:
     scored: list[tuple[int, str]] = []
     for rel in subdirs:
         parts = [normalise_name(p) for p in rel.split("/")]
-        if any(_has_keyword(p, _ARCHIVE) for p in parts):
+        old_exams = (
+            category == "exams"
+            and len(parts) > 1
+            and _has_keyword(parts[0], keywords)
+            and _has_keyword(parts[-1], (*_PAST, "altklausur"))
+        )
+        # "Klausur/Alt" is where old exams belong, not an archive to keep away from
+        if not old_exams and any(_has_keyword(p, _ARCHIVE) for p in parts):
             continue
         if not _has_keyword(parts[-1], keywords) and not (
             category == "exams"
@@ -348,6 +361,17 @@ def _local_target(category: str, subdirs: list[str]) -> str | None:
     if category == "solutions":  # no own folder: solutions go with the exercises
         return _local_target("exercises", subdirs)
     return None
+
+
+def _raw_spelling(pattern: str) -> str:
+    """A pattern over normalised names ("ue", spaces) for names as they are."""
+    pattern = pattern.replace("ae?", "(?:ae?|ä)")  # "blae?tt": Blatt, Blaetter, Blätter
+    for plain, umlaut in (("ae", "ä"), ("oe", "ö"), ("ue", "ü")):
+        pattern = re.sub(rf"{plain}(?![?|)])", f"(?:{plain}|{umlaut})", pattern)
+    return pattern.replace(" ?", "[ _.+-]?")
+
+
+_RAW_FALSE_FRIENDS = _raw_spelling(_FALSE_FRIENDS.pattern)
 
 
 def _with_umlauts(keyword: str) -> str:
@@ -453,7 +477,10 @@ def suggest_rules(
         target = _local_target(category, subdirs)
         if target is None:
             continue
-        pattern = "|".join(_with_umlauts(k) for k in keywords[category] if len(k) > 3)
+        words = "|".join(_with_umlauts(k) for k in keywords[category] if len(k) > 3)
+        # Never "Merkblatt", "Examples", "Laufzettel": the classifier's exclusion list
+        # as a look-ahead, so the rule does not undo what automatic sorting knows.
+        pattern = f"^(?!.*(?:{_RAW_FALSE_FRIENDS}))(?:.*(?:{words}))"
         rule_id = _unique(f"{category}-by-name", taken)
         suggestions.append(
             Suggestion(
