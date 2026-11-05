@@ -16,7 +16,16 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Input, Label, OptionList, SelectionList, Static
+from textual.widgets import (
+    Button,
+    Footer,
+    Input,
+    Label,
+    OptionList,
+    ProgressBar,
+    SelectionList,
+    Static,
+)
 from textual.widgets.option_list import Option
 
 from .. import auth, paths
@@ -71,6 +80,9 @@ class SetupScreen(Screen):
                 yield Input(password=True, id="password")
                 yield Button("Connect", variant="primary", id="connect")
                 yield Static(id="status", classes="status")
+                busy = ProgressBar(id="busy", show_eta=False, show_percentage=False)
+                busy.display = False
+                yield busy
             with Vertical(id="step2", classes="form"):
                 yield Static(id="root-title")
                 yield OptionList(id="root-choices")
@@ -121,10 +133,22 @@ class SetupScreen(Screen):
             )
             return
         self.query_one("#status", Static).update("Connecting…")
+        bar = self.query_one("#busy", ProgressBar)
+        bar.update(total=None)
+        bar.display = True
         self._connect(values)
+
+    def _hide_busy(self) -> None:
+        self.query_one("#busy", ProgressBar).display = False
 
     @work(thread=True, exclusive=True)
     def _connect(self, values: dict[str, str]) -> None:
+        try:
+            self._connect_and_look(values)
+        finally:
+            self.app.call_from_thread(self._hide_busy)
+
+    def _connect_and_look(self, values: dict[str, str]) -> None:
         try:
             with StudipClient(
                 values["url"].rstrip("/"), values["username"], values["password"]

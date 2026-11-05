@@ -279,3 +279,11 @@ def test_old_semester_file_with_same_name_is_left_alone(
     plan = _plan(cfg, state, [remote("Aufgabe 1.pdf", size=3)], fresh_since=SEMESTER_START)
     assert _kinds(plan) == [Kind.DOWNLOAD]
     assert plan.actions[0].dest.name == "Aufgabe 01.pdf"
+
+
+def test_system_files_from_stud_ip_are_skipped(cfg: Config, state: State, root: Path) -> None:
+    files = [remote(".DS_Store"), remote("Thumbs.db"), remote("._Blatt.pdf"), remote("a.pdf")]
+    plan = _sync(cfg, state, files)
+    skipped = {a.file.name: a.reason for a in plan.actions if a.kind is Kind.SKIP}
+    assert skipped == {n: "system file" for n in (".DS_Store", "Thumbs.db", "._Blatt.pdf")}
+    assert not (root / "Example Course" / "Sonstiges" / "ds_store").exists()

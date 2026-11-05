@@ -16,7 +16,7 @@ from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.screen import Screen
 from textual.widget import Widget
@@ -302,7 +302,7 @@ class SettingRow(Widget, can_focus=True):
 
     DEFAULT_CSS = """
     SettingRow { height: 1; padding: 0 2; }
-    SettingRow:focus { height: 2; }
+    SettingRow:focus { height: 2; background: $accent 25%; }
     SettingRow:focus { background: $boost; }
     """
     BINDINGS: ClassVar = [
@@ -410,6 +410,59 @@ class SettingRow(Widget, can_focus=True):
         self.refresh()
 
 
+# What most people change; everything else sits under "advanced".
+ESSENTIALS = (
+    "course folders in",
+    "default folder",
+    "auto-sync",
+    "notifications",
+    "skip videos",
+    "size limit",
+    "unzip archives",
+    "theme",
+)
+
+
+class AdvancedToggle(Widget, can_focus=True):
+    """A row that opens and closes the advanced settings (Enter, Space, ←/→)."""
+
+    DEFAULT_CSS = """
+    AdvancedToggle { height: 1; padding: 0 2; margin-top: 1; }
+    AdvancedToggle:focus { background: $accent 25%; }
+    """
+    BINDINGS: ClassVar = [
+        Binding("enter,space,left,right,h,l", "flip", "Advanced", show=False),
+    ]
+
+    class Toggled(Message):
+        pass
+
+    def __init__(self, count: int) -> None:
+        super().__init__()
+        self.count = count
+        self.open = False
+
+    def render(self) -> Text:
+        accent = getattr(self.app.current_theme, "accent", None) or "magenta"
+        text = Text()
+        text.append("▾ " if self.open else "▸ ", style=f"bold {accent}")
+        text.append("advanced", style=f"bold {accent}")
+        text.append(f"  {self.count} more settings" if not self.open else "  hide", style="dim")
+        return text
+
+    def action_flip(self) -> None:
+        self.post_message(self.Toggled())
+
+    def on_click(self) -> None:
+        self.action_flip()
+
+    def on_focus(self) -> None:
+        self.refresh()
+
+    def on_blur(self) -> None:
+        self.refresh()
+
+
 class _SettingsList(VerticalScroll, can_focus=False):
     """Scrolls, but j/k focus moves between the rows only."""
 
@@ -433,19 +486,39 @@ class SettingsScreen(Screen):
             " [b]Settings[/b]  [dim]←/→ change · ↑/↓ move · saved at once[/dim]",
             classes="view-title",
         )
+        everything = {s.label: s for _, settings in SECTIONS for s in settings}
+        advanced = sum(1 for label in everything if label not in ESSENTIALS)
         with _SettingsList(id="settings"):
             yield Static(id="account", classes="section")
-            for section, settings in SECTIONS:
-                yield Static(f"  {esc(section)}", classes="section-title")
-                for setting in settings:
-                    yield SettingRow(setting, setting.current(cfg))
-            yield Static(f"\n  [dim]config: {esc(cfg.path)}[/dim]", id="config-path")
+            yield Static("  essentials", classes="section-title")
+            for label in ESSENTIALS:
+                if label in everything:
+                    yield SettingRow(everything[label], everything[label].current(cfg))
+            yield AdvancedToggle(advanced)
+            with Vertical(id="advanced"):
+                for section, settings in SECTIONS:
+                    rest = [s for s in settings if s.label not in ESSENTIALS]
+                    if not rest:
+                        continue
+                    yield Static(f"  {esc(section)}", classes="section-title")
+                    for setting in rest:
+                        yield SettingRow(setting, setting.current(cfg))
+                yield Static(f"\n  [dim]config: {esc(cfg.path)}[/dim]", id="config-path")
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#advanced").display = False
         self.refresh_account()
         self.query(SettingRow).first().focus(scroll_visible=False)
         self.query_one("#settings").scroll_home(animate=False)
+
+    def on_advanced_toggle_toggled(self, _message: AdvancedToggle.Toggled) -> None:
+        toggle = self.query_one(AdvancedToggle)
+        toggle.open = not toggle.open
+        self.query_one("#advanced").display = toggle.open
+        toggle.refresh()
+        if toggle.open:
+            self.query_one("#settings").scroll_to_widget(toggle, top=True, animate=False)
 
     def refresh_account(self) -> None:
         cfg: Config = self.app.cfg  # type: ignore[attr-defined]

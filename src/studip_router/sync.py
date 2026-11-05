@@ -50,6 +50,7 @@ class SyncPlan:
     missing: list[CourseConfig] = field(default_factory=list)  # configured, not on Stud.IP
     errors: list[tuple[str, str]] = field(default_factory=list)  # (course, problem)
     warnings: list[str] = field(default_factory=list)
+    closed: list[str] = field(default_factory=list)  # courses whose files are closed to you
 
 
 def _norm_semester(title: str) -> str:
@@ -148,7 +149,9 @@ def build_plan(
     semester_name: str | None = None,
     course_query: str | None = None,
     include_large: bool = False,
+    on_course: Callable[[int, int, str], None] | None = None,
 ) -> SyncPlan:
+    """Plan every selected course; ``on_course(done, total, title)`` reports progress."""
     semester = resolve_semester(client, semester_name or cfg.semester)
     strict = semester_name is not None or cfg.semester not in ("current", "all")
     entries, missing = list_courses(client, cfg, semester, strict=strict)
@@ -171,7 +174,9 @@ def build_plan(
         entry = select_course(entries, course_query)
         selected = [s for s in selected if s[0].id == entry.course.id]
 
-    for course, course_cfg, implicit in selected:
+    for index, (course, course_cfg, implicit) in enumerate(selected):
+        if on_course is not None:
+            on_course(index, len(selected), course_cfg.name or course.title)
         try:
             files = client.files(course.id)
             if cfg.course_courseware(course_cfg):
@@ -191,6 +196,14 @@ def build_plan(
             )
         except AuthFailed:
             raise  # a rejected login is not retried for every course
+        except ApiError as exc:
+            if exc.no_access:  # files switched off for the course, or not for your role
+                log.info("course %s: files closed (%s)", course.title, exc)
+                result.closed.append(course_cfg.name or course.title)
+                continue
+            log.error("course %s failed: %s", course.title, exc, exc_info=True)
+            result.errors.append((course_cfg.name or course.title, str(exc)))
+            continue
         except Exception as exc:  # one broken course must not stop the others
             log.error("course %s failed: %s", course.title, exc, exc_info=True)
             result.errors.append((course_cfg.name or course.title, str(exc) or repr(exc)))

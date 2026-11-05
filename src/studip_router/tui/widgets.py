@@ -16,6 +16,27 @@ from textual.widgets.option_list import Option
 from ..config import Config
 from ..report import esc
 
+# One colour per course, the same on every screen and every run. Red, green and
+# yellow are left out: they mean error, done and "needs a look".
+COURSE_COLORS = (
+    "#61afef",  # blue
+    "#c678dd",  # purple
+    "#56b6c2",  # teal
+    "#d19a66",  # orange
+    "#e88fc9",  # pink
+    "#7aa2f7",  # sky
+    "#b4befe",  # lavender
+    "#f5a97f",  # salmon
+)
+
+
+def course_color(course_id: str) -> str:
+    """Stable colour for a course (from its Stud.IP id)."""
+    import hashlib
+
+    digest = hashlib.sha1(course_id.encode(), usedforsecurity=False).digest()
+    return COURSE_COLORS[digest[0] % len(COURSE_COLORS)]
+
 
 class ConfirmScreen(ModalScreen[bool]):
     """Yes/no question. y/Enter confirms, n/Esc cancels.
@@ -158,31 +179,24 @@ class ChoiceScreen(ModalScreen[Any]):
 
 HELP = """\
 [b]Everywhere[/b]
-  j / k  or  ↑ / ↓      move
-  Enter                 open / confirm
-  Esc  or  q            back
-  ?                     this help
+  ↑ ↓  or  j k     move
+  Enter            open / confirm
+  Esc              back
+  ,                settings
+  ?                this help
 
 [b]Home[/b]
-  Enter  on the first line: do the suggested next step
-  s   Sync now (summary, then confirm)
-  p   Preview: every file and where it goes
-  w   What's new: recently synced files
-  a   Announcements
-  c   Courses: turn syncing on/off, add new courses
-  r   Rules: suggestions, test a file name, your rules
-  o   Reorganize already synced files (u: undo)
-  m   Merge slide PDFs
-  ,   Settings
-  d   Doctor: check the setup
-
-[b]Settings[/b]
-  h / l  or  ← / →      change the value (saved immediately)
-  e                     open the config file in $EDITOR
+  Enter  do the suggested step
+  s  sync          p  preview
+  w  what's new    r  rules
+  a  news          o  reorganize (u undo)
+  t  dates         m  merge slides
+  c  courses       d  doctor
+  +  more / fewer
 
 [b]Lists[/b]
-  Space                 toggle (courses, rule suggestions)
-  o / r / Space         open / reveal / Quick Look (What's new)
+  Space      tick / untick
+  ← →        change a setting (saved at once)
 """
 
 

@@ -48,17 +48,17 @@ LOGO = "[b]studip[/b][dim]·[/dim]router"
 # key, title, description, factory. The first PRIMARY ones are always on the home
 # screen; the rest sit behind "More" (their keys work everywhere anyway).
 ACTIONS: list[tuple[str, str, str, Callable[[], Screen]]] = [
-    ("s", "Sync now", "download what is new", lambda: SyncView(True)),
-    ("w", "What's new", "files from the last syncs", HistoryView),
-    ("a", "Announcements", "news from your courses", NewsView),
-    ("t", "Dates", "cancelled or moved dates, exams", DatesView),
-    ("c", "Courses", "choose which courses to sync", CoursesView),
-    ("p", "Preview", "every file and where it would go, nothing changes", SyncView),
-    ("r", "Rules", "where files go: suggestions, test a name, your rules", RulesView),
-    ("o", "Reorganize", "move synced files after rules changed (undo: u)", ReorganizeView),
-    ("m", "Merge slides", "combine lecture PDFs into one file", MergeView),
-    ("comma", "Settings", "sync, file names, auto-sync, theme, account", SettingsScreen),
-    ("d", "Doctor", "check config, folders, login and server", DoctorView),
+    ("s", "Sync now", "get new files", lambda: SyncView(True)),
+    ("w", "What's new", "latest files", HistoryView),
+    ("a", "Announcements", "course news", NewsView),
+    ("t", "Dates", "changes, exams", DatesView),
+    ("c", "Courses", "what to sync", CoursesView),
+    ("p", "Preview", "where files would go", SyncView),
+    ("r", "Rules", "sort files your way", RulesView),
+    ("o", "Reorganize", "move to new folders", ReorganizeView),
+    ("m", "Merge slides", "all slides in one PDF", MergeView),
+    ("comma", "Settings", "options, account", SettingsScreen),
+    ("d", "Doctor", "check the setup", DoctorView),
 ]
 PRIMARY = {"s", "w", "a", "t", "c"}
 NEEDS_LOGIN = {"s", "p", "a", "c", "r", "t"}
@@ -100,6 +100,7 @@ class HomeScreen(Screen):
             Binding(key, f"run('{key}')", title, show=key == "comma")
             for key, title, _, _ in ACTIONS
         ],
+        Binding("plus", "toggle_more", "More"),
         Binding("j", "move(1)", show=False),
         Binding("k", "move(-1)", show=False),
         Binding("question_mark", "help", "Help"),
@@ -142,11 +143,11 @@ class HomeScreen(Screen):
             actions.add_options(
                 [self._option(*a[:3], dim=True) for a in ACTIONS if a[0] not in PRIMARY]
             )
-            actions.add_option(Option(Text("  -  Fewer", style="dim"), id="more"))
+            actions.add_option(Option(Text("  +  Fewer", style="dim"), id="more"))
         else:
-            hidden = ", ".join(a[1].lower() for a in ACTIONS if a[0] not in PRIMARY)
+            hidden = "preview, rules, merge, settings …"
             text = Text(no_wrap=True, overflow="ellipsis")
-            text.append("  …  ", style="bold")
+            text.append("  +  ", style="bold")
             text.append(f"{'More':<15} ")
             text.append(hidden, style="dim")
             actions.add_option(Option(text, id="more"))
@@ -342,10 +343,13 @@ class HomeScreen(Screen):
     def selected(self, event: OptionList.OptionSelected) -> None:
         option_id = event.option.id or ""
         if option_id == "more":
-            HomeScreen.more = not HomeScreen.more
-            self._fill_actions(*self._next)
+            self.action_toggle_more()
             return
         self.action_run(option_id.removeprefix("next:"))
+
+    def action_toggle_more(self) -> None:
+        HomeScreen.more = not HomeScreen.more
+        self._fill_actions(*self._next)
 
     def action_run(self, key: str) -> None:
         if key == "login":
@@ -390,8 +394,8 @@ class StudipRouterApp(App):
     .section { padding: 1 0 0 0; height: auto; }
     .section-title { color: $accent; text-style: bold; padding: 1 2 0 2; height: auto; }
     DataTable { height: 1fr; }
-    #progress { padding: 0 2; height: 1; width: 100%; }
-    #progress Bar { width: 1fr; }
+    #progress, #busy { padding: 0 2; height: 1; width: 100%; }
+    #progress Bar, #busy Bar { width: 1fr; }
     #log, #merge-log, #doctor-log, #dates-log { height: 1fr; border: round $panel; padding: 0 1; }
     #news-list { width: 45%; }
     #news-body { padding: 1 2; border: round $panel; }
@@ -463,6 +467,12 @@ class StudipRouterApp(App):
         for screen in self.screen_stack:
             if isinstance(screen, HomeScreen):
                 screen.refresh_status()
+
+    def action_open_settings(self) -> None:
+        """Settings from every screen (","); never stacked twice."""
+        if isinstance(self.screen, SettingsScreen):
+            return
+        self.open_action("comma")
 
     def make_client(self) -> StudipClient:
         assert self.cfg is not None

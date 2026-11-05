@@ -199,7 +199,7 @@ whether its line is shown or not:
 |---|---|---|---|
 | `s` | **Sync now** (summary → confirm) | `r` | Rules: suggestions, test a file name |
 | `p` | Preview every file and its target | `o` | Reorganize synced files (`u` undo) |
-| `w` | What's new: open / reveal / preview | `m` | Merge slides into one PDF |
+| `w` | What's new: open / reveal / preview | `m` | Merge slides: pick the folder, one PDF |
 | `a` | Announcements | `t` | Dates: changes and exams |
 | `c` | Courses: sync on/off, choose folders | `,` | Settings |
 | `d` | Doctor: check the setup | `?` | all keys |
@@ -373,7 +373,7 @@ Rule sheets
 | `rename.strip_prefixes` | `[]` | e.g. `["Vorlesung_"]` |
 | `ui.theme` | `"tokyo-night"` | terminal UI colours |
 | `courses.<id>.exclude` | `false` | never touch this course |
-| `courses.<id>.merge` | – | `{ source = "Slides", output = "All slides.pdf" }` |
+| `courses.<id>.merge` | – | `{ source = "Slides", output = "All slides.pdf" }` — or in the UI: Merge slides (`m`), Enter on a course |
 
 From scripts: `studip config set sync.on_update skip`.
 

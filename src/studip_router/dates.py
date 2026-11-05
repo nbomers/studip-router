@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
 
-from .api import AuthFailed, StudipClient
+from .api import ApiError, AuthFailed, StudipClient
 from .models import CourseDate
 from .state import State
 
@@ -127,6 +127,13 @@ def check_dates(
             new = fetch_dates(client, course_id, title)
         except AuthFailed:
             raise  # a rejected login is not retried for every course
+        except ApiError as exc:
+            if exc.no_access:  # the course has no schedule or it is closed to you
+                log.info("no dates for %s: %s", title, exc)
+                continue
+            log.warning("dates of %s not checked: %s", title, exc, exc_info=True)
+            client.warnings.append(f"{title}: dates not checked ({exc})")
+            continue
         except Exception as exc:  # dates are extra: never fail the sync because of them
             log.warning("dates of %s not checked: %s", title, exc, exc_info=True)
             client.warnings.append(f"{title}: dates not checked ({exc})")

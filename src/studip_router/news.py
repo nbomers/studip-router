@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import html
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from html.parser import HTMLParser
 
-from .api import StudipClient
+from .api import ApiError, StudipClient
 from .state import State
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -62,8 +65,17 @@ def _parse_dt(value: str | None) -> datetime | None:
 
 
 def fetch_news(client: StudipClient, course_id: str, course_title: str) -> list[News]:
+    """Announcements of a course; none when the course has them switched off or
+    closed to you (HTTP 403/404) - that is a setting of the course, not an error."""
     result = []
-    for item, _ in client._paginate(f"/courses/{course_id}/news"):
+    try:
+        items = list(client._paginate(f"/courses/{course_id}/news"))
+    except ApiError as exc:
+        if not exc.no_access:
+            raise
+        log.info("no announcements for %s: %s", course_title, exc)
+        return []
+    for item, _ in items:
         attrs = item.get("attributes") or {}
         result.append(
             News(

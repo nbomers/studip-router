@@ -419,3 +419,36 @@ def test_scheduler_runs_this_installation(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(sys, "executable", str(venv_bin / "python"))
     monkeypatch.setenv("PATH", str(other))
     assert schedule.executable() == str(venv_bin / "studip")
+
+
+# -- a course that closes announcements or dates to you -----------------------------------
+
+
+@respx.mock
+def test_news_closed_to_you_is_no_error() -> None:
+    from studip_router.news import fetch_news
+
+    respx.get(f"{API}/courses/{COURSE}/news").mock(return_value=httpx.Response(403))
+    with StudipClient(BASE, "jdoe", "pw") as client:
+        assert fetch_news(client, COURSE, "Closed course") == []
+
+
+@respx.mock
+def test_news_server_errors_still_raise() -> None:
+    from studip_router.news import fetch_news
+
+    respx.get(f"{API}/courses/{COURSE}/news").mock(return_value=httpx.Response(400))
+    with StudipClient(BASE, "jdoe", "pw") as client, pytest.raises(ApiError) as exc:
+        fetch_news(client, COURSE, "Broken course")
+    assert exc.value.status == 400 and not exc.value.no_access
+
+
+@respx.mock
+def test_dates_closed_to_you_are_skipped_quietly(tmp_path: Path) -> None:
+    from studip_router.dates import check_dates
+    from studip_router.state import State
+
+    respx.get(url__regex=rf"{API}/courses/{COURSE}/events.*").mock(return_value=httpx.Response(403))
+    with StudipClient(BASE, "jdoe", "pw") as client, State(tmp_path / "s.sqlite") as state:
+        assert check_dates(client, state, [(COURSE, "Closed course")]) == []
+        assert client.warnings == []
