@@ -59,7 +59,7 @@ complete -c studip -n "__fish_seen_subcommand_from completion" -xa 'zsh bash fis
 complete -c studip -n "__fish_seen_subcommand_from init" -l force -d 'Overwrite config'
 
 complete -c studip -n "__fish_seen_subcommand_from auth; and not __fish_seen_subcommand_from login status logout" -a 'login status logout'
-complete -c studip -n "__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from path validate edit set" -a 'path validate edit set'
+complete -c studip -n "__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from path validate edit set remove-course" -a 'path validate edit set remove-course'
 complete -c studip -n "__fish_seen_subcommand_from schedule; and not __fish_seen_subcommand_from install uninstall status run-now" -a 'install uninstall status run-now'
 complete -c studip -n "__fish_seen_subcommand_from ignore; and not __fish_seen_subcommand_from add list remove" -a 'add list remove'
 complete -c studip -n "__fish_seen_subcommand_from pdf-password; and not __fish_seen_subcommand_from set list remove" -a 'set list remove'

@@ -32,8 +32,8 @@ from textual.widgets.option_list import Option
 
 from .. import doctor, paths
 from ..api import ApiError, AuthFailed, StudipClient
-from ..config import Config, ConfigError
-from ..config_edit import set_course
+from ..config import Config, ConfigError, CourseConfig
+from ..config_edit import remove_course, set_course
 from ..dates import Change, check_dates, upcoming_exams
 from ..fsutil import Locked
 from ..models import RemoteFile
@@ -456,7 +456,8 @@ class SyncView(View):
             names = ", ".join(clip(c.name or c.target, 30) for c in plan.missing)
             lines.append(
                 f"[yellow]! not on Stud.IP any more: {esc(names)}[/yellow] "
-                "[dim](deleted, or you left it - your files stay)[/dim]"
+                "[dim](deleted, or you left it - your files stay; Courses (c): x removes it"
+                " from the config)[/dim]"
             )
         if plan.unconfigured:
             lines.append(
@@ -690,17 +691,19 @@ class SyncView(View):
 
 class CoursesView(View):
     TITLE = "Courses"
-    HINT = "Space on/off · Enter folder · a all semesters"
+    HINT = "Space on/off · Enter folder · a all semesters · x remove a course gone from Stud.IP"
     BINDINGS: ClassVar = [
         *View.BINDINGS,
         Binding("space", "toggle_course", "On/off"),
         Binding("enter", "choose_folder", "Folder"),
         Binding("a", "toggle_all_semesters", "All semesters"),
+        Binding("x", "remove_course", "Remove"),
     ]
 
     def __init__(self) -> None:
         super().__init__()
         self.entries: list[CourseEntry] = []
+        self.missing: list[CourseConfig] = []  # in the config, no longer on Stud.IP
         self.all_semesters = False
         self.label = ""
 
@@ -728,10 +731,17 @@ class CoursesView(View):
             return
         label = sem.title if sem else "all semesters"
         self.idle()
-        self.app.call_from_thread(self.fill, entries, label, len(missing))
+        self.app.call_from_thread(self.fill, entries, label, missing)
 
-    def fill(self, entries: list[CourseEntry], label: str = "", missing: int = 0) -> None:
+    def fill(
+        self,
+        entries: list[CourseEntry],
+        label: str = "",
+        missing: list[CourseConfig] | None = None,
+    ) -> None:
         self.entries = entries
+        if missing is not None:
+            self.missing = missing
         self.label = label = label or self.label
         table = self.query_one(DataTable)
         cursor = table.cursor_row
@@ -757,18 +767,65 @@ class CoursesView(View):
                 Text(e.course.semester_title, style="dim"),
                 Text(clip(folder, 32)) if folder else Text("Enter: choose", style="yellow dim"),
             )
-        if entries:
-            table.move_cursor(row=min(cursor, len(entries) - 1))
+        for c in self.missing:
+            table.add_row(
+                Text("✗ gone", style="red"),
+                Text(clip(c.name or c.target or c.id, 48), style="dim"),
+                Text("not on Stud.IP", style="dim"),
+                Text("x: remove from config", style="yellow dim"),
+            )
+        rows = len(entries) + len(self.missing)
+        if rows:
+            table.move_cursor(row=min(cursor, rows - 1))
         on = sum(1 for e in entries if e.status is CourseStatus.ACTIVE)
         new = sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED)
         note = f"{plural(on, 'course')} synced [dim]of {len(entries)} · {esc(label)}[/dim]"
         if new:
             note += f'\n[yellow][b]{new} new[/b][/yellow] - Enter: choose a folder or "don\'t sync"'
-        if missing:
+        if self.missing:
             note += (
-                f"\n[yellow][b]{esc(missing)}[/b] set-up course(s) not found on Stud.IP[/yellow]"
+                f"\n[yellow][b]{len(self.missing)}[/b] set-up course(s) no longer on Stud.IP"
+                "[/yellow] [dim](deleted, or you left them) - x removes one from the config,"
+                " your files stay[/dim]"
             )
         self.status(note)
+
+    def _selected_missing(self) -> CourseConfig | None:
+        index = self.query_one(DataTable).cursor_row - len(self.entries)
+        return self.missing[index] if 0 <= index < len(self.missing) else None
+
+    def action_remove_course(self) -> None:
+        gone = self._selected_missing()
+        if gone is None:
+            self.notify(
+                "Only courses marked ✗ gone can be removed; Space turns a course off.",
+                severity="warning",
+            )
+            return
+        label = gone.name or gone.target or gone.id
+        rules = f" and its {plural(len(gone.rules), 'rule')}" if gone.rules else ""
+
+        def confirmed(ok: bool | None) -> None:
+            if not ok:
+                return
+            try:
+                self.app.cfg = remove_course(self.cfg.path, gone.id)  # type: ignore[attr-defined]
+            except (ConfigError, OSError, KeyError) as exc:
+                self.notify(f"Not removed: {esc(exc)}", severity="error")
+                return
+            self.missing = [c for c in self.missing if c.id != gone.id]
+            self.fill(self.entries)
+            self.app.refresh_home()  # type: ignore[attr-defined]
+            self.notify(f"Removed {esc(label)} from the config.")
+
+        self.app.push_screen(
+            ConfirmScreen(
+                f"Remove “{esc(label)}”{rules} from the config?",
+                "Files already synced stay where they are. A backup of the config is kept"
+                " as config.toml.bak.",
+            ),
+            confirmed,
+        )
 
     def _selected(self) -> CourseEntry | None:
         table = self.query_one(DataTable)
@@ -807,6 +864,9 @@ class CoursesView(View):
         self.action_choose_folder()
 
     def action_choose_folder(self) -> None:
+        if self._selected_missing() is not None:  # no folder to choose: offer removal
+            self.action_remove_course()
+            return
         entry = self._selected()
         if entry is None:
             return

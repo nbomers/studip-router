@@ -64,7 +64,7 @@ _studip() {
     courses) words="-s --semester" ;;
     init) words="--force" ;;
     auth) words="login status logout" ;;
-    config) words="path validate edit set" ;;
+    config) words="path validate edit set remove-course" ;;
     schedule) words="install uninstall status run-now" ;;
     ignore) words="add list remove" ;;
     pdf-password) words="set list remove" ;;

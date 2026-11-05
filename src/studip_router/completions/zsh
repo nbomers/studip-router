@@ -79,7 +79,7 @@ _studip() {
         courses) _arguments '(-s --semester)'{-s,--semester}'[Semester]:semester:(current all)' ;;
         init) _arguments '--force[Overwrite config]' ;;
         auth) _values 'auth command' login status logout ;;
-        config) _values 'config command' path validate edit set ;;
+        config) _values 'config command' path validate edit set remove-course ;;
         schedule) _values 'schedule command' install uninstall status run-now ;;
         ignore) _values 'ignore command' add list remove ;;
         pdf-password) _values 'pdf-password command' set list remove ;;

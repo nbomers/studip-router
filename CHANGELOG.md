@@ -12,6 +12,9 @@ All notable changes to this project are documented here. The format follows
 - `studip dates --ics FILE` writes all known course dates as a calendar file.
 - `[sync.keywords]`: your own words per category for automatic sorting.
 - `studip open COURSE` opens a course folder.
+- Courses you left (or that were deleted) on Stud.IP can be removed from the config:
+  `x` in Courses (they are listed as "✗ gone") or `studip config remove-course`.
+  Files already synced stay; the config keeps a `.bak` copy.
 - `studip completion zsh|bash|fish` prints the completion script; it now ships with
   the package, so installs from PyPI have it too. Adds zsh and bash completions.
 - Announcements: `x` marks all as read. `?` opens the help on every screen.
