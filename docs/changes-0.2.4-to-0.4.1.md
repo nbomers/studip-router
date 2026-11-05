@@ -30,12 +30,11 @@ All changes made on 2026-11-05: three releases on PyPI and four merged pull requ
 10. [Courses closed to you (HTTP 403/404)](#10-courses-closed-to-you-http-403404)
 11. [System files from Stud.IP](#11-system-files-from-studip)
 12. [Keys](#12-keys)
-13. [Release process and CI](#13-release-process-and-ci)
-14. [Documentation](#14-documentation)
-15. [Tests](#15-tests)
-16. [Coming from 0.2.x](#16-coming-from-02x)
-17. [Known limits](#17-known-limits)
-18. [Ideas and roadmap](#18-ideas-and-roadmap)
+13. [Coming from 0.2.x](#13-coming-from-02x)
+14. [Known limits](#14-known-limits)
+15. [Ideas and roadmap](#15-ideas-and-roadmap)
+
+Appendix for contributors: [A. Release process and CI](#a-release-process-and-ci) · [B. Documentation](#b-documentation) · [C. Tests](#c-tests)
 
 ---
 
@@ -264,7 +263,9 @@ The bar of the sync itself (one step per file) existed before.
 - **Every course has one colour, the same on every screen:** sync preview, Courses, What's new, Announcements, Dates, Rules, Merge and the sync log.
 - **Your Stud.IP colours first** *(0.4.1)*: the tool reads each course's colour group from Stud.IP. These are the colours of "My courses" and of your timetable. The nine Stud.IP colours (purple, pink, teal, orange, green, brown, lime, red, yellow) are slightly lightened so they stay readable on a dark terminal.
 - **Courses without a Stud.IP colour** get their own colour in the order of your config. Unlike in 0.4.0, no two courses share one (up to ten courses).
-- The colours are fetched in the background when the home screen loads and remembered in `course-colors.json` in the state folder (on macOS `~/.local/state/studip-router/`).
+- The colours are fetched in the background when the home screen loads and remembered in `course-colors.json` in the state folder (`~/.local/state/studip-router/` on macOS and Linux, or `$XDG_STATE_HOME/studip-router/` when that is set).
+- **Profiles share this file.** `course-colors.json` is not kept per profile, and each fetch replaces it. With two profiles (for example two universities), the Stud.IP colours of the profile opened last win; the other profile falls back to the config-order colours until its home screen fetches them again.
+- **Made for dark terminals.** The colours are lightened for a dark background. With the `textual-light` theme, light ones such as yellow (`#ffd47b`) may be hard to read. *Not tested.*
 - Red, green and yellow keep their meaning (error, done, needs a look) for status texts.
 
 ---
@@ -286,6 +287,13 @@ A course whose announcements, dates or files Stud.IP closes to you answers with 
   - Announcements and dates of such a course: none, without an error
 - **Other server errors** (500, 400, network) are still reported as errors.
 - A rejected login (401) still stops the run at once and pauses auto-sync.
+
+### Changed for scripts: exit code and notifications
+- **Exit code:** `studip sync` exits with 1 only for failed files and courses in `course_errors`. A course closed to you is no longer an error, so a sync that exited with **1** in 0.2.4 because of such a course now exits with **0**. Scripts that check the exit code no longer see it; read `closed_courses` from `--json` instead.
+- **Notifications:** the auto-sync notification counts problems the same way, so closed courses no longer appear as "n problem(s)".
+
+### Caveat: 404 is not always "closed"
+A 404 can also mean that a course was deleted on Stud.IP or that you are no longer a member. Since 0.4.0 that case is shown in grey as "closed to you" too, with exit code 0 and no notification. If a course disappears from your synced files without a reason, check it on Stud.IP.
 
 ---
 
@@ -318,69 +326,34 @@ All other keys are unchanged (`s`, `p`, `w`, `a`, `t`, `c`, `r`, `o`, `m`, `d`, 
 
 ---
 
-## 13. Release process and CI
-
-*0.3.0.*
-
-- **Release dry run:** `.github/workflows/release.yml` can be started by hand (*Actions → Release → Run workflow*). It runs the same checks, builds, hands the files over between jobs and checks they arrived, but **uploads nothing**. Publishing to PyPI only happens on a version tag.
-  - Reason: Dependabot had raised `actions/upload-artifact` from v4 to v7 and `actions/download-artifact` from v4 to v8, in a workflow that only runs on tags. The dry run was green before 0.3.0.
-  - When to run it: after every change to `release.yml` or its actions. `CONTRIBUTING.md` lists it as a release step.
-- **pytest warning fixed:** `asyncio_default_fixture_loop_scope = "function"` is set in `pyproject.toml`.
-- **Releases:** 0.3.0, 0.4.0 and 0.4.1 were each prepared as a version commit (CHANGELOG, `pyproject.toml`, `__version__`, `uv.lock`) and published through the GitHub release page.
-
----
-
-## 14. Documentation
-
-- **README:**
-  - Installing with plain `pip` in a venv is documented next to uv and pipx, with a note on the "externally-managed-environment" error. *(0.3.0)*
-  - The home screen, sync preview, automatic sorting and `sync.auto_route` describe the new order (folder name → folder type → file name).
-  - The merge setting points to the UI.
-- **`config.example.toml`:** the comment on `auto_route` describes the file-name step.
-- **Screenshots** in `docs/screenshots/` regenerated: home, preview, confirm dialog, sync finished, settings, courses, rule suggestions, setup.
-- **CHANGELOG** for 0.3.0, 0.4.0 and 0.4.1.
-
----
-
-## 15. Tests
-
-From 324 tests (0.2.4) to **474 tests** (0.4.1), all against the fake Stud.IP in `tests/fake_studip.py`. Lint (`ruff`), formatting and type checks (`mypy`) are clean.
-
-New or changed:
-- **`tests/test_keywords.py`**: 137 cases. Real folder and file names with the category a student expects, and names that must stay unmatched (Merkblatt, Prüfungsordnung, Examples, Raumbuchung, …).
-- **Routing:** file name when the folder says nothing; folder name wins; homework folder type; literature only with a local folder; code files are no scripts.
-- **HTTP 403:** announcements return nothing, other errors still raise, dates are skipped quietly.
-- **System files** are skipped.
-- **Home screen:** the next step is highlighted, "More" opens, Enter opens Courses.
-- **Settings:** the advanced settings are closed until opened.
-- **Colours:** ten configured courses get ten colours, and a Stud.IP colour group overrides the fallback.
-- Tests that used "Blatt" as a neutral file name use neutral names now, because such files are now sorted into exercises.
-
----
-
-## 16. Coming from 0.2.x
+## 13. Coming from 0.2.x
 
 1. Update with `uv tool upgrade studip-router`. If you installed from GitHub (`git+…`), switch to PyPI once with `uv tool install --force studip-router`.
 2. macOS with auto-sync: allow keychain access again after the update, with `studip schedule run-now` → *Always Allow*.
-3. Open `studip` and press `p` to see where new files go now.
+3. Open `studip` and press `p` to see where new files go now. **With auto-sync on, do this before the next scheduled run:** the background sync sorts new files by the new order straight away, and it shows no preview.
 4. If the home screen shows files that "belong in another folder now": `o` moves them, `u` moves them back.
 5. Delete files from older versions that would no longer be downloaded (`ds_store` and similar) by hand.
+6. If a script or cron job checks the exit code of `studip sync`: courses closed to you no longer make it fail (see [section 10](#10-courses-closed-to-you-http-403404)).
 
 Your config, rules and sync state are kept; none of them is part of the package.
 
 ---
 
-## 17. Known limits
+## 14. Known limits
 
 - The keyword lists sort by words in names. Some files will still land where you would not put them, for example code archives in a folder called "Folien": the folder name wins. A rule in the config fixes that for one course.
 - Your own keywords can only be added as rules (`name_regex`), not as a simple word list.
 - Without Stud.IP colours there are ten different course colours; from the eleventh course on, they repeat.
+- The Stud.IP colours come from the `group` field of `/users/{id}/course-memberships`. Whether every Stud.IP instance sends it is not checked; without it the tool silently uses the fallback colours.
+- Course colours are shared between profiles and made for dark terminals (see [section 9](#9-course-colours)).
+- A course that answers 404 is treated as closed to you, even if it was deleted or you left it (see [section 10](#10-courses-closed-to-you-http-403404)).
+- All tests run against the fake Stud.IP in `tests/fake_studip.py`. The three releases were not checked against a real Stud.IP instance before publishing.
 - The interface is English.
 - Login only with username and password (local or LDAP accounts); no SSO and no two-factor authentication. No Windows.
 
 ---
 
-## 18. Ideas and roadmap
+## 15. Ideas and roadmap
 
 Not built yet. Notes on what is already true in the code are marked *checked*; everything else is a proposal and unverified.
 
@@ -419,3 +392,65 @@ This happens every six months and is currently the only routine task that requir
 13. **Create a rule from a file:** in the preview, press a key on a file in the default folder, and the tool suggests a rule for exactly that folder or name pattern.
 14. **`studip open COURSE`:** open the course folder in Finder or the file manager.
 15. **Switchable English and German interface.** The folder names are already bilingual; the interface texts are English only.
+
+### Sorting
+
+16. **Shared rule sets per university or course.** Export and import the rules of a course, so a whole year can share one file. This helps more than ever longer keyword lists.
+17. **Own keywords as a list in the config,** for example `keywords.exercises = ["Werkstatt"]`, instead of only `name_regex` rules (see [Known limits](#14-known-limits)).
+18. **"Sorted wrong" key in the preview.** It writes an issue text with only the folder and file name, no course data, so the keyword lists grow from real mistakes instead of research.
+19. **Check after an update.** Show which synced files the new version would place elsewhere, *before* auto-sync runs again. This closes the gap described in [section 13](#13-coming-from-02x), step 3.
+
+### Robustness
+
+20. **Tell 403 from 404.** Treat only 403 as "closed to you"; keep a 404 on a whole course as an error, so a deleted course or a lost membership does not disappear quietly.
+21. **Course colours per profile:** `course-colors-<profile>.json` like the state database.
+22. **Colours for light themes:** a second, darkened set of the Stud.IP colours when a light theme is chosen.
+23. **A check against a real Stud.IP instance before a release,** for example a manual smoke test (`studip doctor`, `studip sync --dry-run`) listed in `CONTRIBUTING.md`.
+
+### Semester end
+
+24. **Archive old courses.** At the end of a semester, take finished courses out of auto-sync and mark their folders as read-only. Fits the semester change assistant above.
+
+---
+
+# Appendix: for contributors
+
+Sections A to C are for people working on the code. Users can stop at section 15.
+
+## A. Release process and CI
+
+*0.3.0.*
+
+- **Release dry run:** `.github/workflows/release.yml` can be started by hand (*Actions → Release → Run workflow*). It runs the same checks, builds, hands the files over between jobs and checks they arrived, but **uploads nothing**. Publishing to PyPI only happens on a version tag.
+  - Reason: Dependabot had raised `actions/upload-artifact` from v4 to v7 and `actions/download-artifact` from v4 to v8, in a workflow that only runs on tags. The dry run was green before 0.3.0.
+  - When to run it: after every change to `release.yml` or its actions. `CONTRIBUTING.md` lists it as a release step.
+- **pytest warning fixed:** `asyncio_default_fixture_loop_scope = "function"` is set in `pyproject.toml`.
+- **Releases:** 0.3.0, 0.4.0 and 0.4.1 were each prepared as a version commit (CHANGELOG, `pyproject.toml`, `__version__`, `uv.lock`) and published through the GitHub release page.
+
+---
+
+## B. Documentation
+
+- **README:**
+  - Installing with plain `pip` in a venv is documented next to uv and pipx, with a note on the "externally-managed-environment" error. *(0.3.0)*
+  - The home screen, sync preview, automatic sorting and `sync.auto_route` describe the new order (folder name → folder type → file name).
+  - The merge setting points to the UI.
+- **`config.example.toml`:** the comment on `auto_route` describes the file-name step.
+- **Screenshots** in `docs/screenshots/` regenerated: home, preview, confirm dialog, sync finished, settings, courses, rule suggestions, setup.
+- **CHANGELOG** for 0.3.0, 0.4.0 and 0.4.1.
+
+---
+
+## C. Tests
+
+From 324 tests (0.2.4) to **474 tests** (0.4.1), all against the fake Stud.IP in `tests/fake_studip.py`. Lint (`ruff`), formatting and type checks (`mypy`) are clean.
+
+New or changed:
+- **`tests/test_keywords.py`**: 137 cases. Real folder and file names with the category a student expects, and names that must stay unmatched (Merkblatt, Prüfungsordnung, Examples, Raumbuchung, …).
+- **Routing:** file name when the folder says nothing; folder name wins; homework folder type; literature only with a local folder; code files are no scripts.
+- **HTTP 403:** announcements return nothing, other errors still raise, dates are skipped quietly.
+- **System files** are skipped.
+- **Home screen:** the next step is highlighted, "More" opens, Enter opens Courses.
+- **Settings:** the advanced settings are closed until opened.
+- **Colours:** ten configured courses get ten colours, and a Stud.IP colour group overrides the fallback.
+- Tests that used "Blatt" as a neutral file name use neutral names now, because such files are now sorted into exercises.
