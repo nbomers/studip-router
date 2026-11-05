@@ -47,6 +47,7 @@ from .widgets import (
     load_course_groups,
     save_course_groups,
     set_course_order,
+    use_light_colors,
 )
 
 LOGO = "[b]studip[/b][dim]·[/dim]router"
@@ -487,6 +488,11 @@ class StudipRouterApp(App):
             self.push_screen(SetupScreen())
             return
         self.push_screen(HomeScreen())
+
+    def watch_theme(self, theme: str) -> None:
+        """Course colours follow the theme: darker ones on a light background."""
+        current = self.get_theme(theme)
+        use_light_colors(current is not None and not current.dark)
 
     def reload_config(self) -> None:
         try:

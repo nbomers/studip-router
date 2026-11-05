@@ -50,6 +50,31 @@ from ..wizard import (
 from .widgets import ConfirmScreen
 
 
+def _diagnose(base_url: str) -> str:
+    """Why logging in failed, in words: no password is sent for this check."""
+    import httpx
+
+    from ..api import ssl_context
+
+    try:
+        r = httpx.get(
+            base_url + "/jsonapi.php/v1/discovery",
+            timeout=15,
+            follow_redirects=True,
+            verify=ssl_context(),
+        )
+    except Exception:  # a diagnosis, best effort: never worse than no hint
+        return "[dim]The address cannot be reached. Is it the address of your Stud.IP?[/dim]"
+    if r.status_code == 404:
+        return (
+            "[yellow]Your university has not enabled the JSON:API of Stud.IP[/yellow] - "
+            "studip-router needs it. [dim]Ask the Stud.IP admins to turn it on.[/dim]"
+        )
+    if r.status_code != 200:
+        return f"[dim]The JSON:API answered HTTP {r.status_code}; try again later.[/dim]"
+    return "[dim]The JSON:API is reachable; the answer to the login was unexpected.[/dim]"
+
+
 def _split(text: str) -> tuple[str, ...]:
     return tuple(p.strip() for p in text.split(",") if p.strip())
 
@@ -185,8 +210,7 @@ class SetupScreen(Screen):
         except ApiError as exc:
             self.app.call_from_thread(
                 self.query_one("#status", Static).update,
-                f"[red]{esc(exc)}[/red]\n[dim]Is the JSON:API enabled at your university? "
-                "Try the address in a browser: …/jsonapi.php/v1/discovery[/dim]",
+                f"[red]{esc(exc)}[/red]\n{_diagnose(values['url'].rstrip('/'))}",
             )
             return
         except Exception as exc:  # unexpected answer: report it, never crash with locals

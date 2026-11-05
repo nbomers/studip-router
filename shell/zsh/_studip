@@ -1,0 +1,89 @@
+#compdef studip
+# zsh completions for studip-router (`studip`)
+# Install: mkdir -p ~/.zfunc && cp shell/zsh/_studip ~/.zfunc/
+#          then in ~/.zshrc, before compinit: fpath=(~/.zfunc $fpath)
+
+_studip_courses() {
+  local -a courses
+  courses=(${(f)"$(command studip _complete courses 2>/dev/null)"})
+  courses=(${courses//:/\\:})
+  courses=(${courses/$'\t'/:})
+  _describe -t courses 'course' courses
+}
+
+_studip_profiles() {
+  local -a profiles
+  profiles=(${(f)"$(command studip _complete profiles 2>/dev/null)"})
+  _describe -t profiles 'profile' profiles
+}
+
+_studip() {
+  local curcontext="$curcontext" state line
+  typeset -A opt_args
+  local -a commands
+  commands=(
+    'init:Interactive setup'
+    'open:Open a course folder'
+    'courses:List courses and sync status'
+    'sync:Download new and changed files'
+    'status:Open issues'
+    'reorganize:Apply rules to synced files'
+    'undo:Revert last reorganize'
+    'history:Recently synced files'
+    'news:Course announcements'
+    'merge:Merge slide PDFs'
+    'doctor:Check setup'
+    'tui:Terminal UI'
+    'auth:Stored password'
+    'config:Configuration'
+    'rules:Routing rules'
+    'schedule:Background sync'
+    'ignore:Files you never want'
+    'dates:Changed dates and exams'
+    "pdf-password:Unlock a course's PDFs"
+  )
+  _arguments -C \
+    '(-p --profile)'{-p,--profile}'[Config/state profile]:profile:_studip_profiles' \
+    '--json[Machine-readable output]' \
+    '--version[Show version]' \
+    '1:command:->command' \
+    '*::arg:->args'
+  case $state in
+    command) _describe -t commands 'studip command' commands ;;
+    args)
+      case $line[1] in
+        open) _arguments '1:course:_studip_courses' ;;
+        sync)
+          _arguments \
+            '--course[Course]:course:_studip_courses' \
+            '(-s --semester)'{-s,--semester}'[Semester]:semester:(current all)' \
+            '(-n --dry-run)'{-n,--dry-run}'[Only show the plan]' \
+            '--include-large[Ignore size limit]' \
+            '(-v --verbose)'{-v,--verbose}'[Also list skips]' \
+            '(-q --quiet)'{-q,--quiet}'[Only print problems]' \
+            '--notify[Desktop notification]' ;;
+        reorganize)
+          _arguments \
+            '--course[Course]:course:_studip_courses' \
+            '(-n --dry-run)'{-n,--dry-run}'[Only show what would move]' \
+            '(-y --yes)'{-y,--yes}'[Do not ask]' ;;
+        undo) _arguments '(-y --yes)'{-y,--yes}'[Do not ask]' ;;
+        history) _arguments '(-n --limit)'{-n,--limit}'[Number of files]:number:' ;;
+        news) _arguments '--course[Course]:course:_studip_courses' '--all[Include read ones]' '--keep-unread[Do not mark as read]' ;;
+        merge) _arguments '--course[Course]:course:_studip_courses' '--force[Download iCloud-only PDFs]' ;;
+        dates) _arguments '--days[Changes of the last N days]:days:' '--offline[Do not contact Stud.IP]' ;;
+        status) _arguments '--offline[Do not contact Stud.IP]' ;;
+        doctor) _arguments '--offline[Do not contact Stud.IP]' '--test-notification[Send a test notification]' ;;
+        courses) _arguments '(-s --semester)'{-s,--semester}'[Semester]:semester:(current all)' ;;
+        init) _arguments '--force[Overwrite config]' ;;
+        auth) _values 'auth command' login status logout ;;
+        config) _values 'config command' path validate edit set ;;
+        schedule) _values 'schedule command' install uninstall status run-now ;;
+        ignore) _values 'ignore command' add list remove ;;
+        pdf-password) _values 'pdf-password command' set list remove ;;
+        rules) _values 'rules command' list test suggest ;;
+      esac ;;
+  esac
+}
+
+_studip "$@"

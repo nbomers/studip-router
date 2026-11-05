@@ -918,6 +918,26 @@ def _rel(path: Path, base: Path) -> str:
 # -- history / news / merge -------------------------------------------------------------
 
 
+@app.command("open")
+def open_cmd(
+    course: Annotated[str, typer.Argument(help="Course ID, title or target (substring).")],
+    config: ConfigOpt = None,
+) -> None:
+    """Open a course folder in Finder or the file manager."""
+    cfg = load_config(config)
+    folder = cfg.course_dir(find_course(cfg, course))
+    if not folder.is_dir():
+        raise fail(f"{folder} does not exist yet - sync first", 1)
+    if OPTS.json:
+        emit_json({"path": str(folder)})
+        return
+    opener = "open" if sys.platform == "darwin" else "xdg-open"
+    if not shutil.which(opener):
+        console.print(esc(folder))  # no file manager (server, SSH): the path at least
+        return
+    subprocess.run([opener, str(folder)], check=False)
+
+
 @app.command("history")
 def history_cmd(
     limit: Annotated[int, typer.Option("--limit", "-n", help="How many files to show.")] = 30,

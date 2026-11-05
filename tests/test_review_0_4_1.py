@@ -300,3 +300,62 @@ def test_state_from_0_4_1_gains_folder_type(tmp_path: Path) -> None:
     con = sqlite3.connect(db)
     assert con.execute("PRAGMA user_version").fetchone()[0] == 2
     con.close()
+
+
+@respx.mock
+def test_setup_says_when_the_json_api_is_off() -> None:
+    from studip_router.tui.setup import _diagnose
+
+    respx.get("https://studip.example.edu/jsonapi.php/v1/discovery").mock(
+        return_value=httpx.Response(404)
+    )
+    assert "not enabled the JSON:API" in _diagnose("https://studip.example.edu")
+
+
+def test_light_theme_gets_darker_course_colours() -> None:
+    from studip_router.tui import widgets
+
+    widgets.save_course_groups({})  # no Stud.IP colours: fallbacks
+    dark = widgets.course_color("abc")
+    widgets.use_light_colors(True)
+    try:
+        assert widgets.course_color("abc") in widgets.FALLBACK_COLORS_LIGHT
+        assert widgets.course_color("abc") != dark
+    finally:
+        widgets.use_light_colors(False)
+
+
+def test_course_colours_are_kept_per_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    from studip_router.tui import widgets
+
+    paths.set_profile("uni-b")
+    try:
+        assert widgets._colors_file().name == "course-colors-uni-b.json"
+    finally:
+        paths.set_profile(None)
+    monkeypatch.delenv("STUDIP_ROUTER_PROFILE", raising=False)
+    assert widgets._colors_file().name == "course-colors.json"
+
+
+def test_keyword_fixes() -> None:
+    from studip_router.suggest import file_category, local_category_dirs
+
+    assert file_category("Labs 2.pdf") == "exercises"
+    for name in ("Spickzettel.pdf", "Klausuranmeldung.pdf", "Facebook.pdf", "script.py.zip"):
+        assert file_category(name) is None, name
+    assert local_category_dirs(["Klausur", "Klausur/Alt", "Folien/alt"], "exams")[0] == (
+        "Klausur/Alt"
+    )
+    assert local_category_dirs(["Folien", "Folien/alt"], "slides") == ["Folien"]
+
+
+def test_name_rule_skips_false_friends(root: Path) -> None:
+    import re
+
+    names = ["Merkblatt.pdf", "Deckblätter.pdf", "Übungsblatt 4.pdf", "Blatt 2.pdf"]
+    course = root / "Example Course"
+    (course / "Uebungen").mkdir(exist_ok=True)
+    found = suggest_rules([remote(n) for n in names], course)
+    rule = next(s for s in found if s.category == "exercises")
+    rx = re.compile(rule.rule["match"]["name_regex"], re.IGNORECASE)
+    assert [n for n in names if rx.search(n)] == ["Übungsblatt 4.pdf", "Blatt 2.pdf"]

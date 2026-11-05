@@ -244,6 +244,7 @@ def plan_json(
         "course_errors": [{"course": n, "error": e} for n, e in sync_plan.errors],
         "warnings": sync_plan.warnings,
         "closed_courses": sync_plan.closed,
+        "missing_courses": [{"id": c.id, "name": c.name} for c in sync_plan.missing],
         "date_changes": [change_json(c) for c in date_changes or []],
     }
     if result is not None:

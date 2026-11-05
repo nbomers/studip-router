@@ -172,7 +172,23 @@ it brings its own Python). The unreleased state of `main`:
 > `studip doctor` warns about it.
 
 <details>
-<summary><b>Shell integration (fish)</b></summary>
+<summary><b>Shell completions (zsh, bash, fish)</b></summary>
+
+zsh (the macOS default):
+
+```bash
+mkdir -p ~/.zfunc && cp shell/zsh/_studip ~/.zfunc/
+```
+
+Then add `fpath=(~/.zfunc $fpath)` to `~/.zshrc` before `compinit`.
+
+bash:
+
+```bash
+mkdir -p ~/.local/share/bash-completion/completions && cp shell/bash/studip ~/.local/share/bash-completion/completions/studip
+```
+
+fish:
 
 ```bash
 cp shell/fish/completions/studip.fish ~/.config/fish/completions/

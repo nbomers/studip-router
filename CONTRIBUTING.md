@@ -56,7 +56,17 @@ Screenshots in the README come from `uv run python scripts/make_screenshots.py` 
 3. If `.github/workflows/release.yml` or one of its actions changed since the last
    release (Dependabot bumps included), run it by hand first: *Actions → Release →
    Run workflow*. That is a dry run: checks, build and artifact hand-over, no upload.
-4. Merge to `main`, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. Check the release candidate against a **real** Stud.IP instance with a real (test)
+   account, from the branch (`uv run studip …`), not only against `tests/fake_studip.py`:
+   - `studip doctor` - every check ✓ or explained
+   - `studip sync --dry-run` - the plan looks right, no unexpected `!` (default folder)
+     or `✗`; exit code 0 unless something really needs you
+   - `studip` (UI): home screen status arrives, `p` preview, `s` sync, Enter again
+     after the sync (must reload, never re-run), `a` announcements, `,` settings
+   - when the state schema changed: open a copy of an old state database once
+     (copy `state.sqlite` to `state-smoke.sqlite`, then `STUDIP_ROUTER_PROFILE=smoke`)
+   Write down in the pull request which instance and version were checked.
+5. Merge to `main`, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 The `Release` workflow checks that tag, versions and changelog agree, runs the
 checks and tests, builds, smoke-tests the wheel and publishes to PyPI via Trusted

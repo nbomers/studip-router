@@ -441,6 +441,12 @@ class SyncView(View):
                 f"[dim]◎ files closed to you: {esc(', '.join(clip(n, 30) for n in plan.closed))}"
                 "[/dim]"
             )
+        if plan.missing:
+            names = ", ".join(clip(c.name or c.target, 30) for c in plan.missing)
+            lines.append(
+                f"[yellow]! not on Stud.IP any more: {esc(names)}[/yellow] "
+                "[dim](deleted, or you left it - your files stay)[/dim]"
+            )
         if plan.unconfigured:
             lines.append(
                 f"[yellow][b]{len(plan.unconfigured)}[/b] new course(s) not set up yet[/yellow] "
@@ -1015,8 +1021,12 @@ class DatesView(View):
 
 class NewsView(View):
     TITLE = "Announcements"
-    HINT = "a show read ones too"
-    BINDINGS: ClassVar = [*View.BINDINGS, Binding("a", "toggle_all", "Show all")]
+    HINT = "a show read ones too · x mark all read"
+    BINDINGS: ClassVar = [
+        *View.BINDINGS,
+        Binding("a", "toggle_all", "Show all"),
+        Binding("x", "read_all", "All read"),
+    ]
 
     def __init__(self) -> None:
         super().__init__()
@@ -1114,6 +1124,16 @@ class NewsView(View):
         if self.marked:
             with contextlib.suppress(Exception):  # the app may be closing
                 self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
+
+    def action_read_all(self) -> None:
+        if not self.items:
+            return
+        with State(paths.state_db()) as state:
+            state.mark_news_seen([(n.id, n.course_id) for n in self.items])
+        self.marked = True
+        self.notify(f"{len(self.items)} announcement(s) marked as read.")
+        if not self.show_all:
+            self.load()
 
     def action_toggle_all(self) -> None:
         self.show_all = not self.show_all
