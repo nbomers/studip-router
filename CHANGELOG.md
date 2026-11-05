@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-05
+
 ### Added
 - `studip dates --ics FILE` writes all known course dates as a calendar file.
 - `[sync.keywords]`: your own words per category for automatic sorting.
@@ -317,7 +319,8 @@ First public version.
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
 
-[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/nbomers/studip-router/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/nbomers/studip-router/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/nbomers/studip-router/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nbomers/studip-router/compare/v0.2.4...v0.3.0
