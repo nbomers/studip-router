@@ -33,6 +33,7 @@ All changes made on 2026-11-05: three releases on PyPI and four merged pull requ
 13. [Coming from 0.2.x](#13-coming-from-02x)
 14. [Known limits](#14-known-limits)
 15. [Ideas and roadmap](#15-ideas-and-roadmap)
+16. [Review findings after 0.4.1: bugs, UX and security](#16-review-findings-after-041-bugs-ux-and-security)
 
 Appendix for contributors: [A. Release process and CI](#a-release-process-and-ci) · [B. Documentation](#b-documentation) · [C. Tests](#c-tests)
 
@@ -215,7 +216,7 @@ A progress bar over all files and a log with one line per file (`Esc` stops afte
 - **Essentials on top:** course folders in, default folder, auto-sync, notifications, skip videos, size limit, unzip archives, theme.
 - **Everything else under "▸ advanced – 14 more settings"**, which opens in place with Enter, Space or ←/→ and closes the same way.
 - **The explanation appears only under the focused row.** The list is about half as long.
-- **The focused row has a coloured background**, so you can see where you are.
+- **The focused row has a coloured background**, so you can see where you are. *(Intended; in 0.4.1 a second CSS rule cancels it, see [U10](#16-review-findings-after-041-bugs-ux-and-security).)*
 - **`,` opens the settings from every screen.**
 - Changes are still saved immediately, and comments in the config file are kept.
 
@@ -231,7 +232,7 @@ The screen only showed a hint to add `merge = { source = "Slides", output = "All
 ### Now
 - **A table of all synced courses:** Course · Slides from · → One PDF · Last run.
 - **Enter on a course** lists its folders, slide folders first. Choose one and every PDF in it is combined into "All slides.pdf" in the same folder. "don't merge this course" turns it off again.
-- **`m` merges now.** Courses that are set up are also merged after each sync, as before.
+- **`m` merges now.** Courses that are set up are also merged after each sync, as before. *(In 0.4.1 opening the screen already merges, see [U8](#16-review-findings-after-041-bugs-ux-and-security).)*
 - Your own files stay untouched. The setting is written to the config with its comments kept.
 
 ---
@@ -413,9 +414,200 @@ This happens every six months and is currently the only routine task that requir
 
 ---
 
+## 16. Review findings after 0.4.1: bugs, UX and security
+
+A code review of 0.4.1 (state of `main` at 2210848, line numbers from there) found the problems below. None of them is fixed yet. Every finding was checked in the code; those marked *reproduced* were also triggered in a test run (TUI headless with `App.run_test` against `tests/fake_studip.py`, or a Python snippet). Section 14 lists limits that are known and accepted; this section lists defects.
+
+Severity: **high** = data loss, wrong files, a crash or a broken promise in `SECURITY.md`; **medium** = wrong result or a clearly misleading screen; **low** = annoyance or hardening.
+
+### Fix first
+
+| # | What | Severity |
+|---|---|---|
+| S1 | Escape sequences from Stud.IP reach the terminal | high |
+| S3 | A download can silently overwrite a file the user just saved | medium–high |
+| U1 | Enter after a finished sync runs the old plan again and records fake failures | high |
+| U3 | Settings crash the app after the config became invalid | high |
+| B1 | Esc right after a ZIP download leaves it packed for good | medium |
+| B4 | Reorganize moves homework-folder files back to the default folder | medium |
+| B6 | Suggested "by name" rules contradict the keyword classifier | medium |
+
+### Security
+
+**S1. Escape sequences from Stud.IP reach the terminal.** *High. Reproduced.*
+- Where: `report.py:20` (`esc()` escapes Rich markup only), `cli.py:958` (`console.print(Text(n.text + "\n"))`, the raw announcement text), `report.py:134` (raw `folder_path`/`name` in `--dry-run`/`-v`), course titles in `report.py` and the date output. `news.html_to_text` does not remove control characters either. The log file stores the same raw text.
+- Problem: Rich passes `ESC` through unchanged (`Text("a\x1b[2Jb")` → `'a\x1b[2Jb'`). A JSON string `"\u001b…"` in an announcement, title or file name reaches the terminal.
+- Scenario: anyone who can post an announcement in a course writes an OSC 8 hyperlink with a fake target, clears the screen, changes the window title, or (terminal-dependent) writes the clipboard via OSC 52. `studip news` prints it. This breaks the promise in `SECURITY.md`: "Text from Stud.IP … is never interpreted as terminal markup or links".
+- Fix: strip `fsutil._CONTROL` (except `\n`, `\t`) in `esc()`, in every `Text(...)` built from remote data, in `html_to_text` and before logging.
+
+**S2. A course called `~` makes the sync write into the home folder.** *Medium (only with `only_configured_courses = false`). Reproduced.*
+- Where: `sync.py:169` `target=sanitize_filename(c.title)` and `config.py:96` `Path(course.target).expanduser()`.
+- Problem: `sanitize_filename("~")` returns `"~"`, and `expanduser()` turns it into `$HOME`. Implicit targets skip the `unsafe_folder`/`rel_path` checks, which only run when the config is parsed.
+- Scenario: a course is titled `~`. The default folder is created in `~`, `auto_route` picks matching subfolders of the home folder, and ADOPT can take over unrelated files of the same name and size anywhere under `~`. `~nonexistent` raises a `RuntimeError`.
+- Fix: replace a leading `~` in `sanitize_filename`, and run `unsafe_folder` on implicit targets too.
+
+**S3. A new download can overwrite a file the user saved meanwhile.** *Medium–high. Checked in code.*
+- Where: `executor.py:225` checks `action.dest.exists()` *before* the download; `fsutil.py:247` then does `os.replace(tmp, dest)` without checking again (for DOWNLOAD and NEW_VERSION there is no `before_replace`).
+- Scenario: during a long download (large file, retries with back-off) the user saves a file with the same name, for example from the browser. `os.replace` overwrites it without a word. `SECURITY.md` lists "silent overwriting of user files" as in scope.
+- Fix: commit without clobbering (`os.link(tmp, dest)` then `unlink(tmp)`, as `move_no_clobber` already does), or check `exists()` again in `commit`.
+
+**S4. Notifications on Linux: option and markup injection.** *Low. Checked in code.*
+- Where: `notify.py:28` `["notify-send", title, message]` without `--`. The date notification starts with the course title (`dates.py:39`).
+- Scenario: a course title starting with `--` (e.g. `--urgency=…`) is parsed as an option, so the notification is empty or fails. The notification daemon renders the body as markup: `<a href=…>` makes a link, `&` breaks the display.
+- Fix: pass `--` and escape `<`, `>`, `&`. *Checked:* the macOS path (`osascript`) escapes correctly.
+
+**S5. `STUDIP_ROUTER_PROFILE` is not validated.** *Low, hardening.*
+- Where: `paths.py:30` returns the environment variable as is; only `set_profile()` checks `_PROFILE_RE`. The value ends up in file names (`schedule.py:109` unit files, state database, config).
+- Scenario: `STUDIP_ROUTER_PROFILE=../x` writes units or state outside the intended folder. Only relevant if someone else controls the environment.
+
+**S6. File permissions are inconsistent.** *Low.*
+- `schedule.py:162` and `tui/widgets.py:87` create the state folder with plain `mkdir()` (0755) instead of `private_dir`. If `studip schedule install` runs before the first sync, launchd writes `scheduler.log` as 0644 into a 0755 folder until `State` tightens it.
+- The config file is written as 0644 (`cli.py:403`, `tui/setup.py:337`, `config_edit.py:36`). It holds the user name and course names, no password. `SECURITY.md` promises nothing here, but 0600 would cost nothing.
+
+**S7. The server can abort a run with `Retry-After`.** *Low. Reproduced.*
+- Where: `api.py:176` `min(float(value), 60.0)` lets negative values and `nan` through. `time.sleep(-1)` raises `ValueError`, which is not an `ApiError`.
+- Scenario: a 503 with `Retry-After: -1` (proxy, misconfigured server) aborts the run or the course instead of retrying.
+- Fix: clamp to `0 ≤ x ≤ 60` and reject `nan`.
+
+*Checked and fine:* password handling (keychain only, not in logs or JSON), credentials on redirects, ZIP extraction, path traversal through remote names, permissions of state database and log, systemd and plist quoting, the new Stud.IP colour `group` (only integers 0–8 are used, no markup injection), 403/404 courses are not marked as deleted.
+
+### Bugs
+
+**B1. Esc right after a ZIP download: the archive is never extracted.** *Medium. Checked in code.*
+- Where: `executor.py:81-85`: `on_progress(action)` runs before `_unzip(...)`; the TUI callback (`tui/views.py:507`) raises `KeyboardInterrupt` when Esc was pressed. The file is already recorded in the state.
+- Result: with `unzip = true`, Esc while `Blatt3.zip` downloads → the next sync sees the ZIP as "unchanged" (`planner.py:403`) and never extracts it.
+- Fix: unzip before `on_progress`, or plan a missing extraction again.
+
+**B2. Failed files neither move the progress bar nor check Esc.** *Medium. Checked in code.*
+- Where: `executor.py:68-78`: the error branch ends with `continue` before `on_progress`.
+- Result: with failures the bar never reaches 100 %. Worse: when the network drops and every file fails after its retries, Esc has no effect until the end of the run, although the screen says "Stopping after the current file…".
+
+**B3. A 403/404 on one courseware page closes the whole course.** *Medium. Checked in code.*
+- Where: `api.py:356-383`: only `courseware-units` is wrapped in try/except. A 403/404 on `/courseware-structural-elements/{root}` or `/descendants` propagates to `sync.py:197-203`, which marks the whole course as closed.
+- Result: the normal files of that course (already fetched) are skipped too. Nothing is deleted, but nothing new arrives, and the course is shown as "closed to you".
+
+**B4. Reorganize routes without folder type and semester.** *Medium. Checked in code.*
+- Where: `reorganize.py:38-49` builds the `RemoteFile` without `folder_type` (the `FileRecord` does not store it); `reorganize.py:56` calls `build_router(cfg, course)` without the semester that `sync.py` passes.
+- Result (folder type): `Meier.pdf` in a homework folder "Gruppe A" is synced to `Übungen` (step 3 of section 1). Reorganize does not know the folder type, routes it to the default folder, offers a move, and `studip reorganize` moves it there. The home screen promotes exactly this as the next step.
+- Result (semester): a rule with `rename = "{semester}_{orig_name}"` makes reorganize want to rename every file to `_name.pdf`.
+- Fix: store `folder_type` in the state and pass the semester.
+
+**B5. Planner errors give exit code 0.** *Medium. Checked in code.*
+- Where: `cli.py:585`: exit 1 only for `failed` or `sync_plan.errors`. Actions of kind `ERROR` ("course folder does not exist", "target folder does not exist", rename errors, `on_conflict = "error"`) are never executed and therefore not counted.
+- Result: `print_summary` lists them under "Errors:", yet the run exits with 0 and the background notification does not count them. Combined with the 403/404 change of section 10, a script sees even fewer problems than before.
+
+**B6. Suggested "by name" rules contradict the keyword classifier.** *Medium. Reproduced.*
+- Where: `suggest.py:437-450`: the rule regex is built from the keywords without the exclusion list ("Names that only contain a keyword", section 2), and the rules are sorted alphabetically (exams, exercises, slides, solutions) instead of by category priority. Rules win over automatic sorting.
+- Result, in a course with Übungen, Lösungen, Folien, Klausuren folders:
+
+| File | Rule sends it to | Classifier says |
+|---|---|---|
+| `Lösung Blatt 3.pdf` | Übungen | solutions |
+| `Vorlesung 3 Lösung.pdf` | Folien | solutions |
+| `Merkblatt.pdf` | Übungen | none |
+| `Laufzettel.pdf` | Übungen | none |
+| `Examples.pdf` | Klausuren | none |
+| `Scripts.zip` | Folien | none |
+
+Accepting the suggestions makes sorting *worse* than without them.
+
+**B7. "By name" suggestions are offered again on every run.** *Low–medium. Checked in code.*
+- Where: `cli.py:797-801` and `tui/views.py:1146`: `known_folders` skips rules with an empty `folder`, so a suggestion with `folder = ""` is never recognised as already added. `_unique` then creates `exercises-by-name-2`, `-3`, …
+- Result: `studip rules suggest --yes` appends duplicate rules to the config on every run.
+
+**B8. Short keywords do not match in the plural.** *Low. Reproduced.*
+- Where: `suggest.py:182-190`: the whole-word check `(?![a-z])` rejects "Labs", "HWs", "VLs". A local folder "Labs" is not recognised as an exercise folder either.
+
+**B9. Wrong hits of substring keywords.** *Low. Reproduced.*
+- exercises: Spickzettel, Notizzettel, Handzettel, Titelblatt, Kalenderblatt, "Sheet music", Laborordnung, Praktikumsordnung, Übungsordnung
+- exams: Klausuranmeldung, Prüfungsanmeldung
+- reading: Facebook, Wallpaper
+- slides: `script.py.zip` (the code check only looks at the last extension)
+- Mostly relevant for files in the course root or in neutral folders. Candidates for the exclusion list.
+
+**B10. The "old exams" bonus is partly dead code.** *Low.*
+- Where: `suggest.py:338-353`: `_ARCHIVE` (alt, old, previous) excludes a folder before the `_PAST` bonus (alt, old, previous) can apply. "Exams/Old exams", "Klausur/Alt" are never chosen; only "past", "frueher" and "altklausur" work.
+
+**B11. Course colours depend on the news fetch and are not written atomically.** *Low. Checked in code.*
+- Where: `tui/app.py:320-336`: if `fetch_news` fails for any course with something other than 403/404 (e.g. 500, no network), the function returns before the colours are fetched.
+- `tui/widgets.py:83-89`: the background thread clears the colour table and refills it without a lock (a screen drawn in between briefly shows fallback colours), and `write_text` is not atomic (no tmp + replace). Broken JSON is ignored on load, so no crash. `true` in the file is read as group 1 (`bool` is an `int`).
+
+*Checked and fine:* 401 still stops everything; closed courses get no plan, so their files are not treated as deleted; system files are skipped (`ehthumbs.db`, `~$x.docx` and `.~lock.*#` are not, which only matters if someone uploads them); the merge output is excluded from its own inputs and written atomically.
+
+### User experience
+
+**U1. Enter after a finished sync runs the old plan again.** *High. Reproduced.*
+- Where: `tui/views.py:490-498` (with `310`, `448-450`): `self.plan` is not reset after the sync, and `_todo()` is still > 0.
+- What the user sees: after "✓ Sync finished", another Enter or `s` opens "Sync now? **3 new** · 1 to the default folder" again. Confirming gives "Done. 0 downloaded, **3 failed**: refusing to overwrite unexpected file /tmp/…/Orga.pdf". The home screen then says "3 file(s) failed last time".
+- Fix: set `self.plan = None` (or reload it) when the sync ends.
+
+**U2. The next step can loop.** *High. Reproduced.*
+- Where: `tui/app.py:243-246`, together with U1.
+- "Try again" opens the preview, which says "✓ Everything is up to date". No sync runs, so the failures of the last run stay, and the home screen shows "3 file(s) failed last time" again. The same happens whenever failed files are no longer in the plan (for example after ignoring them with `i`). The most prominent box on the home screen then points to an action that cannot clear it.
+
+**U3. Settings crash the app after the config became invalid.** *High. Reproduced.*
+- Where: `tui/settings.py:612-625` with `561-563` and `574-580`.
+- Edit the config with `e` so that it is invalid. The app says "Config now invalid", the settings stay open and `app.cfg` is `None`. The next change (e.g. `l`, Enter) ends the app with `AttributeError: 'NoneType' object has no attribute 'path'` and exit code 1.
+
+**U4. Every highlighted announcement reloads everything from Stud.IP.** *High. Reproduced.*
+- Where: `tui/views.py:1034-1045`, `tui/app.py:477-482`, `218`.
+- Moving the cursor over an announcement calls `refresh_home(remote_changed=True)`. Each call starts a thread that fetches the course list, the news of all courses and the colours. Three cursor moves = three full fetches. With ten courses that is dozens of requests per second of scrolling.
+- An announcement also counts as read as soon as the cursor touches it; the first one is marked read the moment the screen opens.
+
+**U5. The sync screen stays broken after a run.** *Medium. Reproduced.*
+- Where: `tui/views.py:478-481`, `546-551`, `522-542`.
+- `r` (refresh) after a sync or a cancel reloads the plan, but the table stays hidden and the progress bar stays visible: "Everything is up to date" without a table.
+- On cancel, `Locked` or `ApiError`, the bar stays half full. If the date check is aborted, the `#busy` bar stays too, because `counted()` never calls `idle()`.
+
+**U6. Esc in the setup quits the whole app.** *Medium. Checked in code.*
+- Where: `tui/setup.py:58` `Binding("escape", "app.quit", …)`.
+- In each of the three steps Esc quits without asking, and everything typed is lost. There is no way back from step 3 to 2 or from 2 to 1. Everywhere else Esc means "back".
+
+**U7. `?` opens the help only on the home screen.** *Medium. Checked in code.*
+- Where: the help (`tui/widgets.py:245-250`) says "Everywhere: ? this help", but `?` is bound only in `tui/app.py:112`. On What's new or in the settings nothing happens.
+
+**U8. Opening "Merge slides" already merges.** *Medium. Checked in code.*
+- Where: `tui/views.py:1375-1376`: `on_mount` calls `action_merge()` as soon as one course is set up.
+- A screen opened to look at writes PDFs. Section 7 says "`m` merges now".
+
+**U9. Without network: no hint, but repeated fetches.** *Medium. Checked in code.*
+- Where: `tui/app.py:331-332`, `170-171`, `218`.
+- If the status fetch fails, nothing says so; "unread" and "new courses" are simply missing. Nothing is cached, so every return to the home screen starts another thread that retries with back-off (1 + 2 + 4 + 8 s) against an unreachable server. At start-up two full fetches run in parallel (`on_mount` and `on_screen_resume`).
+
+**U10. The focused settings row has no visible background.** *Medium. Reproduced.*
+- Where: `tui/settings.py:305-306`: a second rule `SettingRow:focus { background: $boost; }` overrides `$accent 25%`. Measured background: fully transparent. Only the "▸" shows where the focus is. Section 6 promises a coloured background.
+- Fix: delete line 306.
+
+**U11. Enter on the home screen can hit a different action than shown.** *Low.*
+- Where: `tui/app.py:160-161`, `344`: when the remote status arrives, the list is refilled but the cursor index stays. Pressing Enter at that moment can trigger, say, "Choose whether to sync" instead of "Sync now". Not destructive: sync and reorganize always ask first.
+
+**U12. The same key means different things.** *Low.*
+- `r`: Rules (home), Refresh (sync), Reveal (What's new). `o`: Reorganize (home), Open (What's new). `a`: Announcements (home), "all" (Courses, News). No hard conflict, but it trains the wrong reflex.
+
+**U13. CLI inconsistencies.** *Low. Checked with `--help`.*
+- `-n` is `--dry-run` for `sync` and `reorganize`, but `--limit` for `history`.
+- No help text: `sync --semester`, `reorganize --dry-run/--yes`, `undo --yes`, `history --limit`, `news --keep-unread`, `doctor --offline`, `rules test --mime`.
+- `studip sync --json` and `studip sync -p x` fail with "No such option": both only work before the subcommand (`studip --json sync`). Users try the other order first.
+- `studip merge --help` still says "needs `merge` in the course config", although the UI sets it up now.
+
+**U14. Small things.**
+- The help calls `a` "news", the UI "Announcements".
+- Error messages in the sync screen and the rule search show full absolute paths (`tui/views.py:580`, `1142`), which wrap and are hard to read; the Doctor already shortens paths.
+- `tui/views.py:1114` passes `"[dim]skip[/dim]"` through `esc()`, so the markup is shown literally.
+
+*Checked and fine:* no tracebacks in the UI except U3; Enter is never destructive on its own (sync and reorganize confirm, with a 0.4 s Enter lock); the status symbols (✓ ✗ ! ◎) carry the meaning without colour (`NO_COLOR`); `,`, `q`, `j`, `w` can be typed in the rule input fields.
+
+### What this means for the roadmap
+
+- Items 20 and 23 of section 15 become more urgent: B3 and B5 make problems *disappear*, and U1/U2 would have shown up in one manual run against a real instance.
+- A test per finding before the fix: U1, U3, U4 and B6 are each one short test against `tests/fake_studip.py`.
+- S1 and S3 contradict `SECURITY.md` and belong in the next patch release (0.4.2), with a CHANGELOG note.
+
+---
+
 # Appendix: for contributors
 
-Sections A to C are for people working on the code. Users can stop at section 15.
+Sections A to C are for people working on the code. Users can stop at section 16.
 
 ## A. Release process and CI
 
