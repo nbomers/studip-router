@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-05
+
 ### Added
 - Merge slides is set up in the UI: Enter on a course picks its slides folder (slide
   folders first), `m` merges now; no config editing needed.
@@ -23,6 +25,16 @@ All notable changes to this project are documented here. The format follows
   `._*`) are no longer downloaded from Stud.IP.
 
 ### Changed
+- Much longer keyword lists for automatic routing, checked against 130 real folder
+  and file names: Zentral-/Präsenz-/Haus-/Globalübung, Ü 3, HW1, Einsendeaufgaben,
+  Recitations, Problem sets, Mitschrift, Tafelbild, Zusammenfassung,
+  Formelsammlung, Lehrbrief/Kurseinheit (FernUni), Nachklausur, Midterm, Mock exam,
+  Erwartungshorizont, Semesterapparat, Papers, Texte, Quellen and more; umlauts
+  written without "e" (Ubung, Losung, Prufung). "_", "-", "." count as spaces.
+  Jupyter notebooks (.ipynb) count as exercises.
+- Names that only contain a keyword are no longer taken for it: Merkblatt,
+  Deckblatt, Infoblatt, Datenblatt/Datasheet, Laufzettel, Prüfungsordnung,
+  Vorlesungsverzeichnis/-plan, Handbuch, Raumbuchung.
 - What's new has a coloured course column and shows the folder inside the course.
 - Doctor: course folders that are fine are one line, paths are shortened
   ("iCloud Drive/…"), a missing course folder says how to fix it.
@@ -226,7 +238,8 @@ First public version.
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
 
-[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/nbomers/studip-router/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nbomers/studip-router/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/nbomers/studip-router/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/nbomers/studip-router/compare/v0.2.2...v0.2.3

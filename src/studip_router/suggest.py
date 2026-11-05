@@ -11,79 +11,167 @@ from typing import Any
 from .fsutil import is_ignored, nfc
 from .models import RemoteFile
 
-# Keywords are matched against *normalised* names (lower case, umlauts as ae/oe/ue/ss),
-# so "Übungen", "Uebungen", "UEBUNG" and "übungsblätter" all hit "uebung".
-# Order matters: the first category whose keyword matches wins.
+# Keywords are matched against *normalised* names (lower case, umlauts as ae/oe/ue/ss,
+# "_", "-", "." and "+" as spaces), so "Übungen", "Uebungen", "UEBUNG", "übungs_blätter"
+# and "Ubung" (no umlaut, no e) all hit. Keywords of up to three letters ("vl", "hw",
+# "ue", "lab") only count as whole words, so "VL03" and "HW 2" hit but "Label" does not.
+# Order matters: the first category whose keyword matches wins, so "Klausur Lösung"
+# is an exam and "Lösung Blatt 3" a solution (they go with the exercises when there is
+# no solutions folder).
+#
+# Sources for the German terms: lecture and exercise formats as Stud.IP courses at
+# German universities name them (Vorlesung, Übung/Zentralübung/Präsenzübung/
+# Hausübung, Tutorium, Praktikum, Testat, Semesterapparat, Lehrbrief/Kurseinheit at
+# the FernUni); English: Moodle and course websites (lecture notes, problem sets,
+# recitations, past papers, readings).
 REMOTE_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "exams": ("altklausur", "probeklausur", "klausur", "exam", "pruefung", "past paper", "testat"),
-    "solutions": ("loesung", "solution", "answer"),
+    "exams": (
+        "klausur",  # also Altklausur, Probeklausur, Nachklausur, Klausurvorbereitung
+        "pruefung",  # also Prüfungsvorbereitung; not Prüfungsordnung (see below)
+        "prufung",  # "Prufung" written without the e
+        "exam",  # also Exams, Past exams, Mock exam, Examination
+        "past paper",
+        "midterm",
+        "testat",
+    ),
+    "solutions": (
+        "loesung",  # also Musterlösung, Lösungsvorschlag, Lösungshinweise
+        "losung",
+        "solution",
+        "answer",  # also Answer key, Answers
+        "erwartungshorizont",
+    ),
+    "exercises": (
+        "uebung",  # also Übungsblatt, Hausübung, Präsenzübung, Zentralübung, Globalübung
+        "ubung",
+        "ue",  # "Ü 3", "UE03"
+        "exercise",
+        "blatt",  # also Aufgabenblatt, Arbeitsblatt; not Merkblatt, Deckblatt (below)
+        "blaetter",
+        "zettel",  # also Übungszettel; not Laufzettel (below)
+        "aufgabe",  # also Hausaufgabe, Einsendeaufgabe, Programmieraufgabe
+        "abgabe",
+        "homework",
+        "hw",  # "HW1", "hw 3"
+        "assignment",
+        "sheet",  # also Exercise sheet, Worksheet; not Datasheet (below)
+        "problem set",
+        "problemset",
+        "tutori",  # Tutorium, Tutorien, Tutorial
+        "recitation",
+        "praktikum",
+        "labor",  # also Laborpraktikum, Laboratory
+        "lab",
+        "notebook",  # Jupyter notebooks ("Notebooks", "notebook-03") are worked on like sheets
+        "workbook",
+    ),
+    "slides": (
+        "folie",  # also Vorlesungsfolien, Foliensatz
+        "slide",
+        "vorlesung",  # also Vorlesungsunterlagen; not Vorlesungsverzeichnis (below)
+        "lecture",  # also Lecture notes
+        "vl",  # "VL 3", "VL03"
+        "skript",  # also Skriptum, Vorlesungsskript
+        "script",  # not "Scripts" (code, below)
+        "praesentation",
+        "prasentation",
+        "presentation",
+        "vortrag",
+        "vortraege",
+        "handout",
+        "kapitel",
+        "chapter",
+        "lektion",
+        "mitschrift",
+        "tafel",  # Tafelbild, Tafelanschrieb
+        "whiteboard",
+        "zusammenfassung",
+        "summary",
+        "formelsammlung",
+        "lehrbrief",  # FernUni: Lehrbrief, Studienbrief, Kurseinheit
+        "studienbrief",
+        "kurseinheit",
+    ),
+    # Only used when a local folder for it exists ("Literatur", "Reading", ...).
+    "reading": (
+        "literatur",  # also Literaturliste, Pflichtliteratur
+        "lektuere",
+        "lekture",
+        "reader",
+        "reading",
+        "semesterapparat",
+        "paper",  # seminar papers; "Past papers" are exams (checked first)
+        "texte",
+        "quellen",
+        "bibliograph",
+        "book",  # "Notebook" is an exercise (checked first)
+        "buch",  # also Lehrbuch; not Handbuch (below)
+        "artikel",
+        "article",
+    ),
+}
+LOCAL_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "exams": ("klausur", "exam", "pruefung", "prufung", "testat"),
+    "solutions": ("loesung", "losung", "solution"),
     "exercises": (
         "uebung",
         "ubung",
         "exercise",
         "blatt",
         "blaetter",
+        "zettel",
         "sheet",
         "homework",
         "hausaufgabe",
         "assignment",
         "aufgabe",
+        "abgabe",
         "tutori",
         "praktikum",
-        "problem set",
-        "worksheet",
-        "zettel",
-        "abgabe",
         "lab",
         "labor",
-        "notebook",  # Jupyter notebooks ("Notebooks", "notebook-03") are worked on like sheets
+        "problem set",
     ),
     "slides": (
+        "skript",
+        "script",
         "folie",
         "slide",
         "vorlesung",
         "lecture",
-        "skript",
-        "script",
-        "praesentation",
-        "presentation",
-        "handout",
-        "kapitel",
-        "chapter",
+        "notes",
+        "unterlagen",
+        "mitschrift",
         "vl",
     ),
-    # Only used when a local folder for it exists ("Literatur", "Reading", ...).
-    "reading": ("literatur", "reader", "reading", "lektuere"),
-}
-LOCAL_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "exams": ("klausur", "exam", "pruefung"),
-    "solutions": ("loesung", "solution"),
-    "exercises": (
-        "uebung",
-        "ubung",
-        "exercise",
-        "blatt",
-        "blaetter",
-        "sheet",
-        "homework",
-        "hausaufgabe",
-        "assignment",
-        "aufgabe",
-        "tutori",
-        "praktikum",
-        "lab",
-        "labor",
+    "reading": (
+        "literatur",
+        "reading",
+        "reader",
+        "lektuere",
+        "paper",
+        "texte",
+        "buecher",
+        "books",
+        "semesterapparat",
+        "quellen",
     ),
-    "slides": ("skript", "script", "folie", "slide", "vorlesung", "lecture", "notes", "unterlagen"),
-    "reading": ("literatur", "reading", "reader", "lektuere", "paper"),
     "misc": ("sonstig", "misc", "other", "allgemein", "general", "divers", "inbox", "extra"),
 }
-# Words that contain a keyword but mean something else ("Examples" is no exam,
-# "Cheat sheet" no exercise sheet, a "Scripts"/"Code" folder holds programs).
-# They are removed before the keywords are matched.
+# Words that contain a keyword but mean something else. They are removed before the
+# keywords are matched: "Examples" is no exam, "Cheat sheet" or "Datasheet" no exercise
+# sheet, "Merkblatt"/"Deckblatt" no exercise, "Laufzettel" a form, a "Scripts"/"Code"
+# folder holds programs, "Prüfungsordnung" and "Vorlesungsverzeichnis" are regulations
+# and timetables, a "Handbuch" a manual.
 _FALSE_FRIENDS = re.compile(
-    r"example\w*|exemplar\w*|cheat[\s_-]?sheets?|(?<![a-z])scripts(?![a-z])"
-    r"|(?<![a-z])(?:source[\s_-]?)?code(?![a-z])"
+    r"example\w*|exemplar\w*"
+    r"|cheat ?sheets?|data ?sheets?|spread ?sheets?|cover ?sheets?|info ?sheets?"
+    r"|(?:merk|deck|info|daten|hinweis|bei|anmelde|formel)blae?tt\w*"
+    r"|laufzettel\w*|stundenzettel\w*"
+    r"|(?<![a-z])scripts(?![a-z])|(?<![a-z])(?:source ?)?code(?![a-z])"
+    r"|pruefungs?(?:ordnung|amt|ausschuss|recht)\w*"
+    r"|vorlesungs(?:verzeichnis|frei|zeit|plan|beginn|ende)\w*"
+    r"|handbuch\w*|logbuch\w*|buchung\w*"
 )
 
 # Local folders that are archives, never a target for new files.
@@ -138,7 +226,8 @@ def local_subdirs(course_dir: Path, depth: int = 2) -> list[str]:
 
 
 def _category(text: str) -> str | None:
-    words = _FALSE_FRIENDS.sub(" ", normalise_name(text))
+    words = re.sub(r"[_\-.+]+", " ", normalise_name(text))
+    words = _FALSE_FRIENDS.sub(" ", words)
     for name, keywords in REMOTE_KEYWORDS.items():
         if _has_keyword(words, keywords):
             return name
@@ -198,7 +287,9 @@ _CODE_EXT = frozenset(
 def file_category(name: str) -> str | None:
     """Category a file name reveals ("Uebungsblatt_3.pdf" -> exercises), if any."""
     stem, _, ext = name.rpartition(".") if "." in name else (name, "", "")
-    category = _category(stem.replace("_", " "))
+    if ext.lower() == "ipynb":  # Jupyter notebooks are worked on like exercise sheets
+        return "exercises"
+    category = _category(stem)
     if category == "slides" and ext.lower() in _CODE_EXT:
         return None
     return category
