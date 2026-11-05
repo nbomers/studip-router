@@ -299,6 +299,8 @@ def _execute_locked(
             state.mark_gone([r.file_id for r in plan.remote_deleted])
             if plan.reappeared:
                 state.unmark_gone(plan.reappeared)
+            if plan.folder_types:
+                state.set_folder_types(plan.folder_types)
     except KeyboardInterrupt:
         result.interrupted = True
         state.finish_run(run_id, {"interrupted": True})

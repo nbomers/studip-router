@@ -1,5 +1,5 @@
 # bash completions for studip-router (`studip`)
-# Install: cp shell/bash/studip ~/.local/share/bash-completion/completions/studip
+# Install: studip completion bash > ~/.local/share/bash-completion/completions/studip
 #          (or `source` it from ~/.bashrc)
 
 # Course folders often contain spaces ("Mathe I"): offer them escaped.
@@ -14,7 +14,7 @@ _studip() {
   local cur prev cmd
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="init open courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore dates pdf-password"
+  local commands="init open courses sync status reorganize undo history news merge doctor tui completion auth config rules schedule ignore dates pdf-password"
 
   # the first word that is a command
   local i
@@ -54,7 +54,8 @@ _studip() {
     sync) words="--course -s --semester -n --dry-run --include-large -v --verbose -q --quiet --notify" ;;
     reorganize) words="--course -n --dry-run -y --yes" ;;
     undo) words="-y --yes" ;;
-    history) words="-n --limit" ;;
+    history) words="-l --limit" ;;
+    completion) words="zsh bash fish" ;;
     news) words="--course --all --keep-unread" ;;
     merge) words="--course --force" ;;
     dates) words="--days --offline --ics" ;;

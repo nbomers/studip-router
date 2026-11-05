@@ -10,7 +10,8 @@ All notable changes to this project are documented here. The format follows
 - `studip dates --ics FILE` writes all known course dates as a calendar file.
 - `[sync.keywords]`: your own words per category for automatic sorting.
 - `studip open COURSE` opens a course folder.
-- zsh and bash completions (`shell/zsh`, `shell/bash`).
+- `studip completion zsh|bash|fish` prints the completion script; it now ships with
+  the package, so installs from PyPI have it too. Adds zsh and bash completions.
 - Announcements: `x` marks all as read. `?` opens the help on every screen.
 - The sync preview and `--json` (`missing_courses`) name configured courses that are
   no longer on Stud.IP (deleted, or you left them).
@@ -59,10 +60,23 @@ All notable changes to this project are documented here. The format follows
   silence, and the cursor stays on the chosen action when the status arrives.
 - Announcements are read when you move past them, not when the screen opens.
 - The config file is written readable only by you.
+- Files synced before this version get their Stud.IP folder type on the next sync,
+  so Reorganize can sort them like new files.
+- Leaving the UI while the home screen still loads its status no longer triggers a
+  "coroutine was never awaited" warning.
+- When the config turns invalid in the settings, the UI goes back to the home
+  screen (which shows the problem), also when the settings were opened from another
+  screen.
 
 ### Changed
 - State database schema 2 (new column `folder_type`, added automatically). Going
   back to 0.4.1 afterwards stops with "written by a newer studip-router".
+- `--json` and `-p/--profile` also work after the command (`studip sync --json`).
+- `studip history` takes `-l` for `--limit`; `-n` (dry run everywhere else) still
+  works but prints a note.
+- Keys inside screens no longer reuse the home screen's letters: Ctrl+R lists again
+  in the sync screen, `f` shows a file in its folder in "What's new" (Enter opens
+  it). The old keys `r` and `o` still work there until 1.0.
 
 ## [0.4.1] - 2026-11-05
 

@@ -308,7 +308,10 @@ HELP = """\
 
 [b]Lists[/b]
   Space      tick / untick
+  a          show all (semesters, read announcements)
   x          announcements: mark all read
+  f          what's new: show in folder
+  Ctrl+R     sync: list again
   ← →        change a setting (saved at once)
 """
 

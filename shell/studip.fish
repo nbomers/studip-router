@@ -1,4 +1,4 @@
-# Optional wrapper: only needed if `studip` is not on your PATH
+# Optional wrapper (fish): only needed if `studip` is not on your PATH
 # (e.g. you run it from a source checkout). Set STUDIP_ROUTER_SRC to that checkout.
 function studip --description 'Stud.IP sync with routing rules'
     if set -q STUDIP_ROUTER_SRC

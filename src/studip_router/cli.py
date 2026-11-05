@@ -940,9 +940,13 @@ def open_cmd(
 
 @app.command("history")
 def history_cmd(
-    limit: Annotated[int, typer.Option("--limit", "-n", help="How many files to show.")] = 30,
+    limit: Annotated[int, typer.Option("--limit", "-l", help="How many files to show.")] = 30,
+    old_limit: Annotated[int | None, typer.Option("-n", hidden=True)] = None,
 ) -> None:
     """Files that arrived most recently."""
+    if old_limit is not None:  # before 0.4.2; -n means --dry-run everywhere else
+        err.print("[yellow]Note:[/yellow] `history -n` is now `history -l` (--limit)")
+        limit = old_limit
     with State(paths.state_db()) as state:
         records = state.recent_files(limit)
     if OPTS.json:
@@ -1349,6 +1353,18 @@ def complete_cmd(what: str) -> None:
             print(f"{c.target}\t{label}")
 
 
+@app.command("completion")
+def completion_cmd(
+    shell: Annotated[str, typer.Argument(help="zsh, bash or fish.")],
+) -> None:
+    """Print the completion script for a shell (see the README for where it goes)."""
+    from importlib.resources import files
+
+    if shell not in ("zsh", "bash", "fish"):
+        raise fail(f"unknown shell {shell!r}: use zsh, bash or fish", 2)
+    sys.stdout.write((files("studip_router") / "completions" / shell).read_text("utf-8"))
+
+
 @app.command("tui")
 def tui_cmd() -> None:
     """Open the interactive terminal UI (same as running `studip` without a command)."""
@@ -1357,10 +1373,47 @@ def tui_cmd() -> None:
     run_tui()
 
 
+def hoist_global_options(args: list[str]) -> list[str]:
+    """Move ``--json`` and ``-p/--profile`` from after the command to the front.
+
+    Click only accepts them before the command; ``studip sync --json`` failing with
+    "no such option" surprised people. Everything after ``--`` stays as it is.
+    """
+    head: list[str] = []
+    rest: list[str] = []
+    seen_command = False
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            rest += args[i:]
+            break
+        if not seen_command:
+            if arg in ("-p", "--profile") and i + 1 < len(args):
+                head += args[i : i + 2]
+                i += 2
+                continue
+            if not arg.startswith("-"):
+                seen_command = True
+                rest.append(arg)
+            else:
+                head.append(arg)
+        elif arg == "--json" or arg.startswith("--profile="):
+            head.append(arg)
+        elif arg in ("-p", "--profile") and i + 1 < len(args):
+            head += args[i : i + 2]
+            i += 2
+            continue
+        else:
+            rest.append(arg)
+        i += 1
+    return head + rest
+
+
 def main() -> None:
     """Entry point; expected problems end with a message and exit code, no traceback."""
     try:
-        app()
+        app(args=hoist_global_options(sys.argv[1:]))
     except (StateError, auth.AuthError) as exc:
         code = 3 if isinstance(exc, auth.AuthError) else 4
         if OPTS.json:
