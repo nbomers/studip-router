@@ -2,6 +2,14 @@
 # Install: cp shell/bash/studip ~/.local/share/bash-completion/completions/studip
 #          (or `source` it from ~/.bashrc)
 
+# Course folders often contain spaces ("Mathe I"): offer them escaped.
+_studip_courses() {
+  local IFS=$'\n' course
+  for course in $(command studip _complete courses 2>/dev/null | cut -f1); do
+    [[ "$course" == "$1"* ]] && printf '%q\n' "$course"
+  done
+}
+
 _studip() {
   local cur prev cmd
   cur="${COMP_WORDS[COMP_CWORD]}"
@@ -24,7 +32,7 @@ _studip() {
       return ;;
     --course)
       local IFS=$'\n'
-      COMPREPLY=($(compgen -W "$(command studip _complete courses 2>/dev/null | cut -f1)" -- "$cur"))
+      COMPREPLY=($(_studip_courses "$cur"))
       return ;;
     --ics)
       COMPREPLY=($(compgen -f -- "$cur"))
@@ -36,7 +44,7 @@ _studip() {
 
   if [[ "$cmd" == open ]]; then
     local IFS=$'\n'
-    COMPREPLY=($(compgen -W "$(command studip _complete courses 2>/dev/null | cut -f1)" -- "$cur"))
+    COMPREPLY=($(_studip_courses "$cur"))
     return
   fi
 
