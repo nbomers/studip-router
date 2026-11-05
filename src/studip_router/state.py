@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS files (
     description        TEXT NOT NULL DEFAULT '',
     content_id         TEXT NOT NULL DEFAULT '',
     gone               INTEGER NOT NULL DEFAULT 0,
-    local_sha256       TEXT
+    local_sha256       TEXT,
+    folder_type        TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS ignored (
     file_id   TEXT PRIMARY KEY,
@@ -117,6 +118,7 @@ class FileRecord:
     content_id: str = ""
     gone: bool = False  # deleted on Stud.IP and already reported
     local_sha256: str | None = None  # local content if it differs (decrypted PDF)
+    folder_type: str = ""  # Stud.IP type of the parent folder; "" for files synced before 0.4.2
 
     @property
     def local_digest(self) -> str | None:
@@ -172,6 +174,7 @@ class State:
             ("content_id", "TEXT NOT NULL DEFAULT ''"),
             ("gone", "INTEGER NOT NULL DEFAULT 0"),
             ("local_sha256", "TEXT"),
+            ("folder_type", "TEXT NOT NULL DEFAULT ''"),
         ):
             if name not in columns:
                 self._db.execute(f"ALTER TABLE files ADD COLUMN {name} {kind}")
@@ -300,6 +303,20 @@ class State:
 
     def clear_failure(self, file_id: str) -> None:
         self._db.execute("DELETE FROM failures WHERE file_id = ?", (file_id,))
+        self._db.commit()
+
+    def pending_failures(self) -> int:
+        """Files that failed and are still wanted: not synced since, not ignored."""
+        row = self._db.execute(
+            "SELECT COUNT(*) FROM failures WHERE file_id NOT IN (SELECT file_id FROM ignored)"
+            " AND file_id NOT IN (SELECT file_id FROM files)"
+        ).fetchone()
+        return int(row[0])
+
+    def forget_failures_except(self, file_ids: set[str]) -> None:
+        """Drop failures of files Stud.IP no longer lists (deleted, course closed)."""
+        stale = [f for f in self.failures() if f not in file_ids]
+        self._db.executemany("DELETE FROM failures WHERE file_id = ?", [(f,) for f in stale])
         self._db.commit()
 
     def delete_file_record(self, file_id: str) -> None:

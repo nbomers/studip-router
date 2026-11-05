@@ -194,6 +194,9 @@ class HomeScreen(Screen):
             tracked = len(state.all())
             default_routed = len(state.default_routed())
             to_move = len(pending_moves(cfg, state))
+            # Not the last run's count: a file synced, ignored or gone since then is
+            # no reason to "try again" (that would loop: nothing left to retry).
+            failed = state.pending_failures()
         last_summary: dict = {}
         if last and last["summary"]:
             with contextlib.suppress(ValueError):
@@ -208,7 +211,7 @@ class HomeScreen(Screen):
             "default_routed": default_routed,
             "default_folder": cfg.default_target,
             "to_move": to_move,
-            "failed": int(last_summary.get("failed", 0) or 0),
+            "failed": failed,
             "course_errors": int(last_summary.get("course_errors", 0) or 0),
             "paused": paths.auth_pause_file().exists(),
             "logged_in": logged_in,

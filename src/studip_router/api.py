@@ -389,17 +389,25 @@ class StudipClient:
                 continue
             elements: dict[str, dict] = {}
             included: list[dict] = []
-            doc = self._get_json(
-                f"/courseware-structural-elements/{root}", {"include": "containers.blocks"}
-            )
-            elements[root] = doc["data"]
-            included += doc.get("included") or []
-            for item, inc in self._paginate(
-                f"/courseware-structural-elements/{root}/descendants",
-                {"include": "containers.blocks"},
-            ):
-                elements[item["id"]] = item
-                included += inc
+            try:
+                doc = self._get_json(
+                    f"/courseware-structural-elements/{root}", {"include": "containers.blocks"}
+                )
+                elements[root] = doc["data"]
+                included += doc.get("included") or []
+                for item, inc in self._paginate(
+                    f"/courseware-structural-elements/{root}/descendants",
+                    {"include": "containers.blocks"},
+                ):
+                    elements[item["id"]] = item
+                    included += inc
+            except ApiError as exc:
+                # One unit closed to you (403/404) must not close the whole course:
+                # its normal files and the other units are still synced.
+                if isinstance(exc, AuthFailed) or not exc.no_access:
+                    raise
+                self.warnings.append(f"{course_id}: a Courseware unit is closed to you, skipped")
+                continue
             containers = {x["id"]: x for x in included if x.get("type") == "courseware-containers"}
             for block in (x for x in included if x.get("type") == "courseware-blocks"):
                 container = containers.get(_rel_id(block.get("relationships") or {}, "container"))

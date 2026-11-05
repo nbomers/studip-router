@@ -31,7 +31,7 @@ from .fsutil import Locked, exclusive_lock
 from .models import RemoteFile
 from .news import fetch_news, unread
 from .notify import dates_message, notify, sync_message
-from .planner import build_router
+from .planner import Kind, build_router
 from .rename import RenameError
 from .reorganize import apply_reorganize, apply_undo, pending_moves, plan_reorganize, plan_undo
 from .report import esc
@@ -522,6 +522,9 @@ def sync_cmd(
                         f"  [{report.STYLE[a.kind]}]{report.SYMBOL[a.kind]}[/] "
                         + esc(a.dest.name if a.dest else "")
                     ),
+                    on_failed=lambda a, msg: out.print(
+                        f"  [red]✗[/] {esc(a.dest.name if a.dest else '')}  [dim]{esc(msg)}[/]"
+                    ),
                 )
             except Locked as exc:
                 raise fail(f"{exc} - try again in a moment", 75) from None
@@ -570,7 +573,14 @@ def sync_cmd(
                     err.print(
                         f"[red]✗[/red] {esc(action.file.name if action.file else '')}: {esc(msg)}"
                     )
+                for action in (a for p in sync_plan.plans for a in p.actions):
+                    if action.kind is Kind.ERROR:
+                        name = action.file.name if action.file else ""
+                        err.print(f"[red]✗[/red] {esc(name)}: {esc(action.reason)}")
         failed = len(result.outcome.failed) if result else 0
+        # Files the plan already knew it could not place ("target folder does not
+        # exist", a rename that fails, on_conflict = "error") are problems too.
+        failed += sum(1 for p in sync_plan.plans for a in p.actions if a.kind is Kind.ERROR)
         if background and cfg.notify:
             message = sync_message(result.new_by_course(sync_plan) if result else {}, news_count)
             problems = failed + len(sync_plan.errors)
@@ -583,7 +593,7 @@ def sync_cmd(
             if dates := dates_message([c.text() for c in date_changes]):
                 notify("Stud.IP dates", dates)
         if failed or sync_plan.errors:
-            raise typer.Exit(1)
+            raise typer.Exit(1)  # planned errors included
 
 
 def _pause_auto_sync(background: bool) -> None:
@@ -798,7 +808,9 @@ def rules_suggest(
             known_folders = {r.match.folder for r in c.rules if r.match.folder}
             suggestions = [
                 s
-                for s in suggest_rules(files, cfg.course_dir(c), existing)
+                for s in suggest_rules(
+                    files, cfg.course_dir(c), existing, by_name=not cfg.auto_route
+                )
                 if s.rule["match"].get("folder") not in known_folders
             ]
             found[c.id] = suggestions

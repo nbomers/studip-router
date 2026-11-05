@@ -376,12 +376,18 @@ def _slug(text: str) -> str:
 
 
 def suggest_rules(
-    files: list[RemoteFile], course_dir: Path, existing_ids: set[str] | None = None
+    files: list[RemoteFile],
+    course_dir: Path,
+    existing_ids: set[str] | None = None,
+    *,
+    by_name: bool = True,
 ) -> list[Suggestion]:
     """One rule per top-level Stud.IP folder whose name reveals its category.
 
-    Files in the course root are classified by file name instead, so that e.g.
-    "Altklausur_2024.pdf" gets its own name-based rule.
+    With ``by_name``, files in the course root are classified by file name too, so
+    that e.g. "Altklausur_2024.pdf" gets its own name-based rule. Pass False when
+    automatic sorting is on: it already sorts by file name, with the exclusion list
+    and the category order that a regex rule cannot reproduce.
     """
     subdirs = local_subdirs(course_dir)
     taken = set(existing_ids or ())
@@ -430,12 +436,20 @@ def suggest_rules(
             )
         )
 
+    if not by_name:
+        return suggestions
     root_files = [f for f in files if not f.folder_path]
     by_category: dict[str, int] = Counter(
-        c for f in root_files if (c := _category(f.name)) is not None
+        c for f in root_files if (c := file_category(f.name)) is not None
     )
     keywords = REMOTE_KEYWORDS
-    for category, count in sorted(by_category.items()):
+    # Rules apply in order: the same order as the classifier (exams before solutions
+    # before exercises ...), so "Lösung Blatt 3" is a solution, not an exercise.
+    priority = list(REMOTE_KEYWORDS)
+    for category in sorted(by_category, key=priority.index):
+        count = by_category[category]
+        if any(i == f"{category}-by-name" or i.startswith(f"{category}-by-name-") for i in taken):
+            continue  # added before: do not offer "-2", "-3", ... on every run
         target = _local_target(category, subdirs)
         if target is None:
             continue

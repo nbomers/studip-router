@@ -175,14 +175,16 @@ class View(Screen):
 
     def counted(self, items: list, label=lambda item: str(item)):
         """Iterate ``items`` and move the bar: "Reading 3/8: Quantum Cooking…"."""
-        for index, item in enumerate(items):
-            self.busy(
-                index,
-                len(items),
-                f"Reading [b]{index + 1}/{len(items)}[/b]: {esc(clip(label(item), 50))}…",
-            )
-            yield item
-        self.idle()
+        try:
+            for index, item in enumerate(items):
+                self.busy(
+                    index,
+                    len(items),
+                    f"Reading [b]{index + 1}/{len(items)}[/b]: {esc(clip(label(item), 50))}…",
+                )
+                yield item
+        finally:  # also when the caller stops early or fails: never a stuck bar
+            self.idle()
 
     @property
     def cfg(self) -> Config:
@@ -322,6 +324,7 @@ class SyncView(View):
         self.show_skipped = False
         self.running = False
         self.cancel = False
+        self.used = False  # the plan was executed (or tried): it is stale now
         self.date_changes: list[Change] = []
 
     def compose(self) -> ComposeResult:
@@ -350,6 +353,10 @@ class SyncView(View):
         try:
             with self.client() as client, State(paths.state_db()) as state:
                 plan = build_plan(client, self.cfg, state, on_course=progress)
+                if not plan.errors:  # a complete listing: failures of vanished files go
+                    state.forget_failures_except(
+                        {a.file.id for p in plan.plans for a in p.actions if a.file}
+                    )
         except ApiError as exc:
             self.idle()
             self.check_login(exc)
@@ -360,6 +367,11 @@ class SyncView(View):
 
     def show_plan(self, plan: SyncPlan) -> None:
         self.plan = plan
+        self.used = False
+        # Back from a finished or stopped run: the table again, not the old log.
+        self.query_one("#progress", ProgressBar).display = False
+        self.query_one(RichLog).display = False
+        self.query_one(DataTable).display = True
         table = self.query_one(DataTable)
         table.clear()
         self.row_actions: list[Action] = []
@@ -434,9 +446,10 @@ class SyncView(View):
             )
         else:
             self.status(f"[green]✓ Everything is up to date.[/green] {esc(sem)}{extra}")
-        if self.auto and todo:
+        if self.auto:
             self.auto = False
-            self.action_start()
+            if todo:
+                self.action_start()
 
     def _todo(self) -> int:
         if not self.plan:
@@ -464,6 +477,7 @@ class SyncView(View):
                 self.notify(f"{esc(action.file.name)} will be synced again.")
             else:
                 state.ignore(action.file.id, action.course_id, action.file.name)
+                state.clear_failure(action.file.id)
                 self.notify(f"{esc(action.file.name)} will never be downloaded.")
         self.action_refresh()
 
@@ -488,7 +502,14 @@ class SyncView(View):
             self.app.pop_screen()
 
     def action_start(self) -> None:
-        if self.running or not self._todo() or self.plan is None:
+        if self.running or self.plan is None:
+            return
+        if self.used:  # never run a plan twice: its files exist now ("refusing to overwrite")
+            self.status("Fetching course data from Stud.IP…")
+            self.auto = True
+            self.load_plan()
+            return
+        if not self._todo():
             return
 
         def confirmed(ok: bool | None) -> None:
@@ -501,6 +522,7 @@ class SyncView(View):
     def run_sync(self) -> None:
         assert self.plan is not None
         self.running = True
+        self.used = True
         self.cancel = False
         self.app.call_from_thread(self._prepare_run, self._todo())
 
@@ -509,9 +531,16 @@ class SyncView(View):
             if self.cancel:
                 raise KeyboardInterrupt
 
+        def failed(action: Action, message: str) -> None:
+            self.app.call_from_thread(self._log_failed, action, message)
+            if self.cancel:  # Esc works even when every file fails (network down)
+                raise KeyboardInterrupt
+
         try:
             with self.client() as client, State(paths.state_db()) as state:
-                result = execute_plan(self.plan, self.cfg, state, client, on_progress=progress)
+                result = execute_plan(
+                    self.plan, self.cfg, state, client, on_progress=progress, on_failed=failed
+                )
                 if self.cfg.watch_dates:
                     courses = [
                         (p.course.id, p.course.name or p.course.target) for p in self.plan.plans
@@ -559,6 +588,13 @@ class SyncView(View):
         self.query_one(RichLog).write(
             f"[{STYLE[action.kind]}]{SYMBOL[action.kind]}[/] {esc(clip(name, 60))}"
             + ("" if action.kind is Kind.DOWNLOAD else f"  [dim]{action.kind.value}[/]")
+        )
+
+    def _log_failed(self, action: Action, message: str) -> None:
+        self.query_one("#progress", ProgressBar).advance(1)
+        name = action.dest.name if action.dest else ""
+        self.query_one(RichLog).write(
+            f"[red]✗[/] {esc(clip(name, 60))}  [dim]{esc(clip(message, 80))}[/]"
         )
 
     def _finish_run(self, result) -> None:
@@ -1143,7 +1179,12 @@ class RulesView(View):
                             )
                         )
                         continue
-                    for s in suggest_rules(files, self.cfg.course_dir(c), {r.id for r in c.rules}):
+                    for s in suggest_rules(
+                        files,
+                        self.cfg.course_dir(c),
+                        {r.id for r in c.rules},
+                        by_name=not self.cfg.auto_route,
+                    ):
                         if s.rule["match"].get("folder") not in known:
                             found.append((c.id, s))
         except ApiError as exc:

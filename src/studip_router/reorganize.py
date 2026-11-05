@@ -46,6 +46,7 @@ def _remote_from(record: FileRecord) -> RemoteFile:
         mime_type=record.mime_type,
         description=record.description,
         downloadable=True,
+        folder_type=record.folder_type,
     )
 
 
@@ -57,6 +58,9 @@ def plan_reorganize(cfg: Config, state: State, course_id: str | None = None) -> 
             continue
         route_file = build_router(cfg, course)
         course_dir = cfg.course_dir(course)
+        # The semester is not stored per file: a rename template that uses it keeps
+        # the name the sync gave the file instead of renaming it to "_name.pdf".
+        semester_rules = {r.id for r in course.rules if r.rename and "semester" in r.rename}
         for record in sorted(state.for_course(cid).values(), key=lambda r: r.local_path):
             src = Path(record.local_path)
             if extracted_instead(src):
@@ -68,9 +72,20 @@ def plan_reorganize(cfg: Config, state: State, course_id: str | None = None) -> 
                 continue
             if route.skip:
                 continue
-            dst = course_dir / route.subdir / route.name
-            if record.version > 1:
-                dst = with_suffix_number(dst, record.version, "_v{n}")
+            if (
+                route.by_default
+                and not record.folder_type
+                and (record.rule_id or "").startswith("auto:")
+            ):
+                # Synced before the folder type was stored: it may have placed the
+                # file (a homework folder), so never send it to the default folder.
+                continue
+            if route.rule_id in semester_rules:
+                dst = course_dir / route.subdir / src.name  # already carries any "_v2"
+            else:
+                dst = course_dir / route.subdir / route.name
+                if record.version > 1:
+                    dst = with_suffix_number(dst, record.version, "_v{n}")
             if path_key(dst) == path_key(src):
                 continue
             problem = ""

@@ -256,6 +256,7 @@ def execute_plan(
     client: StudipClient,
     on_progress: Callable[[Action], None] | None = None,
     on_course: Callable[[CoursePlan], None] | None = None,
+    on_failed: Callable[[Action, str], None] | None = None,
 ) -> RunResult:
     """Execute all course plans, then regenerate merged slide PDFs.
 
@@ -263,7 +264,7 @@ def execute_plan(
     syncs) fails fast with ``Locked`` instead of racing for the same files.
     """
     with exclusive_lock(paths.lock_file()):
-        return _execute_locked(sync_plan, cfg, state, client, on_progress, on_course)
+        return _execute_locked(sync_plan, cfg, state, client, on_progress, on_course, on_failed)
 
 
 def _execute_locked(
@@ -273,6 +274,7 @@ def _execute_locked(
     client: StudipClient,
     on_progress: Callable[[Action], None] | None,
     on_course: Callable[[CoursePlan], None] | None,
+    on_failed: Callable[[Action, str], None] | None = None,
 ) -> RunResult:
     run_id = state.start_run("sync")
     result = RunResult(Outcome())
@@ -285,7 +287,9 @@ def _execute_locked(
                 if on_course:
                     on_course(plan)
                 password = auth.get_pdf_password(plan.course.id)
-                part = execute(plan, state, client.download, run_id, on_progress, password)
+                part = execute(
+                    plan, state, client.download, run_id, on_progress, password, on_failed
+                )
                 result.outcome.done += part.done
                 result.outcome.failed += part.failed
                 result.outcome.extracted += part.extracted
