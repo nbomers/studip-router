@@ -131,7 +131,9 @@ def now_iso() -> str:
 
 
 # Bumped whenever the schema changes; older files are migrated, newer ones refused.
-SCHEMA_VERSION = 1
+# 2: files.folder_type (0.4.2). 0.4.1 would crash on the unknown column; with the
+# bump it stops with "written by a newer studip-router" instead.
+SCHEMA_VERSION = 2
 
 
 class StateError(Exception):
@@ -406,8 +408,12 @@ class State:
         )
 
 
+_RECORD_FIELDS = set(FileRecord.__dataclass_fields__)
+
+
 def _record(row: sqlite3.Row) -> FileRecord:
-    data = dict(row)
+    # Columns a newer version added are ignored, never a crash.
+    data = {k: v for k, v in dict(row).items() if k in _RECORD_FIELDS}
     data["routed_by_default"] = bool(data["routed_by_default"])
     data["gone"] = bool(data.get("gone", 0))
     return FileRecord(**data)

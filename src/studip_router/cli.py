@@ -453,7 +453,10 @@ def courses_cmd(
 def sync_cmd(
     config: ConfigOpt = None,
     course: CourseOpt = None,
-    semester: Annotated[str | None, typer.Option("--semester", "-s")] = None,
+    semester: Annotated[
+        str | None,
+        typer.Option("--semester", "-s", help='"current", "all" or "WiSe 2026/27".'),
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", "-n", help="Only show the plan.")] = False,
     include_large: Annotated[
         bool, typer.Option("--include-large", help="Ignore the size limit for this run.")
@@ -740,7 +743,9 @@ def rules_test(
     filename: str,
     folder: Annotated[str, typer.Option("--folder", "-f", help="Stud.IP folder path.")] = "",
     size_mb: Annotated[float, typer.Option("--size", help="File size in MB.")] = 0.1,
-    mime: Annotated[str, typer.Option("--mime")] = "application/octet-stream",
+    mime: Annotated[
+        str, typer.Option("--mime", help="MIME type to test with (adds a missing extension).")
+    ] = "application/octet-stream",
     config: ConfigOpt = None,
 ) -> None:
     """Show which rule a file would match and where it would end up (no download)."""
@@ -845,8 +850,10 @@ def rules_suggest(
 @app.command("reorganize")
 def reorganize_cmd(
     course: CourseOpt = None,
-    dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
-    yes: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", "-n", help="Only show what would move.")
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask before moving.")] = False,
     config: ConfigOpt = None,
 ) -> None:
     """Move already synced files to where the current rules would put them."""
@@ -880,7 +887,11 @@ def reorganize_cmd(
 
 
 @app.command("undo")
-def undo_cmd(yes: Annotated[bool, typer.Option("--yes", "-y")] = False) -> None:
+def undo_cmd(
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Do not ask before moving back.")
+    ] = False,
+) -> None:
     """Revert the last `studip reorganize` (downloads are never deleted)."""
     with State(paths.state_db()) as state:
         run_id, steps = plan_undo(state)
@@ -907,7 +918,9 @@ def _rel(path: Path, base: Path) -> str:
 
 
 @app.command("history")
-def history_cmd(limit: Annotated[int, typer.Option("--limit", "-n")] = 30) -> None:
+def history_cmd(
+    limit: Annotated[int, typer.Option("--limit", "-n", help="How many files to show.")] = 30,
+) -> None:
     """Files that arrived most recently."""
     with State(paths.state_db()) as state:
         records = state.recent_files(limit)
@@ -940,7 +953,9 @@ def history_cmd(limit: Annotated[int, typer.Option("--limit", "-n")] = 30) -> No
 def news_cmd(
     course: CourseOpt = None,
     show_all: Annotated[bool, typer.Option("--all", help="Include read announcements.")] = False,
-    keep_unread: Annotated[bool, typer.Option("--keep-unread")] = False,
+    keep_unread: Annotated[
+        bool, typer.Option("--keep-unread", help="Do not mark the shown ones as read.")
+    ] = False,
     config: ConfigOpt = None,
 ) -> None:
     """Show (unread) course announcements."""
@@ -979,7 +994,7 @@ def merge_cmd(
     force: Annotated[bool, typer.Option("--force", help="Download iCloud-only PDFs.")] = False,
     config: ConfigOpt = None,
 ) -> None:
-    """Merge lecture PDFs into one file per course (needs `merge` in the course config)."""
+    """Merge lecture PDFs into one file per course (set up in the UI: Merge slides)."""
     cfg = load_config(config)
     courses = [find_course(cfg, course)] if course else list(cfg.courses.values())
     with State(paths.state_db()) as state:
@@ -1003,7 +1018,7 @@ def merge_cmd(
 @schedule_app.command("install")
 def schedule_install(
     every: Annotated[int, typer.Option("--every", help="Interval in minutes.")] = 120,
-    yes: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask before installing.")] = False,
 ) -> None:
     """Run `studip sync --notify` periodically (launchd on macOS, systemd on Linux)."""
     if every < 15:
@@ -1069,7 +1084,7 @@ def schedule_status() -> None:
 
 @app.command("doctor")
 def doctor_cmd(
-    offline: Annotated[bool, typer.Option("--offline")] = False,
+    offline: Annotated[bool, typer.Option("--offline", help="Do not contact Stud.IP.")] = False,
     test_notification: Annotated[
         bool, typer.Option("--test-notification", help="Send a test desktop notification.")
     ] = False,

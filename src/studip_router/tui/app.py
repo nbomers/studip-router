@@ -324,6 +324,10 @@ class HomeScreen(Screen):
             with app.make_client() as client, State(paths.state_db()) as state:
                 sem = resolve_semester(client, cfg.semester)
                 entries, _ = list_courses(client, cfg, sem)
+                # Colours before the announcements: one course whose announcements
+                # fail must not cost them (Stud.IP is reachable, the list just came).
+                with contextlib.suppress(Exception):
+                    save_course_groups(client.course_groups(client.me()["id"]))
                 items = [
                     n
                     for c in cfg.courses.values()
@@ -333,11 +337,6 @@ class HomeScreen(Screen):
                 fresh = unread(state, items)
         except Exception:  # status cards are best effort, never crash the app
             return
-        try:  # your Stud.IP colours, for the next screens drawn
-            with app.make_client() as client:
-                save_course_groups(client.course_groups(client.me()["id"]))
-        except Exception:
-            pass
         remote = {
             "unread": len(fresh),
             "new_courses": sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED),

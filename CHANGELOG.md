@@ -6,6 +6,46 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+- Terminal control characters (escape sequences) in titles, file names and
+  announcements from Stud.IP are removed before anything is shown or logged; they
+  could fake links or clear the screen.
+- A new download never replaces a file of the same name that appeared while it was
+  downloading; that file is kept and the download is reported as failed.
+- A course titled `~` (with `only_configured_courses = false`) no longer syncs into
+  the home folder.
+- Linux notifications: course titles can no longer pass options to `notify-send` or
+  be read as markup.
+- `STUDIP_ROUTER_PROFILE` is checked like `--profile`.
+- The state folder is private before the scheduler writes its log into it; the
+  course colours are written atomically.
+
+### Fixed
+- Esc right after a ZIP download no longer leaves the archive packed for good.
+- Failed files move the progress bar, and Esc works even when every file fails.
+- A Courseware unit closed to you (HTTP 403/404) no longer closes the whole course.
+- Reorganize knows the Stud.IP folder type and no longer moves files from homework
+  folders to the default folder; names whose rename template uses `{semester}` stay.
+- `studip sync` exits with 1 (and the notification counts a problem) for files the
+  plan cannot place, e.g. "target folder does not exist".
+- Rule suggestions "by file name" are only offered without automatic sorting, follow
+  the classifier's order (a solution sheet is no longer an exercise) and are not
+  offered again once added.
+- After a sync, Enter in the sync screen loads a fresh plan instead of running the
+  finished one again (which reported every file as failed); "Try again" on the home
+  screen only counts files that are still wanted.
+- The settings no longer crash after the config file became invalid.
+- Moving through announcements no longer reloads everything from Stud.IP each time.
+- Esc in the setup goes one step back; on the first step it asks before quitting.
+- `?` opens the help on every screen; opening Merge slides no longer merges (`m` does).
+- The focused settings row has its coloured background again.
+- Retry-After values below 0 or "nan" no longer abort a run.
+- Course colours are fetched even when the announcements of a course fail.
+
+### Changed
+- State database schema 2 (new column `folder_type`, added automatically). Going
+  back to 0.4.1 afterwards stops with "written by a newer studip-router".
+
 ## [0.4.1] - 2026-11-05
 
 ### Changed

@@ -274,3 +274,29 @@ async def test_question_mark_opens_help_on_every_view(course_dir: Path) -> None:
         await _wait(pilot, lambda: isinstance(app.screen, HistoryView))
         await pilot.press("question_mark")
         assert isinstance(app.screen, HelpScreen)
+
+
+def test_state_from_0_4_1_gains_folder_type(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "old.sqlite"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE files (file_id TEXT PRIMARY KEY, course_id TEXT NOT NULL, "
+        "remote_name TEXT NOT NULL, remote_folder_path TEXT NOT NULL, chdate TEXT NOT NULL, "
+        "filesize INTEGER NOT NULL, local_path TEXT NOT NULL, local_size INTEGER NOT NULL, "
+        "local_mtime REAL NOT NULL, sha256 TEXT, version INTEGER NOT NULL DEFAULT 1, "
+        "rule_id TEXT, routed_by_default INTEGER NOT NULL DEFAULT 0, synced_at TEXT NOT NULL)"
+    )
+    con.execute(
+        "INSERT INTO files VALUES ('f1', 'c', 'a.pdf', '', '2026-10-01T12:00:00+00:00', 3, "
+        "'/x/a.pdf', 3, 0, NULL, 1, 'auto:exercises', 0, 'now')"
+    )
+    con.execute("PRAGMA user_version = 1")
+    con.commit()
+    con.close()
+    with State(db) as state:
+        assert state.get("f1").folder_type == ""
+    con = sqlite3.connect(db)
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 2
+    con.close()
