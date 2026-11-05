@@ -185,6 +185,10 @@ def print_summary(
         console.print("\n[yellow]Configured courses not found on Stud.IP:[/yellow]")
         for missing in sync_plan.missing:
             console.print(f"  {esc(missing.id)}  {esc(missing.name)}")
+        console.print(
+            "  [dim]Deleted, or you left them; your files stay. Remove one from the config"
+            " with `studip config remove-course ID` (or x in the UI's Courses).[/dim]"
+        )
 
     if sync_plan.errors:
         console.print("\n[red]Courses that could not be read (the others were synced):[/red]")
