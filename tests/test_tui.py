@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
 import respx
-from fake_studip import BASE, COURSE, OTHER, install
+from fake_studip import API, BASE, COURSE, OTHER, install
 from textual.widgets import DataTable, Input, OptionList, RichLog, SelectionList, Static
 
 from studip_router import paths
@@ -366,3 +367,29 @@ async def test_settings_edit_folders_as_text(course_dir: Path) -> None:
         app.screen.query_one("#text", Input).value = "../escape"
         await pilot.press("enter")  # invalid: not saved, config unchanged
         assert config().default_target == "Sonstiges"
+
+
+def test_course_colours_come_from_stud_ip_else_differ() -> None:
+    from studip_router.tui import widgets
+
+    widgets.set_course_order([f"c{i}" for i in range(10)])
+    colours = [widgets.course_color(f"c{i}") for i in range(10)]
+    assert len(set(colours)) == 10  # no two configured courses share a colour
+    widgets._groups.clear()
+    widgets._groups["c0"] = 8
+    assert widgets.course_color("c0") == widgets.STUDIP_GROUP_COLORS[8]
+    widgets._groups.clear()
+
+
+@respx.mock
+def test_course_groups_from_memberships() -> None:
+    from fake_studip import COURSE
+
+    from studip_router.api import StudipClient
+
+    install(respx.mock)
+    with StudipClient(BASE, "jdoe", "pw") as client:
+        assert client.course_groups("u1") == {COURSE: 3}
+    respx.get(f"{API}/users/u2/course-memberships").mock(return_value=httpx.Response(404))
+    with StudipClient(BASE, "jdoe", "pw") as client:
+        assert client.course_groups("u2") == {}

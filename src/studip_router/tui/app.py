@@ -41,7 +41,13 @@ from .views import (
     RulesView,
     SyncView,
 )
-from .widgets import HelpScreen, PasswordScreen
+from .widgets import (
+    HelpScreen,
+    PasswordScreen,
+    load_course_groups,
+    save_course_groups,
+    set_course_order,
+)
 
 LOGO = "[b]studip[/b][dim]·[/dim]router"
 
@@ -324,6 +330,11 @@ class HomeScreen(Screen):
                 fresh = unread(state, items)
         except Exception:  # status cards are best effort, never crash the app
             return
+        try:  # your Stud.IP colours, for the next screens drawn
+            with app.make_client() as client:
+                save_course_groups(client.course_groups(client.me()["id"]))
+        except Exception:
+            pass
         remote = {
             "unread": len(fresh),
             "new_courses": sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED),
@@ -450,6 +461,8 @@ class StudipRouterApp(App):
         try:
             self.cfg = load(paths.config_file())
             self.config_error = ""
+            set_course_order(list(self.cfg.courses))
+            load_course_groups()
             if self.cfg.ui_theme in THEMES or self.cfg.ui_theme in self.available_themes:
                 self.theme = self.cfg.ui_theme
         except ConfigError as exc:

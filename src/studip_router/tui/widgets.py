@@ -16,26 +16,90 @@ from textual.widgets.option_list import Option
 from ..config import Config
 from ..report import esc
 
-# One colour per course, the same on every screen and every run. Red, green and
-# yellow are left out: they mean error, done and "needs a look".
-COURSE_COLORS = (
-    "#61afef",  # blue
-    "#c678dd",  # purple
-    "#56b6c2",  # teal
-    "#d19a66",  # orange
-    "#e88fc9",  # pink
-    "#7aa2f7",  # sky
-    "#b4befe",  # lavender
-    "#f5a97f",  # salmon
+# -- course colours -------------------------------------------------------------------
+#
+# Your own colours first: Stud.IP gives every course one of nine colour groups (the
+# colours of "My courses" and the timetable). They are lightened here so they stay
+# readable on a dark terminal. Courses without a group get distinct colours in the
+# order of the config, so no two of your courses share one.
+
+STUDIP_GROUP_COLORS = (
+    "#9d77b5",  # 0 purple   (Stud.IP #682c8b)
+    "#cc77aa",  # 1 pink     (#b02e7c)
+    "#65beb9",  # 2 teal     (#129c94)
+    "#f7a159",  # 3 orange   (#f26e00)
+    "#59ad65",  # 4 green    (#008512)
+    "#c69687",  # 5 brown    (#a85d45)
+    "#a1c964",  # 6 lime     (#6ead10)
+    "#e45959",  # 7 red      (#d60000)
+    "#ffd47b",  # 8 yellow   (#ffbd33)
 )
+FALLBACK_COLORS = (
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#d19a66",
+    "#e88fc9",
+    "#7aa2f7",
+    "#f5a97f",
+    "#b4befe",
+    "#94e2d5",
+    "#f2cdcd",
+)
+_groups: dict[str, int] = {}
+_order: dict[str, int] = {}
+
+
+def _colors_file():
+    from .. import paths
+
+    return paths.state_dir() / "course-colors.json"
+
+
+def set_course_order(course_ids: list[str]) -> None:
+    """Courses in config order: each gets its own fallback colour."""
+    _order.clear()
+    _order.update({cid: i for i, cid in enumerate(course_ids)})
+
+
+def load_course_groups() -> None:
+    import contextlib
+    import json
+
+    with contextlib.suppress(OSError, ValueError):
+        data = json.loads(_colors_file().read_text())
+        if isinstance(data, dict):
+            _groups.clear()
+            _groups.update({k: v for k, v in data.items() if isinstance(v, int) and 0 <= v <= 8})
+
+
+def save_course_groups(groups: dict[str, int]) -> bool:
+    """Remember Stud.IP's colour groups; True if anything changed."""
+    import contextlib
+    import json
+
+    clean = {k: v for k, v in groups.items() if 0 <= v <= 8}
+    if not clean or clean == _groups:
+        return False
+    _groups.clear()
+    _groups.update(clean)
+    with contextlib.suppress(OSError):
+        path = _colors_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(clean))
+    return True
 
 
 def course_color(course_id: str) -> str:
-    """Stable colour for a course (from its Stud.IP id)."""
+    """The colour of a course on every screen."""
+    if course_id in _groups:
+        return STUDIP_GROUP_COLORS[_groups[course_id]]
+    if course_id in _order:
+        return FALLBACK_COLORS[_order[course_id] % len(FALLBACK_COLORS)]
     import hashlib
 
     digest = hashlib.sha1(course_id.encode(), usedforsecurity=False).digest()
-    return COURSE_COLORS[digest[0] % len(COURSE_COLORS)]
+    return FALLBACK_COLORS[digest[0] % len(FALLBACK_COLORS)]
 
 
 class ConfirmScreen(ModalScreen[bool]):

@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Course colours come from Stud.IP: the colour group of each course in "My courses"
+  (the colours of your timetable). Courses without one get distinct colours in the
+  order of the config, so no two courses share a colour any more.
+
 ## [0.4.0] - 2026-11-05
 
 ### Added
