@@ -18,7 +18,7 @@ import tomlkit
 from tomlkit.items import Table
 
 from .config import Config, parse
-from .paths import private_file
+from .fsutil import atomic_writer, sha256_file
 
 _backed_up: set[Path] = set()
 
@@ -33,10 +33,12 @@ def _save(path: Path, doc: tomlkit.TOMLDocument) -> Config:
     if path not in _backed_up:
         shutil.copy2(path, path.with_name(path.name + ".bak"))
         _backed_up.add(path)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    private_file(tmp)  # user name and course names: readable only by the user
-    tmp.replace(path)
+    original_sha = sha256_file(path)
+    with atomic_writer(path, mode=0o600, may_replace=lambda p: sha256_file(p) == original_sha) as (
+        fh,
+        _,
+    ):
+        fh.write(text.encode("utf-8"))
     return config
 
 

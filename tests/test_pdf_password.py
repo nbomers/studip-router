@@ -230,9 +230,11 @@ def test_every_course_has_its_own_password(
     )
     previous = keyring.get_keyring()
     keyring.set_keyring(MemoryKeyring())
+    monkeypatch.setattr(auth, "_os_keyring", keyring.get_keyring)
+    scope = {"base_url": cfg.base_url, "username": cfg.username}
     try:
-        auth.set_pdf_password(COURSE_ID, "first-password")
-        auth.set_pdf_password(other_id, "second-password")
+        auth.set_pdf_password(COURSE_ID, "first-password", **scope)
+        auth.set_pdf_password(other_id, "second-password", **scope)
         content = {
             "file-a.pdf": pdf("first-password"),
             "file-b.pdf": pdf("second-password"),
@@ -257,8 +259,8 @@ def test_every_course_has_its_own_password(
         ]
         assert [p.name for p, _ in result.outcome.still_locked] == ["c.pdf"]
 
-        assert auth.delete_pdf_password(COURSE_ID)  # removing one keeps the other
-        assert auth.get_pdf_password(COURSE_ID) is None
-        assert auth.get_pdf_password(other_id) == "second-password"
+        assert auth.delete_pdf_password(COURSE_ID, **scope)  # removing one keeps the other
+        assert auth.get_pdf_password(COURSE_ID, **scope) is None
+        assert auth.get_pdf_password(other_id, **scope) == "second-password"
     finally:
         keyring.set_keyring(previous)

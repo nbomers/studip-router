@@ -205,6 +205,8 @@ def is_locally_modified(
     keeps the size and restores the time. ``thorough`` (before a file is replaced
     or rewritten) also compares the content hash whenever it can be read.
     """
+    if thorough and (st.dataless or record.local_digest is None):
+        return True  # an unverifiable file must never be replaced
     if st.size == record.local_size and abs(st.mtime - record.local_mtime) < 1:
         if thorough and not st.dataless and record.local_digest is not None:
             return sha256_file(path) != record.local_digest

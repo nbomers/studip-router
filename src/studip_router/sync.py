@@ -286,7 +286,9 @@ def _execute_locked(
             if todo:
                 if on_course:
                     on_course(plan)
-                password = auth.get_pdf_password(plan.course.id)
+                password = auth.get_pdf_password(
+                    plan.course.id, base_url=cfg.base_url, username=cfg.username
+                )
                 part = execute(
                     plan, state, client.download, run_id, on_progress, password, on_failed
                 )

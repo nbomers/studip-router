@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import os
 import re
 import shutil
 import tempfile
@@ -20,6 +19,7 @@ from .fsutil import (
     is_ignored,
     local_stat,
     nfc,
+    rename_no_replace,
     sanitize_filename,
     sha256_file,
     split_ext,
@@ -70,6 +70,8 @@ def extract_zip(zip_path: Path) -> Path | None:
                 raise PostprocessError(f"{zip_path.name}: too many entries ({len(entries)})")
             if any(member_name(e).replace("\\", "/").count("/") > MAX_DEPTH for e in entries):
                 raise PostprocessError(f"{zip_path.name}: folders nested too deeply")
+            for entry in entries:
+                _safe_member_path(member_name(entry))
             members = [m for m in entries if not m.is_dir()]
             if sum(m.file_size for m in members) > MAX_UNZIPPED_BYTES:
                 raise PostprocessError(f"{zip_path.name}: archive too large when extracted")
@@ -99,7 +101,7 @@ def extract_zip(zip_path: Path) -> Path | None:
                     shutil.copyfileobj(src, out, 1 << 20)
         if target.exists():  # appeared meanwhile: never merge into it
             raise PostprocessError(f"{target.name} appeared while extracting")
-        os.rename(tmp, target)
+        rename_no_replace(tmp, target)
         fsync_dir(target.parent)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -186,7 +188,12 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
             return Unlock.WRONG_PASSWORD
         buffer = io.BytesIO()  # pypdf needs a seekable stream
         PdfWriter(clone_from=reader).write(buffer)
-        with atomic_writer(path, may_replace=lambda p: sha256_file(p) == original) as (fh, _):
+
+        def still_original(p: Path) -> bool:
+            st = local_stat(p)
+            return bool(st and not st.dataless and sha256_file(p) == original)
+
+        with atomic_writer(path, may_replace=still_original) as (fh, _):
             fh.write(buffer.getvalue())
     except ReplaceRefused as exc:
         raise PostprocessError(f"{path.name}: changed while unlocking, kept as it is") from exc
@@ -271,8 +278,15 @@ def merge_pdfs(
     fingerprint = inputs_fingerprint(inputs)
     if fingerprint == previous_fingerprint and output.exists():
         return MergeResult(output, inputs, False, "up to date"), previous_sha, fingerprint
-    existed = output.exists()
-    if existed:
+    output_stat = local_stat(output)
+    existed = output_stat is not None
+    if output_stat is not None:
+        if output_stat.dataless:
+            return (
+                MergeResult(output, inputs, False, "output only in iCloud; not overwriting"),
+                previous_sha,
+                previous_fingerprint,
+            )
         if previous_sha is None:
             return (
                 MergeResult(
@@ -281,16 +295,7 @@ def merge_pdfs(
                 previous_sha,
                 previous_fingerprint,
             )
-        st = local_stat(output)
-        if st and st.dataless and not allow_icloud_download:
-            return (
-                MergeResult(
-                    output, inputs, False, "output only in iCloud; use --force to check it"
-                ),
-                previous_sha,
-                previous_fingerprint,
-            )
-        if st and sha256_file(output) != previous_sha:
+        if sha256_file(output) != previous_sha:
             return (
                 MergeResult(output, inputs, False, "output was modified, not overwriting"),
                 previous_sha,
@@ -317,10 +322,19 @@ def merge_pdfs(
 
     def still_ours(path: Path) -> bool:
         # Merging takes a while: the output may have been edited or saved meanwhile.
-        return sha256_file(path) == previous_sha
+        st = local_stat(path)
+        return bool(st and not st.dataless and sha256_file(path) == previous_sha)
+
+    def commit(_sha: str) -> bool:
+        if not existed and local_stat(output) is not None:
+            raise ReplaceRefused(f"{output.name} appeared while merging; not overwriting")
+        return True
 
     try:
-        with atomic_writer(output, may_replace=still_ours if existed else None) as (fh, digest):
+        with atomic_writer(output, commit, may_replace=still_ours if existed else None) as (
+            fh,
+            digest,
+        ):
             fh.write(buffer.getvalue())
     except FileExistsError:  # also ReplaceRefused: changed, or a new output appeared
         reason = "output changed while merging, not overwriting"

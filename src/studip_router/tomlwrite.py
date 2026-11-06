@@ -14,6 +14,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from .fsutil import atomic_writer, sha256_file
+
 _BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -59,7 +61,10 @@ def append_blocks(path: Path, blocks: list[str], header: str) -> Path:
     tomllib.loads(combined)  # raises before anything is written
     backup = path.with_name(path.name + ".bak")
     shutil.copy2(path, backup)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(combined, encoding="utf-8")
-    tmp.replace(path)
+    original_sha = sha256_file(path)
+    with atomic_writer(path, mode=0o600, may_replace=lambda p: sha256_file(p) == original_sha) as (
+        fh,
+        _,
+    ):
+        fh.write(combined.encode("utf-8"))
     return backup

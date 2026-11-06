@@ -66,6 +66,7 @@ app = typer.Typer(
     invoke_without_command=True,
     help="Sync Stud.IP course files into your own folders, with routing and renaming rules.",
     rich_markup_mode="rich",
+    pretty_exceptions_show_locals=False,
 )
 auth_app = typer.Typer(no_args_is_help=True, help="Manage the stored password.")
 config_app = typer.Typer(no_args_is_help=True, help="Inspect and edit the configuration.")
@@ -755,12 +756,16 @@ def sync_cmd(
                     "partial files were left. Run sync again to continue."
                 )
                 raise typer.Exit(130) from None
-        news_count = _news_after_sync(client, cfg, state, sync_plan) if not dry_run else 0
-        date_changes = (
-            check_dates(client, state, _plan_courses(sync_plan))
-            if cfg.watch_dates and not dry_run
-            else []
-        )
+        try:
+            news_count = _news_after_sync(client, cfg, state, sync_plan) if not dry_run else 0
+            date_changes = (
+                check_dates(client, state, _plan_courses(sync_plan))
+                if cfg.watch_dates and not dry_run
+                else []
+            )
+        except AuthFailed as exc:
+            _pause_auto_sync(background)
+            raise fail(f"{exc}; auto-sync is paused until `studip auth login`", 3) from None
         sync_plan.warnings += [w for w in client.warnings if w not in sync_plan.warnings]
         to_move = len(pending_moves(cfg, state)) if not dry_run else 0
 
@@ -835,6 +840,8 @@ def _news_after_sync(client: StudipClient, cfg: Config, state: State, sync_plan)
             for p in sync_plan.plans
             for n in fetch_news(client, p.course.id, p.course.name or p.course.target)
         ]
+    except AuthFailed:
+        raise
     except ApiError:
         return 0
     return len(unread(state, items))
@@ -1520,7 +1527,7 @@ def pdf_password_set(
     if not password:
         raise fail("no password entered - nothing was stored")
     try:
-        auth.set_pdf_password(course_cfg.id, password)
+        auth.set_pdf_password(course_cfg.id, password, base_url=cfg.base_url, username=cfg.username)
     except auth.AuthError as exc:
         raise fail(f"{exc} - nothing was stored", 3) from None
     try:
@@ -1538,9 +1545,12 @@ def pdf_password_remove(
     config: ConfigOpt = None,
 ) -> None:
     """Forget the course's PDF password (files already unlocked stay unlocked)."""
-    course_cfg = find_course(load_config(config), course)
+    cfg = load_config(config)
+    course_cfg = find_course(cfg, course)
     try:
-        removed = auth.delete_pdf_password(course_cfg.id)
+        removed = auth.delete_pdf_password(
+            course_cfg.id, base_url=cfg.base_url, username=cfg.username
+        )
     except auth.AuthError as exc:
         raise fail(str(exc), 3) from None
     console.print("PDF password removed." if removed else "No PDF password was stored.")
@@ -1550,7 +1560,11 @@ def pdf_password_remove(
 def pdf_password_list(config: ConfigOpt = None) -> None:
     """Courses with a stored PDF password."""
     cfg = load_config(config)
-    names = [c.name or c.id for c in cfg.courses.values() if auth.get_pdf_password(c.id)]
+    names = [
+        c.name or c.id
+        for c in cfg.courses.values()
+        if auth.get_pdf_password(c.id, base_url=cfg.base_url, username=cfg.username)
+    ]
     if OPTS.json:
         emit_json(names)
         return

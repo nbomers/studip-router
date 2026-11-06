@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import html
 import os
@@ -240,6 +242,7 @@ def atomic_writer(
     commit: Callable[[str], bool] | None = None,
     *,
     may_replace: Callable[[Path], bool] | None = None,
+    mode: int = 0o666,
 ) -> Iterator[tuple[BinaryIO, Callable[[], str]]]:
     """Write to a temp file; on success fsync and move it to ``dest`` with ``publish``.
 
@@ -262,7 +265,8 @@ def atomic_writer(
             digest.update(data)
             return self._fh.write(data)
 
-    fh = tmp.open("wb")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    fh = os.fdopen(fd, "wb")
     try:
         yield _Hashing(fh), digest.hexdigest  # type: ignore[misc]
         fh.flush()
@@ -303,25 +307,46 @@ def move_no_clobber(src: Path, dst: Path) -> None:
     except FileExistsError:
         raise
     except OSError:
-        # No hard links here (exFAT, some network shares). Checking and then renaming
-        # would replace a file created in between, so first claim the name with an
-        # exclusive create: from then on only our own empty placeholder can be replaced.
-        try:
-            fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            raise FileExistsError(f"{dst} exists") from None
-        os.close(fd)
-        try:
-            os.replace(src, dst)
-        except BaseException:
-            with suppress(OSError):
-                dst.unlink()  # our placeholder, still empty
-            raise
+        # Some filesystems cannot hard-link. Never fall back to replacing rename.
+        rename_no_replace(src, dst)
     else:
         os.unlink(src)
     fsync_dir(dst.parent)  # the rename survives a power loss
     if src.parent != dst.parent:
         fsync_dir(src.parent)
+
+
+def rename_no_replace(src: Path, dst: Path) -> None:
+    """Atomically rename without replacing files, symlinks or directories.
+
+    Fail closed if the platform/filesystem lacks an exclusive rename operation.
+    A cross-device move also fails, leaving the source untouched.
+    """
+    if sys.platform == "win32":
+        os.rename(src, dst)  # Windows rename fails when dst exists
+        return
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+        operation = libc.renameat2
+        operation.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        operation.restype = ctypes.c_int
+        result = operation(-100, os.fsencode(src), -100, os.fsencode(dst), 1)  # RENAME_NOREPLACE
+    elif sys.platform == "darwin" and hasattr(libc, "renamex_np"):
+        operation = libc.renamex_np
+        operation.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        operation.restype = ctypes.c_int
+        result = operation(os.fsencode(src), os.fsencode(dst), 4)  # RENAME_EXCL
+    else:
+        raise OSError(errno.ENOTSUP, "atomic rename without replacing is unavailable", str(dst))
+    if result != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(dst))
 
 
 class Locked(Exception):

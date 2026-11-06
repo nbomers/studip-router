@@ -55,12 +55,13 @@ def test_untouched_file_is_not_modified(tmp_path: Path) -> None:
     assert not is_locally_modified(record, LocalStat(st.st_size, st.st_mtime, False), path)
 
 
-def test_an_icloud_only_file_counts_as_modified(tmp_path: Path) -> None:
+@pytest.mark.parametrize("mtime_delta", [0, 60])
+def test_an_icloud_only_file_counts_as_modified(tmp_path: Path, mtime_delta: int) -> None:
     path = tmp_path / "a.pdf"
     path.write_bytes(b"original")
     record = _record(path, b"original")
-    evicted = LocalStat(record.local_size, record.local_mtime + 60, dataless=True)
-    assert is_locally_modified(record, evicted, path)  # never downloaded to compare
+    evicted = LocalStat(record.local_size, record.local_mtime + mtime_delta, dataless=True)
+    assert is_locally_modified(record, evicted, path, thorough=True)  # never downloaded to compare
 
 
 def test_move_never_replaces_an_existing_file(tmp_path: Path) -> None:

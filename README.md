@@ -594,6 +594,11 @@ The password goes into the OS keychain. PDFs of the course synced so far are
 unlocked right away, every new one during the sync — the date stays the Stud.IP
 date, and an identical re-upload still creates no copy.
 
+PDF passwords are separate for each server, account and profile. After upgrading
+from 0.4.2 or earlier, enter them once again with `studip pdf-password set COURSE`:
+the old entries did not record which server/account they belonged to and cannot
+be safely migrated automatically.
+
 Left untouched, byte for byte: other files, PDFs without a password, PDFs that
 open without one (print/copy restrictions only), and PDFs locked with a
 **different** password. If the password fits none of them, the course probably
