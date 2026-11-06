@@ -65,7 +65,7 @@ def schedule_run_now() -> None:
     """Start the background job once now (to check keychain access and notifications)."""
     try:
         ok = schedule.run_now(paths.profile())
-    except OSError as exc:
+    except (OSError, subprocess.CalledProcessError) as exc:
         raise fail(str(exc)) from None
     if not ok:
         raise fail("no background job installed; `studip schedule install` first")
@@ -80,7 +80,10 @@ def schedule_run_now() -> None:
 @schedule_app.command("uninstall")
 def schedule_uninstall() -> None:
     """Remove the background job."""
-    removed = schedule.uninstall(paths.profile())
+    try:
+        removed = schedule.uninstall(paths.profile())
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise fail(f"could not uninstall: {exc}") from None
     console.print("Removed." if removed else "No background job installed.")
 
 
@@ -98,6 +101,8 @@ def schedule_status() -> None:
     console.print(
         f"Installed ({every}{esc('loaded' if st.loaded else 'not loaded')}): {esc(st.path)}"
     )
+    if st.detail:
+        console.print(esc(st.detail))
 
 
 @app.command("doctor")

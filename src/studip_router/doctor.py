@@ -197,7 +197,8 @@ def _check_schedule() -> Iterator[Check]:
         return
     level = Level.OK if st.loaded else Level.WARN
     every = f"every {st.interval_minutes} min" if st.interval_minutes else "installed"
-    yield Check("auto-sync", level, f"{every}, {'loaded' if st.loaded else 'not loaded'}")
+    detail = st.detail or ("loaded" if st.loaded else "not loaded")
+    yield Check("auto-sync", level, f"{every}, {detail}")
     if warning := schedule.executable_warning(schedule.executable()):
         yield Check("auto-sync", Level.WARN, warning)
 

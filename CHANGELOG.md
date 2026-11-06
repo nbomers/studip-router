@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-06
+
 ### Audit follow-up
 - Validate blank login fields, malformed course tables and finite size limits;
   resolve relative sync roots against the config file and pin background job paths.
@@ -51,6 +53,8 @@ All notable changes to this project are documented here. The format follows
   `studip doctor` shows the wait.
 
 ### Fixed
+- Preserve dollar signs in systemd config/state paths. Scheduler status and doctor
+  query the actual Linux timer state; command failures are reported as CLI errors.
 - An archive whose extraction failed for a passing reason (disk full, permissions,
   only in iCloud) is extracted again on the next sync, from the file on disk; a
   broken or encrypted archive is reported once and left until it changes.
@@ -418,7 +422,8 @@ First public version.
   keychain; PDFs locked with it are stored without it (also those synced before).
   Other files, unprotected PDFs and PDFs with a different password stay untouched.
 
-[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/nbomers/studip-router/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/nbomers/studip-router/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/nbomers/studip-router/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/nbomers/studip-router/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/nbomers/studip-router/compare/v0.3.0...v0.4.0

@@ -97,16 +97,20 @@ def launchd_plist(exe: str, minutes: int, profile: str | None) -> dict:
     }
 
 
-def _systemd_quote(arg: str) -> str:
-    """One ExecStart argument, safe with spaces, quotes, ``%`` specifiers and ``$``."""
+def _systemd_quote(arg: str, *, expand_variables: bool = True) -> str:
+    """Quote unit values; only ExecStart interprets dollar signs."""
     escaped = arg.replace("\\", "\\\\").replace('"', '\\"')
-    return '"' + escaped.replace("%", "%%").replace("$", "$$") + '"'
+    escaped = escaped.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    escaped = escaped.replace("%", "%%")
+    if expand_variables:
+        escaped = escaped.replace("$", "$$")
+    return '"' + escaped + '"'
 
 
 def systemd_units(exe: str, minutes: int, profile: str | None) -> tuple[str, str]:
     args = [exe, *(["--profile", profile] if profile else []), "sync", "--notify", "--quiet"]
     environment = "".join(
-        "Environment=" + _systemd_quote(f"{key}={value}") + "\n"
+        "Environment=" + _systemd_quote(f"{key}={value}", expand_variables=False) + "\n"
         for key, value in job_environment().items()
     )
     service = (
@@ -180,7 +184,31 @@ def status(profile: str | None = None) -> ScheduleStatus:
             True, plist, int(data.get("StartInterval", 0)) // 60, result.returncode == 0
         )
     timer = _systemd_dir() / f"{_unit(profile)}.timer"
-    return ScheduleStatus(timer.exists(), timer, None, timer.exists())
+    if not timer.exists():
+        return ScheduleStatus(False, timer, None, False)
+    try:
+        result = subprocess.run(
+            [
+                "systemctl",
+                "--user",
+                "show",
+                f"{_unit(profile)}.timer",
+                "--property=LoadState,ActiveState,UnitFileState",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return ScheduleStatus(True, timer, None, False, f"cannot query systemd: {exc}")
+    if result.returncode:
+        return ScheduleStatus(True, timer, None, False, "cannot query systemd user manager")
+    properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    active = properties.get("ActiveState", "unknown")
+    enabled = properties.get("UnitFileState", "unknown")
+    running = properties.get("LoadState") == "loaded" and active == "active"
+    return ScheduleStatus(True, timer, None, running, f"timer {active}, {enabled}")
 
 
 def _launchctl(*args: str, check: bool = True) -> subprocess.CompletedProcess:
