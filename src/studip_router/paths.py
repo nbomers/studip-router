@@ -98,6 +98,11 @@ def update_hold_file() -> Path:
     return state_dir() / f"{profile() or 'default'}.update-hold"
 
 
+def version_check_file() -> Path:
+    """Result of the opt-in check for a newer release (shared by all profiles)."""
+    return state_dir() / "version-check.json"
+
+
 def private_dir(path: Path) -> Path:
     """Create ``path`` readable only by the user (state, log: course names, paths)."""
     path.mkdir(parents=True, exist_ok=True, mode=0o700)

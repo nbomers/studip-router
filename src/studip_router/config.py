@@ -93,6 +93,7 @@ class Config:
     rename: RenameOptions = field(default_factory=RenameOptions)
     courses: dict[str, CourseConfig] = field(default_factory=dict)
     ui_theme: str = "tokyo-night"
+    update_check: bool = False  # opt-in: ask PyPI once a week for a newer release
 
     def course_dir(self, course: CourseConfig) -> Path:
         target = Path(course.target).expanduser()
@@ -316,7 +317,7 @@ def load(path: Path) -> Config:
 def parse(raw: dict[str, Any], path: Path) -> Config:
     v = _Validator()
     top = v.table(raw, "config", {"server", "sync", "rename", "courses", "ui"})
-    ui = v.table(top.get("ui", {}), "ui", {"theme"})
+    ui = v.table(top.get("ui", {}), "ui", {"theme", "update_check"})
 
     server = v.table(top.get("server", {}), "server", {"base_url", "username"})
     base_url = v.get(server, "base_url", "server", str, "", required=True)
@@ -447,6 +448,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         rename=rename,
         courses=courses,
         ui_theme=v.get(ui, "theme", "ui", str, "tokyo-night"),
+        update_check=v.get(ui, "update_check", "ui", bool, False),
     )
     if v.problems:
         raise ConfigError(path, v.problems)

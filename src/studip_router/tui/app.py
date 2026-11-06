@@ -19,7 +19,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, OptionList, Static
 from textual.widgets.option_list import Option
 
-from .. import __version__, auth, paths, update_check
+from .. import __version__, auth, new_version, paths, update_check
 from ..api import ApiError, AuthFailed, StudipClient
 from ..config import Config, ConfigError, load
 from ..config_edit import open_in_editor
@@ -353,6 +353,10 @@ class HomeScreen(Screen):
             facts.append("[yellow]Stud.IP not reachable[/yellow] [dim](tried again in 1 min)[/dim]")
         elif remote is not None:
             facts.append(f"[b]{esc(remote['unread'])}[/b] unread")
+        if remote is not None and remote.get("newer"):
+            facts.append(
+                f"[cyan]{esc(remote['newer'])} available[/cyan] [dim](uv tool upgrade)[/dim]"
+            )
         self.query_one("#facts", Static).update("  ·  ".join(facts))
 
     def load_remote_status(self) -> None:
@@ -397,6 +401,9 @@ class HomeScreen(Screen):
                     for n in fetch_news(client, c.id, c.name or c.target)
                 ]
                 fresh = unread(state, items)
+            newer = None
+            if cfg.update_check:  # opt-in, best effort, at most once a week
+                newer = new_version.check()
         except Exception:  # status cards are best effort, never crash the app
             # Say so, and do not ask again on every return to this screen.
             offline: dict = {"offline": True}
@@ -404,6 +411,7 @@ class HomeScreen(Screen):
             _to_ui(app, self._show_status, offline)
             return
         remote = {
+            "newer": newer,
             "unread": len(fresh),
             "new_courses": sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED),
             "semester": {
@@ -487,7 +495,11 @@ class StudipRouterApp(App):
     .form { padding: 1 2; height: auto; }
     .form Label { margin-top: 1; }
     .form Input { width: 80; }
-    ConfirmScreen, PasswordScreen, ChoiceScreen, TextScreen, HelpScreen { align: center middle; }
+    ConfirmScreen, PasswordScreen, ChoiceScreen, TextScreen, HelpScreen, ReportScreen {
+        align: center middle;
+    }
+    .report { width: 90; }
+    #report-body { height: 12; }
     .dialog { width: 72; height: auto; max-height: 90%; padding: 1 2; border: thick $accent;
               background: $surface; }
     .dialog OptionList { height: auto; max-height: 20; }

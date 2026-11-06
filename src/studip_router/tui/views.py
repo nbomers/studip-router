@@ -50,6 +50,7 @@ from ..reorganize import (
 )
 from ..report import STYLE, SYMBOL, esc, reorganize_hint, summarize, unlocked_lines
 from ..rules import parse_rules
+from ..sorting_report import report_text
 from ..state import State
 from ..suggest import (
     Suggestion,
@@ -78,7 +79,7 @@ from ..wizard import (
     local_course_folders,
     propose_target,
 )
-from .widgets import ChoiceScreen, ConfirmScreen, TextScreen, course_color
+from .widgets import ChoiceScreen, ConfirmScreen, ReportScreen, TextScreen, course_color
 
 
 def clip(text: str, width: int) -> str:
@@ -329,6 +330,7 @@ class SyncView(View):
         Binding("v", "toggle_skipped", "Show skipped"),
         Binding("i", "ignore", "Never download"),
         Binding("plus", "add_rule", "Rule for this file"),
+        Binding("b", "report", "Sorted wrong?"),
         Binding("ctrl+r", "refresh", "Refresh"),
         Binding("r", "refresh", show=False),  # before 0.4.2; r is Rules on the home screen
         Binding("j", "cursor('down')", show=False),
@@ -515,6 +517,18 @@ class SyncView(View):
                 state.clear_failure(action.file.id)
                 self.notify(f"{esc(action.file.name)} will never be downloaded.")
         self.action_refresh()
+
+    def action_report(self) -> None:
+        """Write a report about a wrongly sorted file, to check and send yourself."""
+        table = self.query_one(DataTable)
+        rows = getattr(self, "row_actions", [])
+        if self.running or not rows or table.cursor_row >= len(rows):
+            return
+        action = rows[table.cursor_row]
+        if action.file is None:
+            return
+        title, body = report_text(action.file.folder_path, action.file.name, action.route)
+        self.app.push_screen(ReportScreen(title, body))
 
     def action_add_rule(self) -> None:
         """A rule for files like the selected one: by its Stud.IP folder or its name."""

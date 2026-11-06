@@ -17,6 +17,16 @@ All notable changes to this project are documented here. The format follows
 - **A rule from a file:** `+` in the preview on a file adds a rule for every file in
   its Stud.IP folder, or for every file named like it (`Blatt_03.pdf` →
   `Blatt_*.pdf`), into a folder you pick or create.
+- **Update check (opt-in):** *update check* in the settings (`[ui] update_check`)
+  asks pypi.org once a week whether a newer version exists and shows it on the
+  home screen and in `studip status`. Off by default; the background sync never
+  asks. `SECURITY.md` names it as the only exception to "only Stud.IP is contacted".
+- **Report a file sorted wrong:** `b` in the preview writes a short report (Stud.IP
+  folder, file name, what placed it, where it went; no course data) that you edit
+  and then copy or open as a GitHub issue form in the browser. Nothing is sent by
+  the tool.
+- `scripts/homebrew_formula.py` writes a Homebrew formula for a released version
+  (for a tap; not tested on a Mac yet).
 - **Check after an update:** if a new version would put files you already have into
   other folders, the background sync waits until you have looked (the UI, or a
   `studip sync` by hand), at most three days, and sends one notification.

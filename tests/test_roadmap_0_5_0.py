@@ -245,3 +245,46 @@ async def test_semester_view_applies_the_change(
         assert (root / "Analysis II").is_dir()
         with contextlib.suppress(Exception):
             assert "Done" in str(view.query_one("#status").renderable)
+
+
+# -- 18: report a file sorted wrong -----------------------------------------------------
+
+
+def test_report_holds_no_course_data() -> None:
+    from urllib.parse import parse_qs, urlparse
+
+    from studip_router.planner import Route
+    from studip_router.sorting_report import issue_url, report_text
+
+    route = Route("Folien", "Blatt 3.pdf", "auto:slides", why="folder name")
+    title, body = report_text("Material/Woche 3", "Blatt 3.pdf", route)
+    assert "Blatt 3.pdf" in title
+    assert "automatic sorting, category slides (by folder name)" in body
+    assert "Went to: Folien" in body and "Should go to:" in body
+    assert "Quantum" not in body and COURSE_ID not in body
+    query = parse_qs(urlparse(issue_url(title, body)).query)
+    assert query["body"] == [body] and query["title"] == [title]
+
+
+@respx.mock
+async def test_preview_report_opens_the_issue_form_only_on_request(
+    ui_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from studip_router.tui.widgets import ReportScreen
+
+    install(respx.mock)
+    opened: list[str] = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    app = StudipRouterApp()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.press("p")
+        await _wait(pilot, lambda: isinstance(app.screen, SyncView) and app.screen.plan)
+        await pilot.press("b")
+        await _wait(pilot, lambda: isinstance(app.screen, ReportScreen))
+        assert opened == []  # nothing leaves the machine by itself
+        await pilot.press("ctrl+o")
+        await _wait(pilot, lambda: bool(opened))
+        assert opened[0].startswith("https://github.com/nbomers/studip-router/issues/new?")
+        assert "Quantum" not in opened[0]
+        await pilot.press("escape")
+        await _wait(pilot, lambda: isinstance(app.screen, SyncView))

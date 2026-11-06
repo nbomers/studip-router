@@ -225,7 +225,7 @@ whether its line is shown or not:
 | `c` | Courses: sync on/off, choose folders | `,` | Settings |
 | `d` | Doctor: check the setup | `?` | all keys |
 | `n` | New semester: folders, new courses, archive old ones | `+` | in preview: a rule for files like this one |
-| `i` | in preview / what's new: never download this file | | |
+| `i` | in preview / what's new: never download this file | `b` | in preview: report a file sorted wrong (you check and send it) |
 
 `j`/`k` and arrow keys move, `Enter` opens, `Esc` goes back.
 
@@ -444,7 +444,7 @@ university), `--json` (machine-readable output for scripts, Raycast, Alfred, …
 | **Your password stays put** | only in the OS keychain (or `STUDIP_ROUTER_PASSWORD`) — never in the config, state, logs or output; crash reports of the UI show no variable values. A rejected login stops at the first attempt and pauses auto-sync, so a wrong password cannot lock your account. |
 | **Config edits are checked** | settings screen and rule suggestions validate before writing; the first change keeps a `config.toml.bak`. |
 | **Private files** | state database and log (course names, paths) are readable only by you (`0600`, folder `0700`). |
-| **Stays on your machine** | the only server contacted is your `server.base_url`; no telemetry, no update checks. |
+| **Stays on your machine** | the only server contacted is your `server.base_url`; no telemetry. Update check only if you turn it on (*update check* in the settings: pypi.org once a week, nothing sent). |
 
 Found a security problem? See [SECURITY.md](https://github.com/nbomers/studip-router/blob/main/SECURITY.md).
 

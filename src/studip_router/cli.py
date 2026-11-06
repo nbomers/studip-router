@@ -21,7 +21,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
-from . import __version__, auth, doctor, paths, report, schedule
+from . import __version__, auth, doctor, new_version, paths, report, schedule
 from .api import ApiError, AuthFailed, StudipClient
 from .config import DEFAULT_COURSE_FOLDERS, Config, ConfigError, CourseConfig, load, unsafe_folder
 from .config import parse as parse_config
@@ -862,7 +862,11 @@ def status_cmd(
         except (ApiError, typer.Exit) as exc:
             if isinstance(exc, ApiError):
                 err.print(f"[yellow]Could not reach Stud.IP:[/yellow] {esc(exc)}")
+    newer = None
+    if cfg.update_check:
+        newer = new_version.cached_newer() if offline else new_version.check()
     data = {
+        "newer_version": newer,
         "last_run": dict(last) if last else None,
         "default_routed": [
             {"path": r.local_path, "remote": f"{r.remote_folder_path}/{r.remote_name}".lstrip("/")}
@@ -894,6 +898,8 @@ def status_cmd(
             console.print(f"  {esc(r.local_path)}  [dim]← {remote}[/dim]")
     if to_move:
         console.print(f"\n{report.reorganize_hint(len(to_move))}")
+    if newer:
+        console.print(f"\n[cyan]{esc(new_version.hint(newer))}[/cyan]")
     if not unconfigured and not default_routed and not to_move:
         console.print("[green]✓[/green] Nothing to do.")
 

@@ -16,7 +16,7 @@ All changes made on 2026-11-05: three releases on PyPI and four merged pull requ
 | **0.4.0** | Much longer keyword lists; courses closed to you no longer break the others; progress bars; merge set-up in the UI; course colours; compact settings |
 | **0.4.1** | Course colours taken from Stud.IP |
 | **0.4.2** | Fixes from the review ([section 16](#16-review-findings-after-041-bugs-ux-and-security)), ten roadmap items ([section 15](#15-ideas-and-roadmap)), `studip completion`, removing courses that are gone from Stud.IP |
-| *not released yet* | Semester change assistant with archiving (24), a rule from a file (13), check after an update (19) |
+| *not released yet* | Semester change assistant with archiving (24), a rule from a file (13), check after an update (19), opt-in update check (5), report a file sorted wrong (18), Homebrew formula script (4) |
 
 **Update:** `uv tool upgrade studip-router` (or `pipx upgrade studip-router`)
 
@@ -374,10 +374,12 @@ Notes on what is already true in the code are marked *checked*; everything else 
 | Status | Items |
 |---|---|
 | ✅ released in 0.4.2 | 1 calendar export · 3 zsh/bash completions · 6 setup explains a failed login · 12 mark all read (in Announcements) · 14 `studip open` · 17 own keywords · 20 (reframed: courses gone from Stud.IP are shown) · 21 colours per profile · 22 colours for light themes · 23 smoke test in `CONTRIBUTING.md` |
-| ✅ built, not released yet | semester change assistant · 13 rule from a file · 19 check after an update · 24 archive old courses |
-| ⬜ open | 2 · 4 · 5 · 7 · 8 · 9 · 10 · 11 · 15 · 16 · 18 |
+| ✅ built, not released yet | semester change assistant · 5 opt-in update check · 13 rule from a file · 18 report a file sorted wrong · 19 check after an update · 24 archive old courses |
+| 🟡 prepared | 4 Homebrew: the formula script exists; the tap repository and a test on a Mac are missing |
+| ⬜ open | 2 · 8 · 9 · 11 · 15 · 16 |
+| ✗ dropped | 7 Opencast (not wanted; and this instance has no Opencast routes in its JSON:API) · 10 menu bar app (not wanted) |
 
-Why these stay open: each is a feature with its own design questions, not a fix. 4 (Homebrew tap) needs a public repository and 18 opens issues, both public steps that need a decision first. 5 (update notice) would contact PyPI and so break the promise "the only host contacted is Stud.IP" unless it is strictly opt-in. 7, 8 and 10 need a real Stud.IP or a separate app. Whether these are worth it depends on one decision: whether the tool is meant for people besides its author. If so, two or three test users at other universities matter more than any of them.
+Decided in November 2026: the tool is maintained in public. So 4, 5 (strictly opt-in) and 18 (the user sends the report, the tool never does) were built or prepared. 8 depends on what the JSON:API offers: the route list (`/jsonapi.php/v1/discovery`) of the instance used for testing has no route for Vips or an assignments plugin, only `courseware-tasks` (Courseware tasks). Two or three test users at other universities still matter more than any further feature.
 
 ### Semester change
 
@@ -396,16 +398,16 @@ This happens every six months and is currently the only routine task that requir
 ### Less friction when installing and setting up
 
 3. ✅ **Shell completions for zsh and bash.** *Built:* `studip completion zsh|bash|fish` prints the script, which ships in the package (`src/studip_router/completions/`), so a PyPI install has it too; installation in the README. The bash file was syntax-checked; zsh was not available for a test. *Checked:* only fish completions exist (`shell/fish`), but macOS uses zsh by default. Typer/Click can generate them with little effort.
-4. **Homebrew tap:** `brew install studip-router` instead of installing `uv` first. For non-developers on macOS that is one hurdle less.
-5. **Optional update notice.** *Checked:* the README promises "no update checks". A one-time notice such as "0.5 is available – `uv tool upgrade …`", only when switched on, would keep that promise.
+4. 🟡 **Homebrew tap.** *Prepared:* `scripts/homebrew_formula.py` writes the formula (step 6 in `CONTRIBUTING.md`); the tap repository and a test on a Mac are missing. Original idea: `brew install studip-router` instead of installing `uv` first. For non-developers on macOS that is one hurdle less.
+5. ✅ **Optional update notice.** *Built (not released yet):* *update check* in the settings, off by default; once a week, the UI and `studip status` only, never the background sync. Original idea: *Checked:* the README promises "no update checks". A one-time notice such as "0.5 is available – `uv tool upgrade …`", only when switched on, would keep that promise.
 6. ✅ **Check the instance before asking for the password.** *Built, slightly different:* when the login fails, setup asks `…/discovery` (without the password) and says "Your university has not enabled the JSON:API" or "The address cannot be reached". A list of known instances is still open. In setup step 1, first test whether `jsonapi.php/v1/discovery` is reachable. If not, say "Your university has not enabled the JSON:API" instead of showing a cryptic error. A list of known instances to choose from would also save typing the URL.
 
 ### New features
 
-7. **Opencast recordings** (also listed in `DESIGN.md`). Often asked for, but it is a separate API, and the videos are large.
+7. ✗ **Opencast recordings** *(dropped: not wanted)* (also listed in `DESIGN.md`). Often asked for, but it is a separate API, and the videos are large.
 8. **Assignment deadlines:** show deadlines from Stud.IP (Vips / assignments plugin) on the home screen and in the calendar. Depends on whether the JSON:API provides them; not checked.
 9. **Search across files:** `/` in the UI searches file names and PDF text of all courses, not only What's new.
-10. **macOS menu bar app** on top of `--json`: status, "Sync now", latest files. Also already on the wish list in `DESIGN.md`.
+10. ✗ **macOS menu bar app** *(dropped: not wanted)* on top of `--json`: status, "Sync now", latest files. Also already on the wish list in `DESIGN.md`.
 11. **Raycast and Alfred extensions.** `--json` already provides the data; only the ready-made extension is missing.
 
 ### Small everyday things
@@ -419,7 +421,7 @@ This happens every six months and is currently the only routine task that requir
 
 16. **Shared rule sets per university or course.** Export and import the rules of a course, so a whole year can share one file. This helps more than ever longer keyword lists.
 17. ✅ **Own keywords as a list in the config,** *built:* `[sync.keywords]` with `exams`, `solutions`, `exercises`, `slides`, `reading`; checked before the built-in lists. Original idea: for example `keywords.exercises = ["Werkstatt"]`, instead of only `name_regex` rules (see [Known limits](#14-known-limits)).
-18. **"Sorted wrong" key in the preview.** It writes an issue text with only the folder and file name, no course data, so the keyword lists grow from real mistakes instead of research.
+18. ✅ **"Sorted wrong" key in the preview.** *Built (not released yet):* `b`; you check and edit the text, then copy it or open the GitHub issue form; the tool sends nothing. Original idea: It writes an issue text with only the folder and file name, no course data, so the keyword lists grow from real mistakes instead of research.
 19. ✅ **Check after an update.** *Built (not released yet):* the background sync remembers the version you last used by hand. After an update it waits, at most three days and with one notification, when files you already have would now go elsewhere; the UI or a `studip sync` by hand (also `--dry-run`) ends the wait. It cannot preview files that are not synced yet. Original idea: Show which synced files the new version would place elsewhere, *before* auto-sync runs again. This closes the gap described in [section 13](#13-coming-from-02x), step 3.
 
 ### Robustness
