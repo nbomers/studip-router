@@ -13,13 +13,13 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
 from .fsutil import (
+    ReplaceRefused,
     atomic_writer,
     fsync_dir,
     is_ignored,
     local_stat,
     nfc,
     rename_no_replace,
-    require_unchanged,
     sanitize_filename,
     sha256_file,
     split_ext,
@@ -27,8 +27,8 @@ from .fsutil import (
 
 MAX_UNZIPPED_BYTES = 1024**3  # 1 GiB extracted per archive
 MAX_MEMBERS = 20_000
-MAX_MEMBER_DEPTH = 64
 MAX_RATIO = 200  # extracted/compressed per member; zip bombs reach 1000:1 and more
+MAX_DEPTH = 32  # folder levels inside an archive; course material needs a handful
 
 
 class PostprocessError(Exception):
@@ -66,9 +66,10 @@ def extract_zip(zip_path: Path) -> Path | None:
     try:
         with zipfile.ZipFile(zip_path) as archive:
             entries = archive.infolist()
-            if len(entries) > MAX_MEMBERS:
+            if len(entries) > MAX_MEMBERS:  # folders count too: they cost a mkdir each
                 raise PostprocessError(f"{zip_path.name}: too many entries ({len(entries)})")
-            # Validate directories too: they cannot bypass the path/depth budget.
+            if any(member_name(e).replace("\\", "/").count("/") > MAX_DEPTH for e in entries):
+                raise PostprocessError(f"{zip_path.name}: folders nested too deeply")
             for entry in entries:
                 _safe_member_path(member_name(entry))
             members = [m for m in entries if not m.is_dir()]
@@ -136,8 +137,6 @@ def _safe_member_path(name: str) -> PurePosixPath | None:
         or re.match(r"^[A-Za-z]:", path.parts[0])
     ):
         raise PostprocessError(f"unsafe path in archive: {name!r}")
-    if len(path.parts) > MAX_MEMBER_DEPTH:
-        raise PostprocessError("archive path is too deeply nested")
     if path.parts[0] == "__MACOSX" or is_ignored(path.name):
         return None
     parts = [p for p in path.parts if p not in ("", ".")]
@@ -178,8 +177,9 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
     from pypdf.errors import DependencyError, PyPdfError
 
     try:
-        original_sha = sha256_file(path)
-        reader = PdfReader(path)
+        data = path.read_bytes()
+        original = hashlib.sha256(data).hexdigest()
+        reader = PdfReader(io.BytesIO(data))
         if not reader.is_encrypted:
             return Unlock.NOT_ENCRYPTED
         if reader.decrypt("") != PasswordType.NOT_DECRYPTED:
@@ -189,12 +189,14 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
         buffer = io.BytesIO()  # pypdf needs a seekable stream
         PdfWriter(clone_from=reader).write(buffer)
 
-        def commit(_sha: str) -> bool:
-            require_unchanged(path, original_sha)
-            return True
+        def still_original(p: Path) -> bool:
+            st = local_stat(p)
+            return bool(st and not st.dataless and sha256_file(p) == original)
 
-        with atomic_writer(path, commit) as (fh, _):
+        with atomic_writer(path, may_replace=still_original) as (fh, _):
             fh.write(buffer.getvalue())
+    except ReplaceRefused as exc:
+        raise PostprocessError(f"{path.name}: changed while unlocking, kept as it is") from exc
     except (PyPdfError, DependencyError, ValueError, KeyError) as exc:  # broken PDF, no AES
         raise PostprocessError(f"{path.name}: could not unlock: {exc}") from exc
     except (
@@ -277,6 +279,7 @@ def merge_pdfs(
     if fingerprint == previous_fingerprint and output.exists():
         return MergeResult(output, inputs, False, "up to date"), previous_sha, fingerprint
     output_stat = local_stat(output)
+    existed = output_stat is not None
     if output_stat is not None:
         if output_stat.dataless:
             return (
@@ -317,14 +320,23 @@ def merge_pdfs(
     buffer = io.BytesIO()
     writer.write(buffer)
 
+    def still_ours(path: Path) -> bool:
+        # Merging takes a while: the output may have been edited or saved meanwhile.
+        st = local_stat(path)
+        return bool(st and not st.dataless and sha256_file(path) == previous_sha)
+
     def commit(_sha: str) -> bool:
-        if output_stat is not None:
-            assert previous_sha is not None
-            require_unchanged(output, previous_sha)
-        elif local_stat(output) is not None:
-            raise OSError(f"{output.name} appeared while merging; not overwriting")
+        if not existed and local_stat(output) is not None:
+            raise ReplaceRefused(f"{output.name} appeared while merging; not overwriting")
         return True
 
-    with atomic_writer(output, commit, no_clobber=output_stat is None) as (fh, digest):
-        fh.write(buffer.getvalue())
+    try:
+        with atomic_writer(output, commit, may_replace=still_ours if existed else None) as (
+            fh,
+            digest,
+        ):
+            fh.write(buffer.getvalue())
+    except FileExistsError:  # also ReplaceRefused: changed, or a new output appeared
+        reason = "output changed while merging, not overwriting"
+        return MergeResult(output, inputs, False, reason), previous_sha, previous_fingerprint
     return MergeResult(output, inputs, True), digest(), fingerprint

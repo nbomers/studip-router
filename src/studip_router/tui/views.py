@@ -275,7 +275,7 @@ def plan_summary_short(plan: SyncPlan) -> str:
         parts.append(f"[b]{new} new[/b] file" + ("s" if new != 1 else ""))
     if updated:
         parts.append(f"[b]{updated} updated[/b]")
-    other = sum(counts.get(k, 0) for k in ("adopt", "refresh", "rename", "mkdir"))
+    other = sum(counts.get(k, 0) for k in ("adopt", "refresh", "rename", "mkdir", "unzip"))
     if other and not parts:
         parts.append(f"[b]{other}[/b] small change(s)")
     return " · ".join(parts) or "nothing to download"

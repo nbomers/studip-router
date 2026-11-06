@@ -19,6 +19,10 @@ Working inside iCloud Drive/Dropbox? Point the venv elsewhere so it is not synce
 - **Never delete user files**, never overwrite without the configured policy, never read iCloud-evicted files implicitly. New features must keep these invariants (see [docs/DESIGN.md](docs/DESIGN.md)).
 - **Planner and executor stay separate**: the planner decides, the executor only performs. Dry run must show exactly what a real run does.
 - **No real data in the repository**: no real course names, IDs, user names, paths or tokens — not in tests, fixtures, screenshots or commit messages. Tests use the fake Stud.IP in `tests/fake_studip.py`.
+- **One way into the user's folders**: write with `fsutil.atomic_writer` (or move with
+  `fsutil.publish` / `move_no_clobber`). They never replace an existing file; to replace
+  one on purpose, pass `may_replace`, a check that runs right before the replace.
+  No `os.replace`/`os.rename` onto user files elsewhere.
 - **No secrets in logs**, not even at debug level.
 - Tests for every behaviour change (`pytest`, API mocked with `respx`, TUI via Textual's `run_test`).
 - Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).

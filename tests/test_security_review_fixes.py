@@ -44,7 +44,7 @@ def zip_bytes(entries: list[str]) -> bytes:
 def test_archive_depth_is_bounded_before_creating_directories(tmp_path, directory):
     archive = tmp_path / "deep.zip"
     archive.write_bytes(zip_bytes(["a/" * 1100 + ("" if directory else "x.txt")]))
-    with pytest.raises(PostprocessError, match="deeply nested"):
+    with pytest.raises(PostprocessError, match="nested too deeply"):
         extract_zip(archive)
     assert list(tmp_path.iterdir()) == [archive]
 
@@ -59,7 +59,7 @@ def test_archive_count_includes_directory_records(tmp_path, monkeypatch):
     assert (extract_zip(archive) / "one/file.txt").read_bytes() == b"content"
 
 
-def test_failed_extraction_is_isolated_and_retried_without_download(root, state):
+def test_invalid_archive_is_isolated_and_not_retried(root, state):
     cfg = make_config(root, unzip=True)
     data = zip_bytes(["a/" * 1100 + "x.txt"])
     archive = remote("deep.zip", size=len(data), mime="application/zip")
@@ -70,10 +70,10 @@ def test_failed_extraction_is_isolated_and_retried_without_download(root, state)
     assert len(outcome.failed) == 1
     assert (root / "Example Course/Sonstiges/z.txt").read_bytes() == b"abc"
     plan = plan_course(cfg, cfg.courses[COURSE_ID], [archive, later], state.for_course(COURSE_ID))
-    assert [a.kind for a in plan.actions] == [Kind.ADOPT]
+    assert plan.actions == []
     downloads.calls.clear()
     retried = execute(plan, state, downloads, 2)
-    assert len(retried.failed) == 1 and downloads.calls == []
+    assert not retried.failed and downloads.calls == []
 
 
 @pytest.mark.parametrize("delta", [0, 0.5])
@@ -152,11 +152,11 @@ def test_merge_keeps_files_saved_during_pdf_processing(tmp_path, existing):
         output.write_bytes(b"my new annotations")
         return original(self, *args, **kwargs)
 
-    with (
-        patch.object(PdfWriter, "append", edit_during_append),
-        pytest.raises(OSError, match="not overwriting"),
-    ):
-        merge_pdfs(tmp_path, output, previous_sha=sha, previous_fingerprint=fingerprint)
+    with patch.object(PdfWriter, "append", edit_during_append):
+        result, _, _ = merge_pdfs(
+            tmp_path, output, previous_sha=sha, previous_fingerprint=fingerprint
+        )
+    assert not result.written and "changed while merging" in result.reason
     assert output.read_bytes() == b"my new annotations"
     assert not list(tmp_path.glob("*.part"))
 

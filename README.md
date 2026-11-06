@@ -479,7 +479,7 @@ Found a security problem? See [SECURITY.md](https://github.com/nbomers/studip-ro
 | a server that pages endlessly or repeats pages | stopped; every record is used once |
 | one file fails | the others continue; the failed one is retried next sync |
 | files only in iCloud (also old `.name.icloud` placeholders) | never downloaded just to compare |
-| ZIPs with garbled umlaut names, ZIP-slip, ZIP bombs | names repaired and made safe, unsafe archives refused (more than 1 GiB, 20 000 entries or a compression ratio above 200:1) |
+| ZIPs with garbled umlaut names, ZIP-slip, ZIP bombs | names repaired and made safe, unsafe archives refused (more than 1 GiB, 20 000 entries including folders, 32 folder levels or a compression ratio above 200:1); a broken or password-protected ZIP fails only itself |
 | `H2O`, `Python3`, `IPv6`, `A4`, `2x2` | left alone by number padding (only standalone numbers are padded) |
 | renamed / moved / re-uploaded on Stud.IP | followed; identical content is never stored twice |
 | two syncs at once (auto-sync + manual) | the second one stops with a message instead of racing |
