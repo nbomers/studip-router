@@ -158,7 +158,7 @@ def test_scheduler_pins_paths_without_password(monkeypatch, tmp_path):
     assert plist["EnvironmentVariables"]["STUDIP_ROUTER_CONFIG"].endswith("c.toml")
     assert "STUDIP_ROUTER_STATE_DIR=" in service
     assert "never-persist-this" not in repr(plist) + service
-    assert "%%" in service and "$$" in service
+    assert "%%" in service and " $/c.toml" in service and "$$" not in service
 
 
 def test_move_unsupported_hardlinks_fails_without_rename(tmp_path, monkeypatch):

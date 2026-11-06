@@ -48,6 +48,12 @@ moving them, reinstall the schedule. Password environment variables are never
 copied into job files; headless jobs need their own secure runtime environment
 or a usable OS keychain.
 
+On Linux, `studip schedule status` and `studip doctor --offline` query the actual
+timer state. An inactive/failed timer or an unavailable systemd user manager is
+reported rather than inferred from the unit file. If config/state paths contain
+`$` and the job was installed before 0.5.0, run `studip schedule install` again
+after upgrading to regenerate the corrected environment entries.
+
 Config changes use a private lock, unique temporary files, file flush and atomic
 replacement. A competing tool instance fails with a retry message; if an editor
 changed the file before publication, reload it and try again. `config.toml.bak`
