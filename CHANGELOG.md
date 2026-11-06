@@ -46,6 +46,21 @@ All notable changes to this project are documented here. The format follows
   tables and the small files next to the state; the README lists every command
   option and per-course setting; `config.example.toml` no longer mentions Windows.
 
+### Security
+- A crafted ZIP (folders nested thousands of levels deep, or encrypted) no longer
+  stops the whole sync with `sync.unzip = true`: archives with more than 32 folder
+  levels are refused, folder entries count towards the 20 000 entry limit, and any
+  extraction error fails only that archive.
+- Merging slides never replaces an output file that was saved or edited while the
+  merge ran (checked again right before the replace), nor a new output file that
+  appeared meanwhile. An output only in iCloud is checked (`--force`) instead of
+  replaced unseen.
+- Before a file is overwritten (`on_update = "overwrite"`) or unlocked, its content
+  hash is compared too: an edit that keeps size and time is no longer missed.
+- On file systems without hard links (exFAT, some network shares) a new file is
+  moved into place only after its name was claimed with an exclusive create, so a
+  file created in that moment is never replaced.
+
 ## [0.4.2] - 2026-11-05
 
 ### Added

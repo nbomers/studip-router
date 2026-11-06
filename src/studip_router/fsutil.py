@@ -278,11 +278,23 @@ def move_no_clobber(src: Path, dst: Path) -> None:
         raise FileExistsError(f"{dst} exists")
     try:
         os.link(src, dst)  # fails if dst exists
+    except FileExistsError:
+        raise
     except OSError:
-        # cross-device or filesystem without hard links: check-then-rename
-        if dst.exists():
+        # No hard links here (exFAT, some network shares). Checking and then renaming
+        # would replace a file created in between, so first claim the name with an
+        # exclusive create: from then on only our own empty placeholder can be replaced.
+        try:
+            fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            raise FileExistsError(f"{dst} exists") from None
+        os.close(fd)
+        try:
+            os.replace(src, dst)
+        except BaseException:
+            with suppress(OSError):
+                dst.unlink()  # our placeholder, still empty
             raise
-        os.rename(src, dst)
     else:
         os.unlink(src)
     fsync_dir(dst.parent)  # the rename survives a power loss

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -115,7 +114,7 @@ def unlock_record(state: State, record: FileRecord, password: str, outcome: Outc
     st = local_stat(path)
     if st is None or st.dataless:
         return  # missing, or only in iCloud: never downloaded just for this
-    if is_locally_modified(record, st, path):
+    if is_locally_modified(record, st, path, thorough=True):
         return  # edited (e.g. annotated) since the sync: never rewritten
     try:
         result = unlock_pdf(path, password)
@@ -154,7 +153,7 @@ def _unzip(action: Action, state: State, run_id: int, outcome: Outcome) -> None:
         return  # never pull an archive out of iCloud just to extract it
     try:
         folder = extract_zip(action.dest)
-    except (PostprocessError, OSError, zipfile.BadZipFile) as exc:
+    except Exception as exc:  # encrypted, unsupported method, broken: this file only
         log.error("unzip failed for %s: %s", action.dest, exc)
         outcome.failed.append((action, f"unzip failed: {exc}"))
         return
@@ -305,7 +304,7 @@ def _save(
 def _check_unchanged(previous: FileRecord, path: Path) -> None:
     """Raise if the local copy was edited since we wrote it (checked at run time)."""
     st = local_stat(path)
-    if st is not None and is_locally_modified(previous, st, path):
+    if st is not None and is_locally_modified(previous, st, path, thorough=True):
         raise LocalChangeError(
             f"{path.name} was changed locally since the preview; not overwritten "
             "(the next sync keeps it and saves the new version next to it)"

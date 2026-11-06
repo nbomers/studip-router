@@ -27,6 +27,7 @@ from .fsutil import (
 MAX_UNZIPPED_BYTES = 1024**3  # 1 GiB extracted per archive
 MAX_MEMBERS = 20_000
 MAX_RATIO = 200  # extracted/compressed per member; zip bombs reach 1000:1 and more
+MAX_DEPTH = 32  # folder levels inside an archive; course material needs a handful
 
 
 class PostprocessError(Exception):
@@ -63,9 +64,12 @@ def extract_zip(zip_path: Path) -> Path | None:
     tmp = Path(tempfile.mkdtemp(prefix=f".{target.name[:40]}.", suffix=".unzip", dir=target.parent))
     try:
         with zipfile.ZipFile(zip_path) as archive:
-            members = [m for m in archive.infolist() if not m.is_dir()]
-            if len(members) > MAX_MEMBERS:
-                raise PostprocessError(f"{zip_path.name}: too many entries ({len(members)})")
+            entries = archive.infolist()
+            if len(entries) > MAX_MEMBERS:  # folders count too: they cost a mkdir each
+                raise PostprocessError(f"{zip_path.name}: too many entries ({len(entries)})")
+            if any(member_name(e).replace("\\", "/").count("/") > MAX_DEPTH for e in entries):
+                raise PostprocessError(f"{zip_path.name}: folders nested too deeply")
+            members = [m for m in entries if not m.is_dir()]
             if sum(m.file_size for m in members) > MAX_UNZIPPED_BYTES:
                 raise PostprocessError(f"{zip_path.name}: archive too large when extracted")
             for member in members:
@@ -262,7 +266,8 @@ def merge_pdfs(
     fingerprint = inputs_fingerprint(inputs)
     if fingerprint == previous_fingerprint and output.exists():
         return MergeResult(output, inputs, False, "up to date"), previous_sha, fingerprint
-    if output.exists():
+    existed = output.exists()
+    if existed:
         if previous_sha is None:
             return (
                 MergeResult(
@@ -272,7 +277,15 @@ def merge_pdfs(
                 previous_fingerprint,
             )
         st = local_stat(output)
-        if st and not st.dataless and sha256_file(output) != previous_sha:
+        if st and st.dataless and not allow_icloud_download:
+            return (
+                MergeResult(
+                    output, inputs, False, "output only in iCloud; use --force to check it"
+                ),
+                previous_sha,
+                previous_fingerprint,
+            )
+        if st and sha256_file(output) != previous_sha:
             return (
                 MergeResult(output, inputs, False, "output was modified, not overwriting"),
                 previous_sha,
@@ -296,6 +309,23 @@ def merge_pdfs(
         writer.append(str(pdf), outline_item=split_ext(pdf.name)[0])
     buffer = io.BytesIO()
     writer.write(buffer)
-    with atomic_writer(output) as (fh, digest):  # unique temp name, fsync, replace
-        fh.write(buffer.getvalue())
+
+    refused: list[bool] = []
+
+    def still_ours(_sha: str) -> bool:
+        """Right before the replace: merging takes a while, and the output may have
+        been edited or saved meanwhile. A new output is never replaced (no_clobber)."""
+        if existed and not (output.exists() and sha256_file(output) == previous_sha):
+            refused.append(True)
+            return False
+        return True
+
+    changed = MergeResult(output, inputs, False, "output changed while merging, not overwriting")
+    try:
+        with atomic_writer(output, still_ours, no_clobber=not existed) as (fh, digest):
+            fh.write(buffer.getvalue())
+    except FileExistsError:
+        return changed, previous_sha, previous_fingerprint
+    if refused:
+        return changed, previous_sha, previous_fingerprint
     return MergeResult(output, inputs, True), digest(), fingerprint

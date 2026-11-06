@@ -195,9 +195,18 @@ class _Claims:
         self._taken.add(path_key(path))
 
 
-def is_locally_modified(record: FileRecord, st: LocalStat, path: Path) -> bool:
-    """Compare a local file against what we wrote. Never reads evicted iCloud files."""
+def is_locally_modified(
+    record: FileRecord, st: LocalStat, path: Path, *, thorough: bool = False
+) -> bool:
+    """Compare a local file against what we wrote. Never reads evicted iCloud files.
+
+    Same size and mtime count as unchanged, which is cheap but misses an edit that
+    keeps the size and restores the time. ``thorough`` (before a file is replaced
+    or rewritten) also compares the content hash whenever it can be read.
+    """
     if st.size == record.local_size and abs(st.mtime - record.local_mtime) < 1:
+        if thorough and not st.dataless and record.local_digest is not None:
+            return sha256_file(path) != record.local_digest
         return False
     if st.size != record.local_size:
         return True
@@ -534,7 +543,7 @@ def _plan_known(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
         )
         return
 
-    modified = is_locally_modified(record, st, path)
+    modified = is_locally_modified(record, st, path, thorough=cfg.on_update == "overwrite")
     reupload = "" if same_file else "uploaded again on Stud.IP; "
     if cfg.on_update == "overwrite" and not modified:
         plan.actions.append(
