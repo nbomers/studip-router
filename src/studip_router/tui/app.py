@@ -227,6 +227,8 @@ class HomeScreen(Screen):
             with contextlib.suppress(ValueError):
                 last_summary = json.loads(last["summary"])
         active = sum(1 for c in cfg.courses.values() if not c.exclude)
+        if not to_move:  # the moves of the update are done: later ones are your rules'
+            app.updated_from = None
         self._local = {
             "never": last is None,
             "when": _ago(last["finished_at"] if last else None),

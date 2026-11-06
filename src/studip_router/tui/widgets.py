@@ -258,8 +258,9 @@ class ReportScreen(ModalScreen[None]):
 
     BINDINGS: ClassVar = [
         Binding("escape", "close", "Close"),
-        Binding("ctrl+y", "copy", "Copy text"),
-        Binding("ctrl+o", "open", "Open issue form"),
+        # priority: the text area has the focus and uses ctrl+y for "redo"
+        Binding("ctrl+y", "copy", "Copy text", priority=True),
+        Binding("ctrl+o", "open", "Open issue form", priority=True),
     ]
 
     def __init__(self, title: str, body: str) -> None:

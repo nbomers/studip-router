@@ -164,6 +164,14 @@ _NAMED = re.compile(
 )
 
 
+def typed_root(cfg: Config, text: str) -> Path:
+    """A folder typed by the user: "~/..." or absolute as given, anything else next
+    to the current root ("Semester 6" -> sibling of "Semester 5"), never relative to
+    the working directory, which differs for the background sync."""
+    path = Path(text.strip()).expanduser()
+    return path if path.is_absolute() else cfg.root.parent / path
+
+
 def propose_root(root: Path, semester_title: str) -> Path | None:
     """A sibling folder for the new semester when the root is named after one.
 
@@ -247,6 +255,8 @@ def apply_change(cfg: Config, change: SemesterChange, choices: Choices) -> Appli
     before anything is written; folder problems afterwards are reported, not raised."""
     home = Path.home()
     new_root = choices.new_root if choices.new_root and choices.new_root != cfg.root else None
+    if new_root is not None and not new_root.is_absolute():
+        raise ValueError(f"{new_root}: give a full path (e.g. ~/Uni/Semester 6)")
     if new_root is not None and (problem := unsafe_folder(str(new_root))):
         raise ValueError(f"{new_root}: {problem}")
     titles = {c.id: c.title for c in change.new_courses}

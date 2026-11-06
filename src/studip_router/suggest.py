@@ -562,8 +562,10 @@ def name_pattern(name: str) -> str | None:
     name = nfc(name)
     if not _DIGITS.search(name):
         return None
-    glob = _DIGITS.sub("*", glob_escape(name))
-    return re.sub(r"\*(?:[^*\w]?\*)+", "*", glob)  # "*.*" from "3.1" stays one "*"
+    # Numbers first, as a marker that cannot occur in a name: only they are merged
+    # ("3.1" -> one "*"), never a "*" that was in the name itself.
+    marked = re.sub(r"\x00(?:[^\w\x00]?\x00)+", "\x00", _DIGITS.sub("\x00", name))
+    return glob_escape(marked).replace("\x00", "*")
 
 
 def rule_from_file(

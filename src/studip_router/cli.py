@@ -514,6 +514,8 @@ def semester_cmd(
     from . import semester as sem_mod
 
     cfg = load_config(config)
+    if OPTS.json and not (yes or dry_run):
+        raise fail("with --json, add --dry-run (show the plan) or --yes (apply it)", 2)
     try:
         with open_client(cfg) as client:
             change = sem_mod.detect(client, cfg)
@@ -547,7 +549,7 @@ def semester_cmd(
         if answer == "-":
             choices.new_root = None
         elif answer != display_path(change.proposed_root, home):
-            choices.new_root = Path(answer).expanduser()
+            choices.new_root = sem_mod.typed_root(cfg, answer)
         if choices.new_root != change.proposed_root:
             change.proposed_root = choices.new_root
             choices.add = sem_mod.new_targets(change, new_root=choices.new_root is not None)

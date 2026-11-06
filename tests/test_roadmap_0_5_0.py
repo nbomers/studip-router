@@ -288,3 +288,50 @@ async def test_preview_report_opens_the_issue_form_only_on_request(
         assert "Quantum" not in opened[0]
         await pilot.press("escape")
         await _wait(pilot, lambda: isinstance(app.screen, SyncView))
+
+
+# -- review findings -------------------------------------------------------------------
+
+
+def test_name_pattern_keeps_a_star_from_the_name() -> None:
+    import fnmatch
+
+    glob = name_pattern("a*1.pdf")
+    assert glob is not None and fnmatch.fnmatchcase("a*7.pdf", glob)
+    assert not fnmatch.fnmatchcase("ab7.pdf", glob)
+
+
+def test_typed_semester_root_is_never_relative(root: Path) -> None:
+    from studip_router.semester import typed_root
+
+    cfg = make_config(root / "Semester 5")
+    assert typed_root(cfg, "Semester 6") == root / "Semester 6"
+    assert typed_root(cfg, "~/Uni/S6") == Path.home() / "Uni" / "S6"
+
+
+def test_json_semester_needs_yes_or_dry_run(ui_config: Path) -> None:
+    from studip_router.cli import app
+
+    before = ui_config.read_text()
+    result = CliRunner().invoke(app, ["--json", "semester"])
+    assert result.exit_code == 2 and ui_config.read_text() == before
+
+
+@respx.mock
+async def test_report_copy_key_reaches_the_dialog(
+    ui_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from studip_router.tui.widgets import ReportScreen
+
+    install(respx.mock)
+    copied: list[str] = []
+    app = StudipRouterApp()
+    monkeypatch.setattr(app, "copy_to_clipboard", copied.append)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.press("p")
+        await _wait(pilot, lambda: isinstance(app.screen, SyncView) and app.screen.plan)
+        await pilot.press("b")
+        await _wait(pilot, lambda: isinstance(app.screen, ReportScreen))
+        await pilot.press("ctrl+y")
+        await _wait(pilot, lambda: bool(copied))
+        assert "File name:" in copied[0]

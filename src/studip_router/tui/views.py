@@ -1227,7 +1227,7 @@ class SemesterView(View):
         def typed(value: str | None) -> None:
             if not value:
                 return
-            path = Path(value).expanduser()
+            path = semester.typed_root(self.cfg, value)
             if problem := unsafe_folder(str(path)):
                 self.notify(f"{esc(value)}: {esc(problem)}", severity="error")
                 return
