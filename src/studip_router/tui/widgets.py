@@ -253,14 +253,14 @@ class TextScreen(ModalScreen[str | None]):
 class ReportScreen(ModalScreen[None]):
     """A text to check and edit, then copy or open as a GitHub issue in the browser.
 
-    Nothing is sent from here: the browser shows the issue form, you submit it.
+    Nothing is sent from here: the browser shows a prefilled new issue, you submit it.
     """
 
     BINDINGS: ClassVar = [
         Binding("escape", "close", "Close"),
         # priority: the text area has the focus and uses ctrl+y for "redo"
         Binding("ctrl+y", "copy", "Copy text", priority=True),
-        Binding("ctrl+o", "open", "Open issue form", priority=True),
+        Binding("ctrl+o", "open", "Open new issue", priority=True),
     ]
 
     def __init__(self, title: str, body: str) -> None:
@@ -275,7 +275,7 @@ class ReportScreen(ModalScreen[None]):
             yield Label("[b]Report a file sorted into the wrong folder[/b]")
             yield Static(
                 "Check the text and fill in where it should go. Remove names of people."
-                " [b]Ctrl+O[/b] opens the GitHub issue form in your browser (you send it"
+                " [b]Ctrl+O[/b] opens a prefilled new GitHub issue in your browser (you send it"
                 " there), [b]Ctrl+Y[/b] copies the text.",
                 classes="detail",
             )

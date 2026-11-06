@@ -4,7 +4,7 @@
 # one for you) and adjust. Validate with `studip config validate`.
 #
 # Your password is never stored here: `studip auth login` puts it into the OS
-# keychain (macOS Keychain, Secret Service on Linux, Windows Credential Locker).
+# keychain (macOS Keychain, Secret Service on Linux).
 
 [server]
 # Your university's Stud.IP; the JSON:API must be enabled (`studip doctor` checks).
@@ -22,8 +22,9 @@ semester = "current"
 # Only sync courses listed below; other courses are reported, never downloaded.
 # false: every course is synced into a folder named like the course.
 # Listed courses keep syncing after the semester ends (retake exams, late
-# solutions) until you turn them off; new courses of the next semester are
-# announced shortly before it starts.
+# solutions) until you archive them (`studip semester`, or `n` in the UI, which
+# sets `exclude = true`); new courses of the next semester are announced shortly
+# before it starts.
 only_configured_courses = true
 
 # A file changed on Stud.IP:
@@ -110,6 +111,9 @@ name = "Quantum Cooking"
 target = "Quantum Cooking"   # relative to root, or an absolute path
 # default_target = "_inbox"  # per-course override
 unzip = true                 # this course ships slides as .zip
+# courseware = true          # per-course override of sync.courseware
+# exclude_files = { globs = ["*.mp4"], max_size_mb = 50 }   # added to [sync.exclude]; max_size_mb replaces its limit
+# rename = { pad_numbers = 0, spaces = "_" }               # keys given here replace those of [rename]
 
 # Merge all slide PDFs into one file after each sync (`studip merge` by hand).
 merge = { source = "Skript : Alle Folien", output = "Alle Folien.pdf" }
@@ -161,4 +165,4 @@ skip = true
 
 [courses.fedcba9876543210fedcba9876543210]
 name = "Some Course I Do Not Need"
-exclude = true               # listed as "excluded", never touched
+exclude = true               # listed as "excluded", never touched (an archived course looks the same)

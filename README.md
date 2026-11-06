@@ -53,8 +53,9 @@ All course names in the screenshots are made up.</sub>
 8. [How it stays safe](#how-it-stays-safe)
 9. [Tricky files](#tricky-files)
 10. [FAQ](#faq)
-11. [Troubleshooting](#troubleshooting)
-12. [Development](#development) · [Use of AI](#use-of-ai) · [Credits](#credits) · [License](#license)
+11. [Troubleshooting](#troubleshooting) · [Exit codes and JSON](#exit-codes-and-json)
+12. [Uninstall](#uninstall) · [Terms of use](#terms-of-use)
+13. [Development](#development) · [Use of AI](#use-of-ai) · [Credits](#credits) · [License](#license)
 
 ---
 
@@ -225,7 +226,7 @@ whether its line is shown or not:
 | `c` | Courses: sync on/off, choose folders | `,` | Settings |
 | `d` | Doctor: check the setup | `?` | all keys |
 | `n` | New semester: folders, new courses, archive old ones | `+` | in preview: a rule for files like this one |
-| `i` | in preview / what's new: never download this file | `b` | in preview: report a file sorted wrong (you check and send it) |
+| `i` | in preview / what's new: never download this file | `b` | in preview: report a file the automatic sorting placed wrong (you check and send it) |
 
 `j`/`k` and arrow keys move, `Enter` opens, `Esc` goes back.
 
@@ -395,7 +396,11 @@ Rule sheets
 | `rename.portable` | `true` | replace `: * ? " < > \|` (Windows, OneDrive, iCloud) |
 | `rename.strip_prefixes` | `[]` | e.g. `["Vorlesung_"]` |
 | `ui.theme` | `"tokyo-night"` | terminal UI colours |
-| `courses.<id>.exclude` | `false` | never touch this course |
+| `ui.update_check` | `false` | ask pypi.org once a week for a newer version (UI and `studip status`, never the background sync) |
+| `courses.<id>.exclude` | `false` | never touch this course (archived courses get `true`) |
+| `courses.<id>.default_target` / `unzip` / `courseware` | the `sync.` value | per-course override |
+| `courses.<id>.exclude_files` | none | added to `sync.exclude`; its `max_size_mb` replaces the limit |
+| `courses.<id>.rename` | `[rename]` | the keys given replace those of `[rename]` for this course |
 | `courses.<id>.merge` | – | `{ source = "Slides", output = "All slides.pdf" }` — or in the UI: Merge slides (`m`), Enter on a course |
 
 From scripts: `studip config set sync.on_update skip`.
@@ -408,20 +413,22 @@ From scripts: `studip config set sync.on_update skip`.
 
 | Command | |
 |---|---|
-| `studip` | terminal UI |
-| `studip sync [--dry-run] [--course X] [--semester S] [--include-large]` | sync |
-| `studip courses` | courses with status active / excluded / new |
+| `studip` / `studip tui` | terminal UI |
+| `studip init [--force]` | setup in the terminal (login, courses, folders, config) |
+| `studip sync [--dry-run] [--course X] [--semester S] [--include-large] [-v] [-q] [--notify]` | sync; `-v` also lists skips, `-q` only problems |
+| `studip courses [--semester S]` | courses with status active / excluded / new |
 | `studip semester [--dry-run] [--yes] [--keep-root] [--read-only]` | semester change: new folders, new courses, archive old ones |
-| `studip status` | new courses, files only placed by the default folder |
+| `studip status [--offline]` | new courses, files only placed by the default folder, last run |
 | `studip rules list / test / suggest [--write]` | inspect and create rules |
 | `studip reorganize` / `studip undo` | apply changed rules to synced files / revert |
-| `studip history` / `studip news` | recently synced files / unread announcements |
+| `studip history [--limit 30]` | recently synced files |
+| `studip news [--course X] [--all] [--keep-unread]` | unread announcements (`--all`: read ones too) |
 | `studip dates [--offline] [--days 14] [--ics FILE]` | changed course dates and upcoming exams; `--ics` writes all dates as a calendar file |
 | `studip open COURSE` | open a course folder in Finder / the file manager |
 | `studip completion zsh` | print the shell completion script (zsh, bash, fish) |
 | `studip config remove-course COURSE` | remove a course you left on Stud.IP from the config (files stay) |
-| `studip merge` | merge slide PDFs |
-| `studip schedule install --every 120` / `run-now` / `uninstall` | background sync (opt-in) |
+| `studip merge [--course X] [--force]` | merge slide PDFs (`--force` downloads iCloud-only PDFs) |
+| `studip schedule install --every 120` / `status` / `run-now` / `uninstall` | background sync (opt-in) |
 | `studip ignore add / list / remove` | files you never want |
 | `studip pdf-password set / list / remove COURSE` | unlock a course's password-protected PDFs |
 | `studip doctor [--test-notification]` | check config, folders, keychain, server, scheduler |

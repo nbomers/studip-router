@@ -13,7 +13,7 @@ from conftest import COURSE_ID, make_config
 from fake_studip import BASE, COURSE, install
 from typer.testing import CliRunner
 
-from studip_router import __version__, paths, update_check
+from studip_router import __version__, paths, update_hold
 from studip_router.config import load
 from studip_router.state import State
 from studip_router.suggest import name_pattern, rule_from_file
@@ -78,8 +78,8 @@ def _synced_state(root: Path, tmp_path: Path) -> State:
 def test_fresh_install_and_unchanged_sorting_do_not_hold(root: Path, tmp_path: Path) -> None:
     cfg = make_config(root)
     with State(paths.state_db()) as state:
-        assert update_check.hold_background(cfg, state) is None  # nothing synced yet
-    assert update_check.seen_version() == __version__
+        assert update_hold.hold_background(cfg, state) is None  # nothing synced yet
+    assert update_hold.seen_version() == __version__
 
 
 def test_background_sync_waits_after_an_update_that_moves_files(
@@ -88,26 +88,26 @@ def test_background_sync_waits_after_an_update_that_moves_files(
     cfg = make_config(root)
     with _synced_state(root, tmp_path) as state:
         paths.seen_version_file().write_text("0.0.1\n")
-        held = update_check.hold_background(cfg, state)
+        held = update_hold.hold_background(cfg, state)
         assert held is not None and held[1] and held[0].moves == 1
         assert held[0].previous == "0.0.1"
-        assert "0.0.1" in update_check.message(held[0])
-        again = update_check.hold_background(cfg, state)
+        assert "0.0.1" in update_hold.message(held[0])
+        again = update_hold.hold_background(cfg, state)
         assert again is not None and not again[1]  # no second notification
         # after HOLD_DAYS it syncs again
-        later = time.time() + update_check.HOLD_DAYS * 86400 + 60
-        monkeypatch.setattr(update_check.time, "time", lambda: later)
-        assert update_check.hold_background(cfg, state) is None
-        assert update_check.seen_version() == __version__
+        later = time.time() + update_hold.HOLD_DAYS * 86400 + 60
+        monkeypatch.setattr(update_hold.time, "time", lambda: later)
+        assert update_hold.hold_background(cfg, state) is None
+        assert update_hold.seen_version() == __version__
 
 
 def test_a_look_in_the_ui_ends_the_wait(root: Path, tmp_path: Path) -> None:
     cfg = make_config(root)
     with _synced_state(root, tmp_path) as state:
         paths.seen_version_file().write_text("0.0.1\n")
-        assert update_check.hold_background(cfg, state) is not None
-        update_check.mark_seen()
-        assert update_check.hold_background(cfg, state) is None
+        assert update_hold.hold_background(cfg, state) is not None
+        update_hold.mark_seen()
+        assert update_hold.hold_background(cfg, state) is None
         assert not paths.update_hold_file().exists()
 
 

@@ -113,17 +113,48 @@ def courses_table(entries: list[CourseEntry], semester_title: str) -> Table:
     return table
 
 
+GROUP_SKIPS = 3  # this many skips with one reason in one folder become one row
+
+
+def plan_heading(plan: CoursePlan) -> Text:
+    """'Course -> folder' above a plan table; printed with soft_wrap so the path stays
+    in one piece (a table title would be wrapped at its spaces and not copyable)."""
+    return Text(f"{plan.course.name or plan.course.id} -> {plan.course_dir}", style="bold")
+
+
+def _skip_groups(rows: list[Action]) -> dict[tuple[str, str], int]:
+    """(folder, reason) of skips that come in numbers, e.g. 45 images of a Courseware import."""
+    counts: Counter = Counter(
+        (a.file.folder_path, str(a.reason)) for a in rows if a.kind is Kind.SKIP and a.file
+    )
+    return {key: n for key, n in counts.items() if n >= GROUP_SKIPS}
+
+
 def plan_table(plan: CoursePlan, verbose: bool) -> Table | None:
     rows = [a for a in plan.actions if verbose or a.kind is not Kind.SKIP]
     if not rows:
         return None
-    title = esc(f"{plan.course.name or plan.course.id} -> {plan.course_dir}")
-    table = Table(title=title, title_justify="left", show_lines=False)
+    groups = _skip_groups(rows)
+    shown: set[tuple[str, str]] = set()
+    table = Table(show_lines=False)
     table.add_column("Action")
     table.add_column("Stud.IP")
     table.add_column("Local (relative to course folder)")
     table.add_column("Note", style="dim")
     for a in rows:
+        if a.kind is Kind.SKIP and a.file:
+            key = (a.file.folder_path, str(a.reason))
+            if key in groups:
+                if key not in shown:
+                    shown.add(key)
+                    folder = a.file.folder_path.strip("/") or "(course root)"
+                    table.add_row(
+                        f"[{STYLE[a.kind]}]{a.kind.value}[/]",
+                        Text(f"{folder}/ ({groups[key]} files)"),
+                        Text(""),
+                        Text(str(a.reason)),
+                    )
+                continue
         remote = f"{a.file.folder_path}/{a.file.name}".lstrip("/") if a.file else ""
         note = a.reason or a.note
         if a.route and a.route.by_default and a.kind is Kind.DOWNLOAD:
