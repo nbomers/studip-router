@@ -226,7 +226,7 @@ whether its line is shown or not:
 | `c` | Courses: sync on/off, choose folders | `,` | Settings |
 | `d` | Doctor: check the setup | `?` | all keys |
 | `n` | New semester: folders, new courses, archive old ones | `+` | in preview: a rule for files like this one |
-| `i` | in preview / what's new: never download this file | `b` | in preview: report a file sorted wrong (you check and send it) |
+| `i` | in preview / what's new: never download this file | `b` | in preview: report a file the automatic sorting placed wrong (you check and send it) |
 
 `j`/`k` and arrow keys move, `Enter` opens, `Esc` goes back.
 

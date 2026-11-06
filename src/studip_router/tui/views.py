@@ -527,6 +527,15 @@ class SyncView(View):
         action = rows[table.cursor_row]
         if action.file is None:
             return
+        route = action.route
+        if route and route.rule_id and not route.rule_id.startswith("auto:"):
+            # A report helps the keyword lists; a rule of your own is yours to change.
+            self.notify(
+                f"Placed by your own rule {esc(route.rule_id)}: nothing to report. "
+                "Change the rule in the config (r tests a file name).",
+                severity="warning",
+            )
+            return
         title, body = report_text(action.file.folder_path, action.file.name, action.route)
         self.app.push_screen(ReportScreen(title, body))
 

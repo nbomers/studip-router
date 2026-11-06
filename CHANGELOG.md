@@ -34,6 +34,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 - Dialogs for typed text are centred like the other dialogs.
+- `b` (report a file sorted wrong) only reports files the automatic sorting or the
+  default folder placed; for a file placed by your own rule it points to the rule.
+- `studip sync --dry-run -v` lists three or more skipped files of one Stud.IP
+  folder with the same reason as one line (`Folder/ (45 files)`), and prints the
+  course folder above each table in one piece, so the path can be copied.
 - Internal: the module for the check after an update is `update_hold.py` (was
   `update_check.py`, easily confused with the `[ui] update_check` setting, which
   belongs to `new_version.py`).

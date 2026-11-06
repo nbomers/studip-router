@@ -723,6 +723,7 @@ def sync_cmd(
         if dry_run or verbose:
             for plan in sync_plan.plans:
                 if (table := report.plan_table(plan, verbose)) is not None:
+                    out.print(report.plan_heading(plan), soft_wrap=True)
                     out.print(table)
         result = None
         if not dry_run:
