@@ -193,41 +193,54 @@ class UndoStep:
     src: str | None
     dst: str
     problem: str = ""
+    seq: int | None = None
 
 
 def plan_undo(state: State) -> tuple[int | None, list[UndoStep]]:
     """Steps to revert the most recent reorganize run (newest first)."""
     runs = state.runs(100)
     undone = {
-        json.loads(r["summary"]).get("of_run") for r in runs if r["mode"] == "undo" and r["summary"]
+        summary.get("of_run")
+        for r in runs
+        if r["mode"] == "undo" and r["summary"]
+        if (summary := json.loads(r["summary"])).get("complete", True)
     }
     run = next((r for r in runs if r["mode"] == "reorganize" and r["run_id"] not in undone), None)
     if run is None:
         return None, []
+    completed = {
+        seq
+        for r in runs
+        if r["mode"] == "undo" and r["summary"]
+        if (summary := json.loads(r["summary"])).get("of_run") == run["run_id"]
+        for seq in summary.get("completed_steps", [])
+    }
     steps = []
     entries = state.journal_entries(run["run_id"])
-    completed = {(e["src"], e["dst"]) for e in entries if e["op"] in ("move", "move-aborted")}
+    completed_moves = {(e["src"], e["dst"]) for e in entries if e["op"] in ("move", "move-aborted")}
     records = {path_key(r.local_path): r for r in state.all()}
     for entry in reversed(entries):
+        if entry["seq"] in completed:
+            continue
         problem = ""
         if entry["op"] == "move-aborted":
             continue
         if entry["op"] == "move-intent":
-            if (entry["src"], entry["dst"]) in completed:
+            if (entry["src"], entry["dst"]) in completed_moves:
                 continue
             src, dst = Path(entry["src"]), Path(entry["dst"])
             if not dst.exists():
                 continue  # crash before publication: nothing to undo
             if src.exists():
                 if src.samefile(dst):
-                    steps.append(UndoStep("unlink-hardlink", str(src), str(dst)))
+                    steps.append(UndoStep("unlink-hardlink", str(src), str(dst), seq=entry["seq"]))
                 continue  # an occupied original is never replaced
             record = records.get(path_key(src)) or records.get(path_key(dst))
             if record is None or record.local_digest is None:
                 problem = "unfinished move has no verifiable digest; inspect both paths"
             elif sha256_file(dst) != record.local_digest:
                 problem = "unfinished move target was modified; inspect both paths"
-            steps.append(UndoStep("move", str(src), str(dst), problem))
+            steps.append(UndoStep("move", str(src), str(dst), problem, entry["seq"]))
             continue
         if entry["op"] not in ("move", "mkdir"):
             continue
@@ -236,7 +249,7 @@ def plan_undo(state: State) -> tuple[int | None, list[UndoStep]]:
                 problem = "file is no longer where reorganize put it"
             elif Path(entry["src"]).exists():
                 problem = "original location is occupied again"
-        steps.append(UndoStep(entry["op"], entry["src"], entry["dst"], problem))
+        steps.append(UndoStep(entry["op"], entry["src"], entry["dst"], problem, entry["seq"]))
     return run["run_id"], steps
 
 
@@ -249,6 +262,7 @@ def _apply_undo(state: State, run_id: int, steps: list[UndoStep]) -> int:
     by_path = {path_key(r.local_path): r for r in state.all()}
     undone = 0
     undo_run = state.start_run("undo")
+    completed: list[int] = []
     for step in steps:
         if step.problem:
             continue
@@ -269,5 +283,26 @@ def _apply_undo(state: State, run_id: int, steps: list[UndoStep]) -> int:
             directory = Path(step.dst)
             if directory.is_dir() and not any(directory.iterdir()):
                 directory.rmdir()  # only empty folders this tool created
-    state.finish_run(undo_run, {"undone": undone, "of_run": run_id})
+            elif directory.exists():
+                continue
+        if step.seq is not None:
+            completed.append(step.seq)
+            state.checkpoint_run(
+                undo_run,
+                {
+                    "undone": undone,
+                    "of_run": run_id,
+                    "completed_steps": completed,
+                    "complete": False,
+                },
+            )
+    state.finish_run(
+        undo_run,
+        {
+            "undone": undone,
+            "of_run": run_id,
+            "completed_steps": completed,
+            "complete": len(completed) == len(steps),
+        },
+    )
     return undone

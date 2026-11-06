@@ -71,8 +71,8 @@ Das ist keine Zusicherung vollständiger Fehler- oder Schwachstellenfreiheit.
 - [Dependency-Audit](dependency-audit.json): keine bekannten Advisories nach Update auf pypdf 6.21.4 und certifi 2026.10.23; 31 Export-Einträge.
 - [Performance-Messung](performance-audit.json): 50.000 unveränderte Dateien in ca. 5,75 s geplant, ca. 1,89 s für die Umorganisationsprüfung, SQL-Zähler ca. 4 ms. Synthetische lokale Daten, keine Live-API.
 - Neue Regressionen in `tests/test_audit_followup.py` und `tests/test_audit_ui.py`; bestehende Tests bleiben erhalten. Ein Kürzungs-Assertion wurde an die neue Darstellung mit beiden Textenden angepasst, bei unveränderter Prüfung auf wörtliches Markup.
-- Abschließender Gesamtlauf: **642 Tests bestanden in 41,77 s** (Python 3.12/Linux, Null-Keyring; Netzwerk im Testprozess blockiert).
-- `ruff check .`, `ruff format --check .` (98 Dateien), `mypy` (50 Quelldateien) und `git diff --check`: erfolgreich.
+- Abschließender Gesamtlauf: **678 Tests bestanden in 42,90 s** (Python 3.12/Linux, Null-Keyring; Netzwerk im Testprozess blockiert).
+- `ruff check .`, `ruff format --check .` (100 Dateien), `mypy` (50 Quelldateien) und `git diff --check`: erfolgreich.
 - Wheel und Quelldistribution erfolgreich nach `/tmp/studip-audit-dist` gebaut. Isolierter CLI-Start aus dem gebauten Wheel (`--version` und `rules --help`) erfolgreich.
 - Lokale Markdown-Dateilinks geprüft: keine fehlenden Zieldateien.
 
@@ -180,3 +180,8 @@ Alle acht Punkte haben Status **O**. Bereits vorhandene Schutzmaßnahmen und Tes
 3. Schmale Dialoge, Pfaddetails und Dokumentation 06, 13–17, 22–25 verbessern.
 4. Schreibkonkurrenz und Wiederherstellung 27–30 gezielt absichern; Sicherheitsprüfung 38–45 nach verfügbarem Scan-Setup durchführen.
 5. Performance, Barrierefreiheit, zusätzliche Kategorien und Modulaufteilung anhand gemessener Probleme angehen.
+
+PR integration: current main (`51452a5`) was merged before review. Its scoped
+PDF-password storage, OS-keyring restrictions, safe-by-default publication, ZIP
+limits/retries and undo checkpoints are preserved in the split workflow modules.
+The audit regression tests use the existing merge-result API for refused writes.

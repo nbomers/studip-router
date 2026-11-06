@@ -195,7 +195,7 @@ def pdf_password_set(
     if not password:
         raise fail("no password entered - nothing was stored")
     try:
-        auth.set_pdf_password(course_cfg.id, password)
+        auth.set_pdf_password(course_cfg.id, password, base_url=cfg.base_url, username=cfg.username)
     except auth.AuthError as exc:
         raise fail(f"{exc} - nothing was stored", 3) from None
     try:
@@ -213,9 +213,12 @@ def pdf_password_remove(
     config: ConfigOpt = None,
 ) -> None:
     """Forget the course's PDF password (files already unlocked stay unlocked)."""
-    course_cfg = find_course(load_config(config), course)
+    cfg = load_config(config)
+    course_cfg = find_course(cfg, course)
     try:
-        removed = auth.delete_pdf_password(course_cfg.id)
+        removed = auth.delete_pdf_password(
+            course_cfg.id, base_url=cfg.base_url, username=cfg.username
+        )
     except auth.AuthError as exc:
         raise fail(str(exc), 3) from None
     console.print("PDF password removed." if removed else "No PDF password was stored.")
@@ -225,7 +228,11 @@ def pdf_password_remove(
 def pdf_password_list(config: ConfigOpt = None) -> None:
     """Courses with a stored PDF password."""
     cfg = load_config(config)
-    names = [c.name or c.id for c in cfg.courses.values() if auth.get_pdf_password(c.id)]
+    names = [
+        c.name or c.id
+        for c in cfg.courses.values()
+        if auth.get_pdf_password(c.id, base_url=cfg.base_url, username=cfg.username)
+    ]
     if OPTS.json:
         emit_json(names)
         return

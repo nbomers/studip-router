@@ -233,6 +233,14 @@ class State:
         )
         self._db.commit()
 
+    def checkpoint_run(self, run_id: int, summary: dict) -> None:
+        """Persist partial recovery progress without marking the attempt finished."""
+        self._db.execute(
+            "UPDATE runs SET summary = ? WHERE run_id = ?",
+            (json.dumps(summary, ensure_ascii=False), run_id),
+        )
+        self._db.commit()
+
     def journal(self, run_id: int, op: str, dst: str, src: str | None = None) -> None:
         seq = self._db.execute(
             "SELECT COALESCE(MAX(seq), 0) + 1 FROM journal WHERE run_id = ?", (run_id,)

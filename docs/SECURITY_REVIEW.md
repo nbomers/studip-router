@@ -10,7 +10,7 @@ coverage. Real university accounts and production servers were not used.
 
 | Boundary | Original trigger | Change and evidence |
 |---|---|---|
-| No overwrite when moving | `os.link` fails; a user destination appears before fallback `os.rename`. | Remove the unsafe fallback; retain source on unsupported filesystems. Follow-up tests also preserve dangling destination symlinks. Original reproduction now raises without replacing either file. Existing successful move, sync, version and undo tests remain. |
+| No overwrite when moving | `os.link` fails; a user destination appears before fallback `os.rename`. | Replace the unsafe fallback with native exclusive rename; retain source if unsupported. Follow-up tests also preserve dangling destination symlinks. Original reproduction now raises without replacing either file. Existing successful move, sync, version and undo tests remain. |
 | PDF merge ownership | Output created/edited during serialization, or after the initial ownership check during input inspection. | Capture existence and authorized digest once; new outputs use no-clobber publication, existing outputs recheck against that same digest. Four race regressions preserve user bytes. Normal first/update merge tests remain. |
 | PDF unlocking | Local encrypted file edited during PDF generation. | Compare against the original input digest before publication. Normal encrypted, unencrypted, wrong-password and malformed-PDF tests remain. |
 | API response resources | Oversized/deep JSON or an interrupted streamed body. | Limit decompressed JSON to 16 MiB, close responses on all outcomes, retry interrupted reads, convert exhausted failures to `ApiError`. Tests cover early stop, eventual success and exhausted retries. |
@@ -73,9 +73,14 @@ runtime export audit; future advisories can change this result.
   same-account directory substitution is not fully prevented. Document viewers,
   user regexes and PDF parsers are not isolated in a resource-limited sandbox.
 
-Final local validation: **642 tests passed in 41.77 s**, Ruff lint/format, mypy
+Final local validation: **678 tests passed in 42.90 s**, Ruff lint/format, mypy
 (50 source files), whitespace checks and wheel/sdist build passed. The tests use
 fake/offline Stud.IP data and a null keyring. Isolated wheel smoke tests
 (`studip --version` and `studip rules --help`) also passed.
 
 See [the numbered status list](VERBESSERUNGSLISTE.md) for each item's result.
+
+PR integration: current main (`51452a5`) was merged before review. Its scoped
+PDF-password storage, OS-keyring restrictions, safe-by-default publication, ZIP
+limits/retries and undo checkpoints are preserved in the split workflow modules.
+The audit regression tests use the existing merge-result API for refused writes.

@@ -1,11 +1,10 @@
-"""Apply a plan. Never deletes; every write goes through ``atomic_writer``."""
+"""Apply a plan. Never deletes; every file reaches its folder through ``fsutil.publish``."""
 
 from __future__ import annotations
 
 import logging
 import os
 import time
-import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,7 +22,7 @@ from .fsutil import (
     sha256_file,
 )
 from .models import RemoteFile
-from .planner import Action, CoursePlan, Kind, is_locally_modified
+from .planner import UNZIP_RETRY, Action, CoursePlan, Kind, is_locally_modified
 from .postprocess import PostprocessError, Unlock, extract_zip, unlock_pdf
 from .state import FileRecord, State
 
@@ -116,7 +115,7 @@ def unlock_record(state: State, record: FileRecord, password: str, outcome: Outc
     st = local_stat(path)
     if st is None or st.dataless:
         return  # missing, or only in iCloud: never downloaded just for this
-    if is_locally_modified(record, st, path):
+    if is_locally_modified(record, st, path, thorough=True):
         return  # edited (e.g. annotated) since the sync: never rewritten
     try:
         result = unlock_pdf(path, password)
@@ -152,12 +151,18 @@ def _unzip(action: Action, state: State, run_id: int, outcome: Outcome) -> None:
     assert action.dest is not None
     st = local_stat(action.dest)
     if st is None or st.dataless:
+        if st is not None and action.kind is Kind.UNZIP and action.file is not None:
+            state.record_failure(action.file.id, UNZIP_RETRY + "archive only in iCloud")
         return  # never pull an archive out of iCloud just to extract it
     try:
         folder = extract_zip(action.dest)
-    except (PostprocessError, OSError, zipfile.BadZipFile) as exc:
+    except Exception as exc:  # encrypted, unsupported method, broken: this file only
         log.error("unzip failed for %s: %s", action.dest, exc)
         outcome.failed.append((action, f"unzip failed: {exc}"))
+        # A file system problem (disk full, permissions) passes: try again next sync.
+        # A broken or encrypted archive stays as it is until it changes on Stud.IP.
+        if isinstance(exc, OSError) and action.file is not None:
+            state.record_failure(action.file.id, UNZIP_RETRY + str(exc))
         return
     if folder is not None:
         state.journal(run_id, "unzip", str(folder), src=str(action.dest))
@@ -184,6 +189,8 @@ def _apply(
         raise OSError(problem)
     if course_dir is not None and not action.dest.resolve().is_relative_to(course_dir.resolve()):
         raise OSError("Target escapes the configured course folder (check symlinks).")
+    if action.kind is Kind.UNZIP:
+        return  # the archive is unchanged; execute() extracts it afterwards
     if action.kind is Kind.MKDIR:
         action.dest.mkdir(parents=True, exist_ok=True)
         state.journal(run_id, "mkdir", str(action.dest))
@@ -251,20 +258,13 @@ def _apply(
         and previous.sha256
         else None
     )
-    dest = action.dest
-    before_replace = (
-        (lambda: _check_unchanged(previous, dest))
-        if action.kind is Kind.OVERWRITE and previous is not None
-        else None
-    )
     sha, written = fetch_verified(
         file,
         action.dest,
         download,
         unless_sha=known,
-        before_replace=before_replace,
+        may_replace=_unchanged_since(previous) if action.kind is Kind.OVERWRITE else None,
         max_bytes=max_bytes,
-        no_clobber=action.kind is not Kind.OVERWRITE,
     )
     if not written:
         assert previous is not None
@@ -308,10 +308,21 @@ def _save(
         state.delete_file_record(previous.file_id)
 
 
+def _unchanged_since(previous: FileRecord | None) -> Callable[[Path], bool]:
+    """For ``publish``: replace the local copy only if it is still what we wrote."""
+
+    def check(path: Path) -> bool:
+        assert previous is not None
+        _check_unchanged(previous, path)  # raises LocalChangeError with the reason
+        return True
+
+    return check
+
+
 def _check_unchanged(previous: FileRecord, path: Path) -> None:
     """Raise if the local copy was edited since we wrote it (checked at run time)."""
     st = local_stat(path)
-    if st is not None and is_locally_modified(previous, st, path):
+    if st is not None and is_locally_modified(previous, st, path, thorough=True):
         raise LocalChangeError(
             f"{path.name} was changed locally since the preview; not overwritten "
             "(the next sync keeps it and saves the new version next to it)"
@@ -386,9 +397,8 @@ def fetch_verified(
     download: Downloader,
     attempts: int = 3,
     unless_sha: str | None = None,
-    before_replace: Callable[[], None] | None = None,
+    may_replace: Callable[[Path], bool] | None = None,
     max_bytes: int | None = None,
-    no_clobber: bool = False,
 ) -> tuple[str, bool]:
     """Download into ``dest`` atomically; return (sha256, written).
 
@@ -397,23 +407,19 @@ def fetch_verified(
     same bytes, the file is accepted; a much shorter transfer is always an
     interrupted one, however often it happens.
     With ``unless_sha``, identical content is discarded instead of written.
-    ``before_replace`` runs right before ``dest`` is replaced and may raise to keep it.
     A transfer far bigger than announced, or bigger than ``max_bytes``, is stopped
     at once and not retried.
-    ``no_clobber`` refuses to replace a ``dest`` that appeared during the download.
+    An existing ``dest`` is only replaced if ``may_replace`` allows it (``publish``);
+    without it, a ``dest`` that appeared during the download is kept (FileExistsError).
     """
     mismatch: tuple[int, str] | None = None  # (size, sha256) of a complete-looking transfer
     for attempt in range(1, attempts + 1):
         try:
 
             def commit(sha: str) -> bool:
-                if unless_sha and sha == unless_sha:
-                    return False
-                if before_replace is not None:
-                    before_replace()
-                return True
+                return not (unless_sha and sha == unless_sha)
 
-            with atomic_writer(dest, commit, no_clobber=no_clobber) as (fh, digest):
+            with atomic_writer(dest, commit, may_replace=may_replace) as (fh, digest):
                 guard = _Guard(file, fh.write, size_limit(file, max_bytes))
                 download(file.id, guard.write)
                 if file.size > 0 and guard.size != file.size:

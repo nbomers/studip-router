@@ -19,7 +19,7 @@ from studip_router.executor import execute
 from studip_router.fsutil import move_no_clobber, path_problem
 from studip_router.models import CourseDate
 from studip_router.planner import plan_course
-from studip_router.postprocess import PostprocessError, merge_pdfs
+from studip_router.postprocess import merge_pdfs
 from studip_router.suggest import auto_route, file_category, folder_category, local_category_dirs
 
 
@@ -142,7 +142,7 @@ def test_failed_config_fsync_keeps_original(root, tmp_path, monkeypatch, error):
     def fail(_fd):
         raise OSError(error, "simulated storage failure")
 
-    monkeypatch.setattr(config_io.os, "fsync", fail)
+    monkeypatch.setattr(fsutil.os, "fsync", fail)
     with pytest.raises(OSError):
         config_edit.set_value(path, ("sync", "notify"), False)
     assert path.read_text() == text
@@ -202,8 +202,8 @@ def test_new_merge_does_not_replace_output_created_during_generation(tmp_path, m
         return result
 
     monkeypatch.setattr(PdfWriter, "write", racing_write)
-    with pytest.raises(FileExistsError):
-        merge_pdfs(source, output, previous_sha=None, previous_fingerprint=None)
+    result, _, _ = merge_pdfs(source, output, previous_sha=None, previous_fingerprint=None)
+    assert not result.written and "changed" in result.reason
     assert output.read_bytes() == b"user content"
     assert not list(source.glob("*.part"))
 
@@ -227,8 +227,8 @@ def test_existing_merge_keeps_edits_during_generation(tmp_path, monkeypatch):
         return result
 
     monkeypatch.setattr(PdfWriter, "write", racing_write)
-    with pytest.raises(PostprocessError, match="changed while merging"):
-        merge_pdfs(tmp_path, output, previous_sha=sha, previous_fingerprint="changed")
+    result, _, _ = merge_pdfs(tmp_path, output, previous_sha=sha, previous_fingerprint="changed")
+    assert not result.written and "changed" in result.reason
     assert output.read_bytes() == b"notes added during merge"
 
 
@@ -352,8 +352,8 @@ def test_merge_does_not_adopt_a_new_baseline_after_authorization(tmp_path, monke
         return result
 
     monkeypatch.setattr(postprocess, "local_stat", edit_during_input_scan)
-    with pytest.raises((PostprocessError, FileExistsError)):
-        merge_pdfs(tmp_path, output, previous_sha=sha, previous_fingerprint="changed")
+    result, _, _ = merge_pdfs(tmp_path, output, previous_sha=sha, previous_fingerprint="changed")
+    assert not result.written and "changed" in result.reason
     assert output.read_bytes() == b"user edit after authorization"
 
 

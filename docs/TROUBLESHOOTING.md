@@ -73,8 +73,8 @@ If the content was edited or no digest is available, inspect both paths and
 restore from your file backup. Semester changes retain old
 course files; a failure may leave newly created empty folders to remove by hand.
 
-Atomic no-overwrite moves require hard-link support on the destination
-filesystem. On a filesystem without it, the operation fails safely and keeps the
+Atomic no-overwrite moves use hard links or a native exclusive rename.
+If neither operation is supported, the operation fails safely and keeps the
 source. Move the course to a supported local filesystem instead of disabling
 collision protection. Network/cloud filesystems can also have weaker durability
 or delayed visibility; keep independent backups of your annotations.

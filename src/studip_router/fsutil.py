@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import html
 import os
@@ -235,17 +237,44 @@ def cleanup_stale_parts(directory: Path, older_than: float = 24 * 3600) -> list[
     return removed
 
 
+class ReplaceRefused(FileExistsError):
+    """``may_replace`` said no: the existing file changed and is kept."""
+
+
+def publish(tmp: Path, dest: Path, may_replace: Callable[[Path], bool] | None = None) -> None:
+    """Move a finished temp file to ``dest``: the one way files reach the user's folders.
+
+    Without ``may_replace`` an existing ``dest`` is never replaced (FileExistsError),
+    also one that appears at the last moment. With it, an existing ``dest`` is replaced
+    only if ``may_replace(dest)`` - called right before the replace - returns True
+    (else ReplaceRefused); it may also raise to explain why.
+    """
+    if may_replace is None or not os.path.lexists(dest):
+        move_no_clobber(tmp, dest)
+        return
+    if not may_replace(dest):
+        raise ReplaceRefused(f"{dest.name} changed meanwhile; kept, not replaced")
+    os.replace(tmp, dest)
+    fsync_dir(dest.parent)
+
+
 @contextmanager
 def atomic_writer(
-    dest: Path, commit: Callable[[str], bool] | None = None, *, no_clobber: bool = False
+    dest: Path,
+    commit: Callable[[str], bool] | None = None,
+    *,
+    may_replace: Callable[[Path], bool] | None = None,
+    mode: int = 0o666,
 ) -> Iterator[tuple[BinaryIO, Callable[[], str]]]:
-    """Write to a temp file; on success fsync and atomically replace ``dest``.
+    """Write to a temp file; on success fsync and move it to ``dest`` with ``publish``.
 
     Yields the open file and a function returning the sha256 of what was written.
-    ``commit(sha)`` returning False discards the result instead of replacing
-    ``dest``. On any exception (including KeyboardInterrupt) the temp file is
-    removed. ``no_clobber`` never replaces a ``dest`` that appeared meanwhile (for
-    example a file the user saved during a long download): FileExistsError instead.
+    ``commit(sha)`` returning False discards the result. On any exception (including
+    KeyboardInterrupt) the temp file is removed.
+
+    Safe by default: an existing ``dest`` is never replaced (FileExistsError), also
+    one the user saved during a long download. To replace a file on purpose, pass
+    ``may_replace``, which checks it right before the replace (see ``publish``).
     """
     tmp = part_path(dest)
     digest = hashlib.sha256()
@@ -258,7 +287,8 @@ def atomic_writer(
             digest.update(data)
             return self._fh.write(data)
 
-    fh = tmp.open("wb")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    fh = os.fdopen(fd, "wb")
     try:
         yield _Hashing(fh), digest.hexdigest  # type: ignore[misc]
         fh.flush()
@@ -267,11 +297,7 @@ def atomic_writer(
         if commit is not None and not commit(digest.hexdigest()):
             tmp.unlink(missing_ok=True)
             return
-        if no_clobber:
-            move_no_clobber(tmp, dest)
-        else:
-            os.replace(tmp, dest)
-            fsync_dir(dest.parent)
+        publish(tmp, dest, may_replace)
     except BaseException:
         fh.close()
         tmp.unlink(missing_ok=True)
@@ -296,14 +322,53 @@ def fsync_dir(directory: Path) -> None:
 
 def move_no_clobber(src: Path, dst: Path) -> None:
     """Rename without ever replacing an existing file (link+unlink is atomic on POSIX)."""
-    # link is the publication primitive: EEXIST also covers dangling symlinks.
-    # A check followed by rename can replace a concurrently created user file.
-    # Filesystems without hard links fail safely, keeping the source intact.
-    os.link(src, dst)
-    os.unlink(src)
+    if dst.exists():
+        raise FileExistsError(f"{dst} exists")
+    try:
+        os.link(src, dst)  # fails if dst exists
+    except FileExistsError:
+        raise
+    except OSError:
+        # Some filesystems cannot hard-link. Never fall back to replacing rename.
+        rename_no_replace(src, dst)
+    else:
+        os.unlink(src)
     fsync_dir(dst.parent)  # the rename survives a power loss
     if src.parent != dst.parent:
         fsync_dir(src.parent)
+
+
+def rename_no_replace(src: Path, dst: Path) -> None:
+    """Atomically rename without replacing files, symlinks or directories.
+
+    Fail closed if the platform/filesystem lacks an exclusive rename operation.
+    A cross-device move also fails, leaving the source untouched.
+    """
+    if sys.platform == "win32":
+        os.rename(src, dst)  # Windows rename fails when dst exists
+        return
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+        operation = libc.renameat2
+        operation.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        operation.restype = ctypes.c_int
+        result = operation(-100, os.fsencode(src), -100, os.fsencode(dst), 1)  # RENAME_NOREPLACE
+    elif sys.platform == "darwin" and hasattr(libc, "renamex_np"):
+        operation = libc.renamex_np
+        operation.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        operation.restype = ctypes.c_int
+        result = operation(os.fsencode(src), os.fsencode(dst), 4)  # RENAME_EXCL
+    else:
+        raise OSError(errno.ENOTSUP, "atomic rename without replacing is unavailable", str(dst))
+    if result != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(dst))
 
 
 class Locked(Exception):

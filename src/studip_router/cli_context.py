@@ -22,6 +22,7 @@ app = typer.Typer(
     invoke_without_command=True,
     help="Sync Stud.IP course files into your own folders, with routing and renaming rules.",
     rich_markup_mode="rich",
+    pretty_exceptions_show_locals=False,
 )
 
 auth_app = typer.Typer(no_args_is_help=True, help="Manage the stored password.")

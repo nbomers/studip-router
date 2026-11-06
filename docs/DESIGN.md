@@ -107,6 +107,14 @@ cli.py / tui/   ──► sync.py ──► planner.py ──► executor.py ─
 - *Update check* (opt-in, `[ui] update_check`): once a week a GET of
   `pypi.org/pypi/studip-router/json`, cached in `version-check.json`; never from
   the background sync. The only host besides Stud.IP the tool ever contacts.
+- *Writes*: every file reaches the course folders through `fsutil.publish`
+  (downloads, merged PDFs, unlocked PDFs, moves): an existing file is never replaced
+  unless the caller passes `may_replace`, a check run right before the replace
+  (overwrite: unchanged since we wrote it; merge and unlock: same hash as before).
+  Without hard links, the name is claimed with `O_EXCL` before the rename.
+- *Unzip retries*: a failure from the file system (`OSError`) is stored with the
+  prefix `unzip failed, retrying:`; the planner then plans `unzip` for the unchanged
+  archive (back-off as for downloads). Broken or encrypted archives are not retried.
 - *Concurrency*: one `flock` per profile around every writing run; temp files
   are `name.<random>.part`, stale ones are removed after 24 h.
 - *Background*: a 401 writes `<profile>.auth-paused`; scheduled runs stop until

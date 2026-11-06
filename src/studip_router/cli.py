@@ -525,12 +525,16 @@ def sync_cmd(
                     "partial files were left. Run sync again to continue."
                 )
                 raise typer.Exit(130) from None
-        news_count = _news_after_sync(client, cfg, state, sync_plan) if not dry_run else 0
-        date_changes = (
-            check_dates(client, state, _plan_courses(sync_plan))
-            if cfg.watch_dates and not dry_run
-            else []
-        )
+        try:
+            news_count = _news_after_sync(client, cfg, state, sync_plan) if not dry_run else 0
+            date_changes = (
+                check_dates(client, state, _plan_courses(sync_plan))
+                if cfg.watch_dates and not dry_run
+                else []
+            )
+        except AuthFailed as exc:
+            _pause_auto_sync(background)
+            raise fail(f"{exc}; auto-sync is paused until `studip auth login`", 3) from None
         sync_plan.warnings += [w for w in client.warnings if w not in sync_plan.warnings]
         to_move = len(pending_moves(cfg, state)) if not dry_run else 0
 
@@ -605,6 +609,8 @@ def _news_after_sync(client: StudipClient, cfg: Config, state: State, sync_plan)
             for p in sync_plan.plans
             for n in fetch_news(client, p.course.id, p.course.name or p.course.target)
         ]
+    except AuthFailed:
+        raise
     except ApiError:
         return 0
     return len(unread(state, items))

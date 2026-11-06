@@ -135,10 +135,14 @@ def test_config_set(setup: Path) -> None:
 
 def test_pdf_password_set_list_remove(setup: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stored: dict[str, str] = {}
-    monkeypatch.setattr("studip_router.auth.set_pdf_password", stored.__setitem__)
-    monkeypatch.setattr("studip_router.auth.get_pdf_password", stored.get)
     monkeypatch.setattr(
-        "studip_router.auth.delete_pdf_password", lambda cid: stored.pop(cid, None) is not None
+        "studip_router.auth.set_pdf_password",
+        lambda cid, password, **kw: stored.__setitem__(cid, password),
+    )
+    monkeypatch.setattr("studip_router.auth.get_pdf_password", lambda cid, **kw: stored.get(cid))
+    monkeypatch.setattr(
+        "studip_router.auth.delete_pdf_password",
+        lambda cid, **kw: stored.pop(cid, None) is not None,
     )
     monkeypatch.setattr("getpass.getpass", lambda prompt: "course-pw")
 

@@ -33,7 +33,9 @@ Only the latest release (and `main`) gets fixes. Update with
 - A rejected login is not repeated: one attempt per run, and background sync pauses
   until `studip auth login`.
 - Archives are extracted with path checks (no ZIP slip, no absolute paths or drive
-  letters), file names made safe, and size, entry-count and compression-ratio limits.
+  letters), file names made safe, and limits on size, entry count (folders included),
+  nesting depth and compression ratio. An archive that cannot be extracted fails
+  only itself, never the rest of the sync.
 - The state database and log are readable only by the user.
 - Text from Stud.IP (titles, file names, announcements) is never interpreted as
   terminal markup or links; downloads are stopped when far bigger than announced or
@@ -45,6 +47,12 @@ Only the latest release (and `main`) gets fixes. Update with
   settings), the UI and `studip status` ask `pypi.org` once a week for the newest
   version; the request carries no data but the User-Agent `studip-router/<version>`.
   The background sync never makes it.
+
+## Dependencies
+
+The locked dependencies are checked with `pip-audit` every week and on every change
+to them (`.github/workflows/audit.yml`); Dependabot proposes updates of the
+Python packages and GitHub Actions once a month.
 
 ## In scope
 
@@ -62,8 +70,8 @@ trusted. Existing symlink targets outside a course are rejected before a sync
 write; this does not constitute protection against an attacker who can replace
 parent directories concurrently using the same local account.
 
-New files use atomic no-overwrite publication. A filesystem without hard links
-fails safely instead of using a rename that could replace a concurrent file.
+New files use atomic no-overwrite publication. If hard links are unavailable, a native exclusive rename is used; unsupported
+filesystems fail safely instead of using a replacing rename.
 Updates to existing owned files check for local changes again before replacement;
 external editors do not participate in the tool's lock, so a final local
 check/replace race remains. Keep independent backups of annotations. Config writes
