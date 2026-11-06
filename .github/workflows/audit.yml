@@ -1,0 +1,29 @@
+name: Audit
+
+# Known vulnerabilities in the dependencies users install (uv.lock without dev tools).
+# Weekly, by hand, and on changes to the dependencies - not on every pull request, so
+# an advisory published today does not turn unrelated pull requests red.
+on:
+  schedule:
+    - cron: "17 5 * * 1"  # Mondays, 05:17 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [uv.lock, pyproject.toml]
+  pull_request:
+    paths: [uv.lock, pyproject.toml]
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv export --locked --no-dev --no-emit-project --format requirements-txt -o requirements.txt
+      # --disable-pip: audit exactly the hashed versions from the lock file, no resolving
+      - run: uvx pip-audit@2.9.0 --disable-pip --require-hashes -r requirements.txt --progress-spinner off

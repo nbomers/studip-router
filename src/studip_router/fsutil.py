@@ -213,17 +213,43 @@ def cleanup_stale_parts(directory: Path, older_than: float = 24 * 3600) -> list[
     return removed
 
 
+class ReplaceRefused(FileExistsError):
+    """``may_replace`` said no: the existing file changed and is kept."""
+
+
+def publish(tmp: Path, dest: Path, may_replace: Callable[[Path], bool] | None = None) -> None:
+    """Move a finished temp file to ``dest``: the one way files reach the user's folders.
+
+    Without ``may_replace`` an existing ``dest`` is never replaced (FileExistsError),
+    also one that appears at the last moment. With it, an existing ``dest`` is replaced
+    only if ``may_replace(dest)`` - called right before the replace - returns True
+    (else ReplaceRefused); it may also raise to explain why.
+    """
+    if may_replace is None or not os.path.lexists(dest):
+        move_no_clobber(tmp, dest)
+        return
+    if not may_replace(dest):
+        raise ReplaceRefused(f"{dest.name} changed meanwhile; kept, not replaced")
+    os.replace(tmp, dest)
+    fsync_dir(dest.parent)
+
+
 @contextmanager
 def atomic_writer(
-    dest: Path, commit: Callable[[str], bool] | None = None, *, no_clobber: bool = False
+    dest: Path,
+    commit: Callable[[str], bool] | None = None,
+    *,
+    may_replace: Callable[[Path], bool] | None = None,
 ) -> Iterator[tuple[BinaryIO, Callable[[], str]]]:
-    """Write to a temp file; on success fsync and atomically replace ``dest``.
+    """Write to a temp file; on success fsync and move it to ``dest`` with ``publish``.
 
     Yields the open file and a function returning the sha256 of what was written.
-    ``commit(sha)`` returning False discards the result instead of replacing
-    ``dest``. On any exception (including KeyboardInterrupt) the temp file is
-    removed. ``no_clobber`` never replaces a ``dest`` that appeared meanwhile (for
-    example a file the user saved during a long download): FileExistsError instead.
+    ``commit(sha)`` returning False discards the result. On any exception (including
+    KeyboardInterrupt) the temp file is removed.
+
+    Safe by default: an existing ``dest`` is never replaced (FileExistsError), also
+    one the user saved during a long download. To replace a file on purpose, pass
+    ``may_replace``, which checks it right before the replace (see ``publish``).
     """
     tmp = part_path(dest)
     digest = hashlib.sha256()
@@ -245,11 +271,7 @@ def atomic_writer(
         if commit is not None and not commit(digest.hexdigest()):
             tmp.unlink(missing_ok=True)
             return
-        if no_clobber:
-            move_no_clobber(tmp, dest)
-        else:
-            os.replace(tmp, dest)
-            fsync_dir(dest.parent)
+        publish(tmp, dest, may_replace)
     except BaseException:
         fh.close()
         tmp.unlink(missing_ok=True)
@@ -278,11 +300,23 @@ def move_no_clobber(src: Path, dst: Path) -> None:
         raise FileExistsError(f"{dst} exists")
     try:
         os.link(src, dst)  # fails if dst exists
+    except FileExistsError:
+        raise
     except OSError:
-        # cross-device or filesystem without hard links: check-then-rename
-        if dst.exists():
+        # No hard links here (exFAT, some network shares). Checking and then renaming
+        # would replace a file created in between, so first claim the name with an
+        # exclusive create: from then on only our own empty placeholder can be replaced.
+        try:
+            fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            raise FileExistsError(f"{dst} exists") from None
+        os.close(fd)
+        try:
+            os.replace(src, dst)
+        except BaseException:
+            with suppress(OSError):
+                dst.unlink()  # our placeholder, still empty
             raise
-        os.rename(src, dst)
     else:
         os.unlink(src)
     fsync_dir(dst.parent)  # the rename survives a power loss
