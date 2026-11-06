@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import getpass
-import json
 import logging
 import shutil
 import subprocess
 import sys
 import tomllib
-from dataclasses import asdict, is_dataclass
-from datetime import date, datetime, timedelta
-from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -21,22 +17,39 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
-from . import __version__, auth, doctor, new_version, paths, report, schedule
+from . import __version__, auth, new_version, paths, report
+from . import cli_accounts as cli_accounts  # register commands
+from . import cli_rules as cli_rules  # register commands
+from . import cli_services as cli_services  # register commands
 from .api import ApiError, AuthFailed, StudipClient
-from .config import DEFAULT_COURSE_FOLDERS, Config, ConfigError, CourseConfig, load, unsafe_folder
+from .cli_context import OPTS as OPTS
+from .cli_context import ConfigOpt as ConfigOpt
+from .cli_context import CourseOpt as CourseOpt
+from .cli_context import _jsonable as _jsonable
+from .cli_context import app as app
+from .cli_context import auth_app as auth_app
+from .cli_context import config_app as config_app
+from .cli_context import console as console
+from .cli_context import emit_json as emit_json
+from .cli_context import err as err
+from .cli_context import fail as fail
+from .cli_context import find_course as find_course
+from .cli_context import ignore_app as ignore_app
+from .cli_context import load_config as load_config
+from .cli_context import open_client as open_client
+from .cli_context import pdf_app as pdf_app
+from .cli_context import rules_app as rules_app
+from .cli_context import schedule_app as schedule_app
+from .config import DEFAULT_COURSE_FOLDERS, Config, ConfigError, load, unsafe_folder
 from .config import parse as parse_config
-from .dates import check_dates, upcoming_exams
-from .executor import unlock_course
-from .fsutil import Locked, exclusive_lock
-from .models import RemoteFile
+from .dates import check_dates
+from .fsutil import Locked
 from .news import fetch_news, unread
 from .notify import dates_message, notify, sync_message
-from .planner import Kind, build_router
-from .rename import RenameError
+from .planner import Kind
 from .reorganize import apply_reorganize, apply_undo, pending_moves, plan_reorganize, plan_undo
 from .report import esc
 from .state import State, StateError
-from .suggest import suggest_rules
 from .sync import (
     CourseStatus,
     build_plan,
@@ -45,7 +58,6 @@ from .sync import (
     resolve_semester,
     run_merges,
 )
-from .tomlwrite import append_blocks, rule_block
 from .wizard import (
     CourseChoice,
     course_folder_name,
@@ -61,107 +73,7 @@ from .wizard import (
     render_config,
 )
 
-app = typer.Typer(
-    add_completion=False,
-    invoke_without_command=True,
-    help="Sync Stud.IP course files into your own folders, with routing and renaming rules.",
-    rich_markup_mode="rich",
-    pretty_exceptions_show_locals=False,
-)
-auth_app = typer.Typer(no_args_is_help=True, help="Manage the stored password.")
-config_app = typer.Typer(no_args_is_help=True, help="Inspect and edit the configuration.")
-rules_app = typer.Typer(no_args_is_help=True, help="Inspect, test and suggest routing rules.")
-schedule_app = typer.Typer(no_args_is_help=True, help="Opt-in background sync.")
-app.add_typer(auth_app, name="auth")
-app.add_typer(config_app, name="config")
-app.add_typer(rules_app, name="rules")
-app.add_typer(schedule_app, name="schedule")
-ignore_app = typer.Typer(
-    no_args_is_help=True,
-    help="Files you never want (otherwise deleted files come back with the next sync).",
-)
-app.add_typer(ignore_app, name="ignore")
-pdf_app = typer.Typer(
-    no_args_is_help=True,
-    help="Unlock a course's password-protected PDFs (one shared password per course).",
-)
-app.add_typer(pdf_app, name="pdf-password")
-
-console = Console(highlight=False)
-err = Console(stderr=True, highlight=False)
-
-
-class _Opts:
-    json = False
-    quiet = False
-
-
-OPTS = _Opts()
-
-ConfigOpt = Annotated[Path | None, typer.Option("--config", "-c", help="Use this config file.")]
-CourseOpt = Annotated[
-    str | None, typer.Option("--course", help="Course ID, title or target (substring).")
-]
-
-
 # -- helpers ----------------------------------------------------------------------------
-
-
-def _jsonable(obj: Any) -> Any:
-    if is_dataclass(obj) and not isinstance(obj, type):
-        return {k: _jsonable(v) for k, v in asdict(obj).items()}
-    if isinstance(obj, dict):
-        return {str(k): _jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple, set)):
-        return [_jsonable(v) for v in obj]
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    if isinstance(obj, (Path, Enum)):
-        return str(obj.value if isinstance(obj, Enum) else obj)
-    return obj
-
-
-def emit_json(obj: Any) -> None:
-    print(json.dumps(_jsonable(obj), ensure_ascii=False, indent=2, default=str))
-
-
-def fail(message: str, code: int = 1) -> typer.Exit:
-    if OPTS.json:
-        emit_json({"error": message})
-    else:
-        err.print(f"[red]Error:[/red] {esc(message)}")
-    return typer.Exit(code)
-
-
-def load_config(path: Path | None = None) -> Config:
-    try:
-        return load(path or paths.config_file())
-    except ConfigError as exc:
-        raise fail(f"invalid config {exc}", 2) from None
-
-
-def open_client(cfg: Config) -> StudipClient:
-    try:
-        password = auth.get_password(cfg.base_url, cfg.username)
-    except auth.AuthError as exc:
-        raise fail(str(exc), 3) from None
-    return StudipClient(cfg.base_url, cfg.username, password)
-
-
-def find_course(cfg: Config, query: str) -> CourseConfig:
-    q = query.casefold()
-    if query in cfg.courses:
-        return cfg.courses[query]
-    hits = [
-        c
-        for c in cfg.courses.values()
-        if c.id.startswith(query) or q in c.name.casefold() or q in c.target.casefold()
-    ]
-    if len(hits) == 1:
-        return hits[0]
-    if not hits:
-        raise fail(f"no configured course matches {query!r}")
-    raise fail(f"{query!r} is ambiguous: " + ", ".join(c.name or c.id for c in hits))
 
 
 @app.callback()
@@ -194,150 +106,7 @@ def main_callback(
 # -- auth -------------------------------------------------------------------------------
 
 
-@auth_app.command("login")
-def auth_login(config: ConfigOpt = None) -> None:
-    """Ask for the password, verify it, store it in the OS keychain."""
-    cfg = load_config(config)
-    password = getpass.getpass(f"Password for {cfg.username} at {cfg.base_url}: ")
-    try:
-        with StudipClient(cfg.base_url, cfg.username, password) as client:
-            me = client.me()
-    except AuthFailed as exc:
-        raise fail(f"{exc} - nothing was stored", 3) from None
-    except ApiError as exc:
-        raise fail(str(exc)) from None
-    try:
-        auth.set_password(cfg.base_url, cfg.username, password)
-    except auth.AuthError as exc:
-        raise fail(f"{exc} - nothing was stored", 3) from None
-    paths.auth_pause_file().unlink(missing_ok=True)  # resume auto-sync
-    console.print(
-        f"[green]✓[/green] Logged in as {esc(me['name'] or cfg.username)}; "
-        "password stored in the keychain."
-    )
-
-
-@auth_app.command("status")
-def auth_status(config: ConfigOpt = None) -> None:
-    """Check whether a password is stored and works."""
-    cfg = load_config(config)
-    if not auth.has_password(cfg.base_url, cfg.username):
-        raise fail("no password stored; run `studip auth login`", 3)
-    try:
-        with open_client(cfg) as client:
-            client.me()
-    except ApiError as exc:
-        raise fail(f"stored password does not work: {exc}", 3) from None
-    console.print("[green]✓[/green] Stored password works.")
-
-
-@auth_app.command("logout")
-def auth_logout(config: ConfigOpt = None) -> None:
-    """Remove the stored password from the keychain."""
-    cfg = load_config(config)
-    try:
-        removed = auth.delete_password(cfg.base_url, cfg.username)
-    except auth.AuthError as exc:
-        raise fail(str(exc), 3) from None
-    console.print("Password removed." if removed else "No password was stored.")
-
-
 # -- config -----------------------------------------------------------------------------
-
-
-@config_app.command("path")
-def config_path() -> None:
-    """Print the config file location."""
-    print(paths.config_file())
-
-
-@config_app.command("validate")
-def config_validate(config: ConfigOpt = None) -> None:
-    """Validate the config file."""
-    cfg = load_config(config)
-    active = sum(1 for c in cfg.courses.values() if not c.exclude)
-    rules = sum(len(c.rules) for c in cfg.courses.values())
-    if OPTS.json:
-        emit_json({"path": cfg.path, "active": active, "rules": rules, "valid": True})
-        return
-    console.print(
-        f"[green]✓[/green] {esc(cfg.path)}: {esc(active)} active, "
-        f"{len(cfg.courses) - active} excluded courses, {rules} rules"
-    )
-
-
-@config_app.command("set")
-def config_set(
-    key: Annotated[str, typer.Argument(help="Dotted key, e.g. sync.on_update")],
-    value: Annotated[str, typer.Argument(help='TOML value: skip, true, 200, "text"')],
-) -> None:
-    """Change one setting in place (comments are kept; the result is validated)."""
-
-    from .config_edit import set_value
-
-    try:
-        parsed = tomllib.loads(f"v = {value}")["v"]
-    except tomllib.TOMLDecodeError:
-        parsed = value  # bare words are strings: `studip config set sync.on_update skip`
-    try:
-        set_value(paths.config_file(), tuple(key.split(".")), parsed)
-    except ConfigError as exc:
-        raise fail(f"not changed: {'; '.join(exc.problems)}", 2) from None
-    console.print(f"[green]✓[/green] {esc(key)} = {esc(repr(parsed))}")
-
-
-@config_app.command("remove-course")
-def config_remove_course(
-    course: Annotated[str, typer.Argument(help="Course id, folder or name from the config.")],
-    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask.")] = False,
-) -> None:
-    """Remove a course and its rules from the config (e.g. one you left on Stud.IP).
-
-    Files already synced stay where they are.
-    """
-    from .config_edit import remove_course
-
-    cfg = load_config(None)
-    wanted = course.casefold()
-    found = [
-        c
-        for c in cfg.courses.values()
-        if wanted in (c.id.casefold(), (c.target or "").casefold(), (c.name or "").casefold())
-    ]
-    if len(found) != 1:
-        problem = "not in the config" if not found else "matches several courses; use the id"
-        raise fail(f"{course!r} {problem} (see `studip courses`)", 2)
-    target = found[0]
-    label = target.name or target.target or target.id
-    rules = len(target.rules)
-    if not yes and not Confirm.ask(
-        f"Remove {esc(label)} from the config"
-        + (f" with its {rules} rule(s)" if rules else "")
-        + "? Files already synced stay",
-        default=False,
-    ):
-        raise typer.Exit(1)
-    try:
-        remove_course(cfg.path, target.id)
-    except (ConfigError, OSError) as exc:
-        raise fail(f"not removed: {exc}") from None
-    if OPTS.json:
-        emit_json({"removed": target.id})
-        return
-    console.print(f"[green]✓[/green] removed {esc(label)} (backup: {esc(cfg.path)}.bak)")
-
-
-@config_app.command("edit")
-def config_edit() -> None:
-    """Open the config in $EDITOR and validate it afterwards."""
-    path = paths.config_file()
-    if not path.exists():
-        raise fail(f"{path} does not exist; run `studip init` first")
-    from .config_edit import open_in_editor
-
-    if problem := open_in_editor(path):
-        raise fail(problem)
-    config_validate(None)
 
 
 # -- init -------------------------------------------------------------------------------
@@ -917,161 +686,6 @@ def status_cmd(
 # -- rules ------------------------------------------------------------------------------
 
 
-@rules_app.command("list")
-def rules_list(
-    course: Annotated[str | None, typer.Argument()] = None, config: ConfigOpt = None
-) -> None:
-    """Show the rules of all (or one) course in evaluation order."""
-    cfg = load_config(config)
-    courses = (
-        [find_course(cfg, course)] if course else [c for c in cfg.courses.values() if not c.exclude]
-    )
-    if OPTS.json:
-        emit_json(
-            {
-                c.id: [
-                    {"id": r.id, "target": r.target, "rename": r.rename, "skip": r.skip}
-                    for r in c.rules
-                ]
-                for c in courses
-            }
-        )
-        return
-    for c in courses:
-        table = Table(title=esc(f"{c.name or c.id} → {c.target}"), title_justify="left")
-        for col in ("#", "id", "match", "target", "rename"):
-            table.add_column(col)
-        for i, r in enumerate(c.rules, 1):
-            m = r.match
-            parts = [
-                f"{k}={v}"
-                for k, v in (
-                    ("folder", m.folder),
-                    ("glob", m.name_glob),
-                    ("regex", m.name_regex.pattern if m.name_regex else None),
-                    ("ext", ",".join(m.ext) or None),
-                    ("mime", ",".join(m.mime) or None),
-                )
-                if v is not None
-            ]
-            table.add_row(
-                str(i),
-                Text(r.id),
-                Text(" ".join(parts) or "*"),
-                "[dim]skip[/dim]" if r.skip else Text(str(r.target)),
-                Text(r.rename or ""),
-            )
-        table.add_row("", "[dim]default[/dim]", "*", Text(cfg.course_default_target(c)), "")
-        console.print(table)
-
-
-@rules_app.command("test")
-def rules_test(
-    course: str,
-    filename: str,
-    folder: Annotated[str, typer.Option("--folder", "-f", help="Stud.IP folder path.")] = "",
-    size_mb: Annotated[float, typer.Option("--size", help="File size in MB.")] = 0.1,
-    mime: Annotated[
-        str, typer.Option("--mime", help="MIME type to test with (adds a missing extension).")
-    ] = "application/octet-stream",
-    config: ConfigOpt = None,
-) -> None:
-    """Show which rule a file would match and where it would end up (no download)."""
-    cfg = load_config(config)
-    c = find_course(cfg, course)
-    file = RemoteFile(
-        id="test",
-        course_id=c.id,
-        name=filename,
-        folder_path=folder,
-        size=int(size_mb * 1024 * 1024),
-        chdate=datetime.now().astimezone(),
-        mime_type=mime,
-        description="",
-        downloadable=True,
-    )
-    try:
-        route = build_router(cfg, c)(file)
-    except RenameError as exc:
-        raise fail(str(exc)) from None
-    dest = cfg.course_dir(c) / route.subdir / route.name
-    data = {
-        "rule": route.rule_id or "default",
-        "skip": route.skip,
-        "target": None if route.skip else str(dest),
-        "unzip": route.unzip,
-    }
-    if OPTS.json:
-        emit_json(data)
-    elif route.skip:
-        console.print(f"Rule [bold]{esc(route.rule_id)}[/bold]: [dim]skipped[/dim]")
-    else:
-        console.print(
-            f"Rule [bold]{esc(route.rule_id or 'default target')}[/bold]\n  → {esc(dest)}"
-        )
-
-
-@rules_app.command("suggest")
-def rules_suggest(
-    course: CourseOpt = None,
-    write: Annotated[
-        bool, typer.Option("--write", help="Append to the config (asks first).")
-    ] = False,
-    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask before writing.")] = False,
-    config: ConfigOpt = None,
-) -> None:
-    """Suggest rules from Stud.IP folder names and your existing subfolders."""
-    cfg = load_config(config)
-    targets = (
-        [find_course(cfg, course)] if course else [c for c in cfg.courses.values() if not c.exclude]
-    )
-    blocks: list[str] = []
-    found: dict[str, list] = {}
-    with open_client(cfg) as client:
-        for c in targets:
-            try:
-                files = client.files(c.id)
-            except AuthFailed as exc:  # do not repeat a rejected login for every course
-                raise fail(str(exc), 3) from None
-            except ApiError as exc:
-                why = "files closed to you, skipped" if exc.no_access else str(exc)
-                err.print(f"[yellow]{esc(c.name)}: {esc(why)}[/yellow]")
-                continue
-            existing = {r.id for r in c.rules}
-            known_folders = {r.match.folder for r in c.rules if r.match.folder}
-            suggestions = [
-                s
-                for s in suggest_rules(
-                    files, cfg.course_dir(c), existing, by_name=not cfg.auto_route
-                )
-                if s.rule["match"].get("folder") not in known_folders
-            ]
-            found[c.id] = suggestions
-            blocks += [
-                rule_block(c.id, s.rule, f"{c.name}: {s.reason} ({s.files} files)")
-                for s in suggestions
-            ]
-    if OPTS.json:
-        emit_json(
-            {
-                cid: [{"rule": s.rule, "reason": s.reason, "files": s.files} for s in ss]
-                for cid, ss in found.items()
-            }
-        )
-    else:
-        if not blocks:
-            console.print("No new suggestions.")
-            return
-        # plain print: rich would read "[[courses...]]" as markup
-        print("\n".join(blocks))
-    if write and blocks:
-        if not yes and not Confirm.ask(f"Append {len(blocks)} rule(s) to {esc(cfg.path)}?"):
-            raise typer.Exit()
-        backup = append_blocks(cfg.path, blocks, "rules suggested by `studip rules suggest`")
-        console.print(f"[green]✓[/green] Appended. Backup: {esc(backup)}")
-        load_config(cfg.path)
-
-
 # -- reorganize / undo ------------------------------------------------------------------
 
 
@@ -1267,308 +881,13 @@ def merge_cmd(
 # -- schedule ---------------------------------------------------------------------------
 
 
-@schedule_app.command("install")
-def schedule_install(
-    every: Annotated[int, typer.Option("--every", help="Interval in minutes.")] = 120,
-    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask before installing.")] = False,
-) -> None:
-    """Run `studip sync --notify` periodically (launchd on macOS, systemd on Linux)."""
-    if every < 15:
-        raise fail("please use an interval of at least 15 minutes")
-    exe = schedule.executable()
-    if warning := schedule.executable_warning(exe):
-        err.print(f"[yellow]Warning:[/yellow] {esc(warning)}")
-    if not yes and not Confirm.ask(
-        f"Install a background job running `{exe} sync` every {every} minutes?"
-    ):
-        raise typer.Exit()
-    try:
-        where = schedule.install(every, paths.profile())
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise fail(f"could not install: {exc}") from None
-    console.print(
-        f"[green]✓[/green] Installed ({esc(where)}). Remove with `studip schedule uninstall`."
-    )
-
-
-@schedule_app.command("run-now")
-def schedule_run_now() -> None:
-    """Start the background job once now (to check keychain access and notifications)."""
-    try:
-        ok = schedule.run_now(paths.profile())
-    except OSError as exc:
-        raise fail(str(exc)) from None
-    if not ok:
-        raise fail("no background job installed; `studip schedule install` first")
-    console.print(
-        "Started. Watch for a notification; the log is "
-        f"{paths.state_dir() / 'scheduler.log'}.\n"
-        "If macOS asks for keychain access, choose [b]Always Allow[/b] - "
-        "otherwise the background sync cannot read your password."
-    )
-
-
-@schedule_app.command("uninstall")
-def schedule_uninstall() -> None:
-    """Remove the background job."""
-    removed = schedule.uninstall(paths.profile())
-    console.print("Removed." if removed else "No background job installed.")
-
-
-@schedule_app.command("status")
-def schedule_status() -> None:
-    """Show whether the background job is installed."""
-    st = schedule.status(paths.profile())
-    if OPTS.json:
-        emit_json(st)
-        return
-    if not st.installed:
-        console.print("Not installed.")
-        return
-    every = f"every {st.interval_minutes} min, " if st.interval_minutes else ""
-    console.print(
-        f"Installed ({every}{esc('loaded' if st.loaded else 'not loaded')}): {esc(st.path)}"
-    )
-
-
 # -- doctor -----------------------------------------------------------------------------
-
-
-@app.command("doctor")
-def doctor_cmd(
-    offline: Annotated[bool, typer.Option("--offline", help="Do not contact Stud.IP.")] = False,
-    test_notification: Annotated[
-        bool, typer.Option("--test-notification", help="Send a test desktop notification.")
-    ] = False,
-) -> None:
-    """Check config, folders, keychain, server and scheduler."""
-    if test_notification:
-        shown = notify("studip-router", "Test notification - notifications work.")
-        console.print(
-            "Sent. If nothing appeared, allow notifications for 'Script Editor' "
-            "in System Settings > Notifications."
-            if shown
-            else "[yellow]No notification mechanism available.[/yellow]"
-        )
-    checks = list(doctor.run_checks(offline=offline))
-    if OPTS.json:
-        emit_json(checks)
-    else:
-        marks = {
-            "ok": "[green]✓[/green]",
-            "info": "[blue]i[/blue]",
-            "warn": "[yellow]![/yellow]",
-            "fail": "[red]✗[/red]",
-        }
-        for c in checks:
-            console.print(f"{marks[c.level]} [bold]{esc(c.name)}[/bold]: {esc(c.detail)}")
-    if any(c.level == "fail" for c in checks):
-        raise typer.Exit(1)
-
-
-@ignore_app.command("list")
-def ignore_list() -> None:
-    """Show ignored files."""
-    with State(paths.state_db()) as state:
-        rows = state.ignored()
-    if OPTS.json:
-        emit_json([dict(r) for r in rows])
-        return
-    if not rows:
-        console.print("No ignored files.")
-    for r in rows:
-        console.print(f"{esc(r['file_id'])}  {esc(r['name'])}  [dim]since {r['since'][:10]}[/dim]")
-
-
-@ignore_app.command("add")
-def ignore_add(
-    query: Annotated[str, typer.Argument(help="Stud.IP file id, or part of the file name.")],
-    config: ConfigOpt = None,
-) -> None:
-    """Never download this file again (it is not deleted locally)."""
-    cfg = load_config(config)
-    q = query.casefold()
-    with State(paths.state_db()) as state:
-        hits = [
-            (r.file_id, r.course_id, r.remote_name)
-            for r in state.all()
-            if r.file_id == query or q in r.remote_name.casefold()
-        ]
-        if not hits:
-            try:
-                with open_client(cfg) as client:
-                    for c in cfg.courses.values():
-                        if c.exclude:
-                            continue
-                        hits += [
-                            (f.id, c.id, f.name)
-                            for f in client.files(c.id)
-                            if f.id == query or q in f.name.casefold()
-                        ]
-            except ApiError as exc:  # stops at the first error, also a rejected login
-                raise fail(str(exc), 3 if isinstance(exc, AuthFailed) else 1) from None
-        if len(hits) != 1:
-            names = "\n  ".join(f"{fid}  {name}" for fid, _, name in hits[:20])
-            raise fail(
-                f"{len(hits)} files match {query!r}" + (f"; use the id:\n  {names}" if hits else "")
-            )
-        fid, cid, name = hits[0]
-        state.ignore(fid, cid, name)
-    console.print(f"[green]✓[/green] {esc(name)} will not be downloaded any more.")
-
-
-@ignore_app.command("remove")
-def ignore_remove(query: Annotated[str, typer.Argument(help="File id or name.")]) -> None:
-    """Download this file again from the next sync on."""
-    with State(paths.state_db()) as state:
-        hits = [
-            r
-            for r in state.ignored()
-            if r["file_id"] == query or query.casefold() in r["name"].casefold()
-        ]
-        if len(hits) != 1:
-            raise fail(f"{len(hits)} ignored files match {query!r}")
-        state.unignore(hits[0]["file_id"])
-    console.print(f"[green]✓[/green] {esc(hits[0]['name'])} is synced again.")
 
 
 # -- course dates -----------------------------------------------------------------------
 
 
-@app.command("dates")
-def dates_cmd(
-    config: ConfigOpt = None,
-    offline: Annotated[bool, typer.Option("--offline", help="Do not contact Stud.IP.")] = False,
-    days: Annotated[int, typer.Option("--days", help="Changes found in the last N days.")] = 14,
-    ics: Annotated[
-        Path | None,
-        typer.Option("--ics", help="Write all known course dates to this calendar file."),
-    ] = None,
-) -> None:
-    """Cancelled, moved or re-roomed course dates, and upcoming exams."""
-    cfg = load_config(config)
-    now = datetime.now().astimezone()
-    with State(paths.state_db()) as state:
-        first = not state.all_course_dates()
-        if not offline:
-            courses = [(c.id, c.name or c.target) for c in cfg.courses.values() if not c.exclude]
-            try:
-                with open_client(cfg) as client:
-                    check_dates(client, state, courses, now)
-            except ApiError as exc:
-                code = 3 if isinstance(exc, AuthFailed) else 1
-                raise fail(f"{exc} (use --offline for the saved dates)", code) from None
-        changes = [
-            r
-            for r in state.date_changes_since(now - timedelta(days=days))
-            if datetime.fromisoformat(r["start"]) >= now
-        ]
-        exams = upcoming_exams(state, now)
-        if ics is not None:
-            from .ics import to_ics
-
-            active = {c.id for c in cfg.courses.values() if not c.exclude}
-            target = ics.expanduser()
-            target.write_text(
-                to_ics(d for d in state.all_course_dates() if d.course_id in active),
-                encoding="utf-8",
-                newline="",
-            )
-            if not OPTS.json:
-                console.print(f"[green]✓[/green] Calendar written: {esc(target)}")
-    if OPTS.json:
-        emit_json(
-            {
-                "changes": [
-                    {k: r[k] for k in ("kind", "start", "text", "detected_at")} for r in changes
-                ],
-                "exams": [
-                    {"course": d.course, "start": d.start, "end": d.end, "location": d.location}
-                    for d in exams
-                ],
-            }
-        )
-        return
-    console.print(f"[bold]Changed dates[/bold] [dim](found in the last {days} days)[/dim]")
-    if first and not offline:
-        console.print("  [dim]Watching your courses from now on; changes show up here.[/dim]")
-    for r in changes:
-        console.print(f"  [yellow]●[/yellow] {esc(r['text'])}")
-    if not changes and not first:
-        console.print("  [dim]none[/dim]")
-    console.print("\n[bold]Exams[/bold]")
-    for d in exams:
-        until = (d.start.date() - now.date()).days
-        place = f" · {d.location}" if d.location else ""
-        cancelled = " [red]cancelled[/red]" if d.cancelled else ""
-        console.print(
-            f"  {esc(d.when())}  {esc(d.course)}{esc(place)}  [dim]in {until} days[/dim]{cancelled}"
-        )
-    if not exams:
-        console.print("  [dim]none in Stud.IP yet (dates with the category Klausur/Prüfung)[/dim]")
-
-
 # -- PDF passwords ----------------------------------------------------------------------
-
-
-@pdf_app.command("set")
-def pdf_password_set(
-    course: Annotated[str, typer.Argument(help="Course ID, title or target (substring).")],
-    config: ConfigOpt = None,
-) -> None:
-    """Store the course's PDF password and unlock the PDFs synced so far.
-
-    From then on every new PDF of the course that is locked with this password
-    is stored without it. PDFs that need another password stay as they are.
-    """
-    cfg = load_config(config)
-    course_cfg = find_course(cfg, course)
-    password = getpass.getpass(f"PDF password for {course_cfg.name or course_cfg.id}: ")
-    if not password:
-        raise fail("no password entered - nothing was stored")
-    try:
-        auth.set_pdf_password(course_cfg.id, password, base_url=cfg.base_url, username=cfg.username)
-    except auth.AuthError as exc:
-        raise fail(f"{exc} - nothing was stored", 3) from None
-    try:
-        with exclusive_lock(paths.lock_file()), State(paths.state_db()) as state:
-            outcome = unlock_course(state, course_cfg.id, password)
-    except Locked as exc:
-        raise fail(f"{exc}; the PDFs are unlocked with the next sync instead") from None
-    report.print_unlocked(console, outcome)
-    console.print("[green]✓[/green] Password stored in the keychain; new PDFs are unlocked.")
-
-
-@pdf_app.command("remove")
-def pdf_password_remove(
-    course: Annotated[str, typer.Argument(help="Course ID, title or target (substring).")],
-    config: ConfigOpt = None,
-) -> None:
-    """Forget the course's PDF password (files already unlocked stay unlocked)."""
-    cfg = load_config(config)
-    course_cfg = find_course(cfg, course)
-    try:
-        removed = auth.delete_pdf_password(
-            course_cfg.id, base_url=cfg.base_url, username=cfg.username
-        )
-    except auth.AuthError as exc:
-        raise fail(str(exc), 3) from None
-    console.print("PDF password removed." if removed else "No PDF password was stored.")
-
-
-@pdf_app.command("list")
-def pdf_password_list(config: ConfigOpt = None) -> None:
-    """Courses with a stored PDF password."""
-    cfg = load_config(config)
-    names = [
-        c.name or c.id
-        for c in cfg.courses.values()
-        if auth.get_pdf_password(c.id, base_url=cfg.base_url, username=cfg.username)
-    ]
-    if OPTS.json:
-        emit_json(names)
-        return
-    console.print("\n".join(names) if names else "No course has a PDF password.")
 
 
 @app.command("_complete", hidden=True)

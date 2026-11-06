@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -22,13 +23,16 @@ log = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 PAGE_LIMIT = 100
+MAX_JSON_BYTES = 16 * 1024 * 1024
 MAX_PAGES = 1000  # 100 000 records: far more than any course has
 _sleep = time.sleep  # replaced in tests
 RETRY_STATUS = {429, 500, 502, 503, 504}
 # C0 controls except \t \n \r, DEL and C1 controls (ESC, CSI, OSC, ...). Text from
 # Stud.IP is written by other people and must never drive the terminal. "\r" stays:
 # it is part of the macOS system file name "Icon\r", which is recognised and skipped.
-_TERMINAL_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_TERMINAL_CONTROL = re.compile(
+    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]"
+)
 
 
 def _clean(value: Any) -> Any:
@@ -73,7 +77,15 @@ def base_url_problem(url: str) -> str | None:
     Basic Auth sends the password with every request, so plain HTTP is only
     allowed for a Stud.IP running on this machine.
     """
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+        _ = parts.port  # reject malformed/out-of-range ports without an internal exception
+    except ValueError:
+        return "has an invalid hostname or port"
+    if parts.username is not None or parts.password is not None:
+        return "must not contain credentials; use the username field and OS keychain"
+    if parts.query or parts.fragment:
+        return "must not contain a query string or fragment"
     if parts.scheme == "https" and parts.hostname:
         return None
     if parts.scheme == "http" and parts.hostname in LOCAL_HOSTS:
@@ -157,6 +169,9 @@ class StudipClient:
 
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         """Send a request with retries; caller owns the response if streaming."""
+        target, origin = httpx.URL(url), httpx.URL(self.api_url)
+        if (target.scheme, target.host, target.port) != (origin.scheme, origin.host, origin.port):
+            raise ApiError("refused a direct API request outside the configured Stud.IP origin")
         stream = kwargs.pop("stream", False)
         for attempt in range(self._max_retries + 1):
             try:
@@ -179,8 +194,6 @@ class StudipClient:
                 response.close()
                 raise AuthFailed("authentication failed (HTTP 401): wrong username or password")
             if response.status_code >= 400:
-                if stream:
-                    response.read()
                 response.close()
                 raise ApiError(f"HTTP {response.status_code} for {url}", response.status_code)
             return response
@@ -199,18 +212,39 @@ class StudipClient:
 
     def _get_json(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         url = path if path.startswith("http") else self.api_url + path
-        response = self._request("GET", url, params=params)
+        for attempt in range(self._max_retries + 1):
+            response = self._request("GET", url, params=params, stream=True)
+            try:
+                return self._read_json(response, url)
+            except httpx.TransportError as exc:
+                if attempt == self._max_retries:
+                    raise ApiError(f"network error while reading JSON from {url}: {exc}") from exc
+                self._sleep(2**attempt)
+        raise AssertionError("unreachable")
+
+    @staticmethod
+    def _read_json(response: httpx.Response, url: str) -> dict[str, Any]:
         try:
-            doc = response.json()
-        except ValueError:
+            body = bytearray()
+            for block in response.iter_bytes(65536):
+                if len(body) + len(block) > MAX_JSON_BYTES:
+                    raise ApiError(f"JSON response exceeds {MAX_JSON_BYTES // (1024**2)} MB")
+                body.extend(block)
+            doc = json.loads(body)
+        except (ValueError, RecursionError):
             kind = response.headers.get("content-type", "").split(";")[0] or "no content type"
             raise ApiError(
                 f"Stud.IP sent {kind} instead of JSON for {url} - a single sign-on (SSO) "
                 "login page, a maintenance page, or the JSON:API is not enabled"
             ) from None
+        finally:
+            response.close()
         if not isinstance(doc, dict):
             raise ApiError(f"unexpected JSON from {url}")
-        return _clean(doc)
+        try:
+            return _clean(doc)
+        except RecursionError:
+            raise ApiError("JSON response nesting is too deep") from None
 
     def _paginate(
         self, path: str, params: dict[str, Any] | None = None

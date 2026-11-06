@@ -24,7 +24,7 @@ from textual.widgets import Footer, Static
 
 from .. import auth, paths, schedule
 from ..config import Config, ConfigError
-from ..config_edit import open_in_editor, set_value
+from ..config_edit import get_value, open_in_editor, set_value
 from ..report import esc
 from .widgets import ConfirmScreen, TextScreen
 
@@ -73,6 +73,7 @@ class Setting:
     keys: tuple[str, ...] = ()
     to_config: Callable[[Config, Any], Any] = field(default=lambda _cfg, v: v)
     special: str = ""  # handled by the screen instead of a plain config write
+    edit_parse: Callable[[str], Any] | None = None
     parse: Callable[[str], Any] | None = None  # free text (Enter edits) instead of options
 
 
@@ -214,8 +215,9 @@ SECTIONS: list[tuple[str, list[Setting]]] = [
                     (500, "500 MB"),
                     (1000, "1 GB"),
                 ],
-                lambda c: int(c.exclude.max_size_mb or 0),
+                lambda c: c.exclude.max_size_mb or 0,
                 ("sync", "exclude", "max_size_mb"),
+                edit_parse=float,
             ),
             Setting(
                 "courseware",
@@ -314,7 +316,7 @@ class SettingRow(Widget, can_focus=True):
     BINDINGS: ClassVar = [
         Binding("left,h", "move(-1)", "←", show=False),
         Binding("right,l", "move(1)", "→", show=False),
-        Binding("enter", "move(1)", "Change", show=False),
+        Binding("enter", "edit_or_move", "Change", show=False),
     ]
 
     class Changed(Message):
@@ -383,6 +385,12 @@ class SettingRow(Widget, can_focus=True):
         """The explanation only under the focused row: the list stays short."""
         if focused:
             text.append(f"\n    {self.setting.help}", style="dim italic")
+
+    def action_edit_or_move(self) -> None:
+        if self.setting.edit_parse is not None:
+            self.post_message(self.Changed(self, "<custom>"))
+        else:
+            self.action_move(1)
 
     def action_move(self, step: int) -> None:
         if self.setting.parse is not None:
@@ -483,14 +491,19 @@ class SettingsScreen(Screen):
         Binding("h,left", "change(-1)", "← change"),
         Binding("l,right", "change(1)", "→"),
         Binding("e", "edit", "Edit config file"),
+        Binding("u", "undo", "Undo setting"),
         Binding("L", "login", "Log in"),
         Binding("O", "logout", "Log out"),
     ]
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._undo: list[tuple[SettingRow, Any, Any]] = []
+
     def compose(self) -> ComposeResult:
         cfg: Config = self.app.cfg  # type: ignore[attr-defined]
         yield Static(
-            " [b]Settings[/b]  [dim]←/→ change · ↑/↓ move · saved at once[/dim]",
+            " [b]Settings[/b]  [dim]←/→ change · ↑/↓ move · saved at once · u undo[/dim]",
             classes="view-title",
         )
         everything = {s.label: s for _, settings in SECTIONS for s in settings}
@@ -545,6 +558,9 @@ class SettingsScreen(Screen):
     def on_setting_row_changed(self, message: SettingRow.Changed) -> None:
         row, value = message.row, message.value
         setting = row.setting
+        if value == "<custom>":
+            self._edit_text(row)
+            return
         if setting.special == "schedule":
             self._change_schedule(row, value)
             return
@@ -570,12 +586,16 @@ class SettingsScreen(Screen):
             self.notify("The config file has a problem; fix it first (e).", severity="error")
             return
         try:
-            new_cfg = set_value(cfg.path, setting.keys, setting.to_config(cfg, value))
+            previous = get_value(cfg.path, setting.keys)
+            written = setting.to_config(cfg, value)
+            new_cfg = set_value(cfg.path, setting.keys, written)
         except (ConfigError, OSError) as exc:
             self.notify(f"Not saved: {esc(exc)}", severity="error")
             return
+        self._undo.append((row, previous, written))
         self.app.cfg = new_cfg  # type: ignore[attr-defined]
-        row.set_value(value)
+        row.set_value(setting.current(new_cfg))
+        self.notify(f"Saved {setting.label} · u undoes this change", timeout=2)
         if setting.special == "theme":
             self.app.theme = value
 
@@ -587,17 +607,37 @@ class SettingsScreen(Screen):
             return
 
         def save(text: str | None) -> None:
-            if text is None or setting.parse is None:
+            parser = setting.edit_parse or setting.parse
+            if text is None or parser is None:
                 return
             try:
-                new_cfg = set_value(cfg.path, setting.keys, setting.parse(text))
-            except (ConfigError, OSError) as exc:
-                self.notify(f"Not saved: {esc(exc)}", severity="error")
+                value = parser(text)
+            except (ValueError, TypeError):
+                self.notify("Enter a valid number in MB (0 means no limit).", severity="error")
                 return
-            self.app.cfg = new_cfg  # type: ignore[attr-defined]
-            row.set_value(setting.current(new_cfg))
+            self._save(row, value)
 
         self.app.push_screen(TextScreen(setting.label, str(row.value), setting.help), save)
+
+    def action_undo(self) -> None:
+        if not self._undo:
+            self.notify("No setting changes to undo in this screen.")
+            return
+        cfg = self.app.cfg  # type: ignore[attr-defined]
+        row, previous, written = self._undo[-1]
+        try:
+            if get_value(cfg.path, row.setting.keys) != written:
+                raise OSError("Setting changed elsewhere; reload the config first.")
+            updated = set_value(cfg.path, row.setting.keys, previous)
+        except (ConfigError, OSError) as exc:
+            self.notify(esc(exc), severity="error")
+            return
+        self._undo.pop()
+        self.app.cfg = updated  # type: ignore[attr-defined]
+        row.set_value(row.setting.current(updated))
+        if row.setting.special == "theme":
+            self.app.theme = updated.ui_theme
+        self.notify(f"Restored {row.setting.label}")
 
     def _change_schedule(self, row: SettingRow, minutes: int) -> None:
         def apply(ok: bool | None) -> None:

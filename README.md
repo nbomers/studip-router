@@ -1,18 +1,18 @@
 # studip-router — Stud.IP files, sorted into *your* folders
 
-[Terms](#terms-in-one-sentence) ·
+[Terms](docs/USAGE.md#terms-in-one-sentence) ·
 [Quick start](#quick-start) ·
-[Usage](#usage) ·
-[Configuration](#configuration) ·
-[Commands](#command-reference) ·
-[FAQ](#faq) ·
-[Troubleshooting](#troubleshooting)
+[Usage](docs/USAGE.md#usage) ·
+[Configuration](docs/CONFIGURATION.md#configuration) ·
+[Commands](docs/CONFIGURATION.md#command-reference) ·
+[FAQ](docs/USAGE.md#faq) ·
+[Troubleshooting](docs/TROUBLESHOOTING.md#troubleshooting)
 
 [![CI](https://github.com/nbomers/studip-router/actions/workflows/ci.yml/badge.svg)](https://github.com/nbomers/studip-router/actions/workflows/ci.yml)
 [![Python 3.11–3.14](https://img.shields.io/badge/python-3.11--3.14-3776ab?logo=python&logoColor=white)](#installation)
 [![macOS | Linux](https://img.shields.io/badge/os-macOS%20%7C%20Linux-555555)](#requirements)
 [![License MIT](https://img.shields.io/badge/License-MIT-2e7d32)](https://github.com/nbomers/studip-router/blob/main/LICENSE)
-[![Never deletes](https://img.shields.io/badge/deletes-never-1565c0)](#how-it-stays-safe)
+[![Never deletes](https://img.shields.io/badge/deletes-never-1565c0)](docs/USAGE.md#how-it-stays-safe)
 
 **Course files in, your folder structure out.** Most Stud.IP downloaders mirror
 the course's folder tree. `studip-router` files every document into the folders
@@ -41,40 +41,16 @@ All course names in the screenshots are made up.</sub>
 
 ---
 
-## Contents
+## Guides
 
-1. [Terms in one sentence](#terms-in-one-sentence)
-2. [Features](#features)
-3. [Quick start](#quick-start) · [Defaults](#defaults-and-how-to-change-them)
-4. [Requirements](#requirements) · [Installation](#installation)
-5. [Usage](#usage)
-6. [Where files go](#where-files-go) · [Configuration](#configuration)
-7. [Command reference](#command-reference)
-8. [How it stays safe](#how-it-stays-safe)
-9. [Tricky files](#tricky-files)
-10. [FAQ](#faq)
-11. [Troubleshooting](#troubleshooting) · [Exit codes and JSON](#exit-codes-and-json)
-12. [Uninstall](#uninstall) · [Terms of use](#terms-of-use)
-13. [Development](#development) · [Use of AI](#use-of-ai) · [Credits](#credits) · [License](#license)
+- [Usage, keyboard shortcuts and common workflows](docs/USAGE.md)
+- [Configuration and command reference](docs/CONFIGURATION.md)
+- [Troubleshooting and recovery](docs/TROUBLESHOOTING.md)
+- [Sorting, previews and language conventions](docs/USABILITY.md)
+- [Security policy](SECURITY.md)
 
----
-
-## Terms in one sentence
-
-| Term | Meaning |
-|---|---|
-| **Root** | The folder that contains your course folders, e.g. `~/Uni/Semester 5` (`sync.root`). |
-| **Target** | Where a course or a rule puts its files, relative to the root or the course folder. |
-| **Rule** | A per-course *if this file looks like X, put it into folder Y and name it Z*. **First match wins.** |
-| **Auto-route** | No rule matches, but the Stud.IP folder name (`Übungen`, `Slides`, …), a homework folder or — when the folder says nothing — the file name (`Uebungsblatt_3.pdf`, `VL03.pdf`) is clear: the file goes to your matching folder. |
-| **Default folder** | Where files go that no rule matches (`sync.default_target`, e.g. `Sonstiges`). |
-| **Suggestion** | A rule the tool proposes by comparing Stud.IP folder names with your local folder names (German and English). |
-| **Adopt** | A file you already downloaded by hand is *recorded* instead of downloaded a second time. |
-| **Version** | A file that changed on Stud.IP is saved as `name_v2.pdf` next to the old one; nothing is replaced. |
-| **Dry run** | Shows exactly what a sync would do without touching any of your files — it uses the same planner as the real run. |
-| **Profile** | A separate config and state, e.g. for a second university (`--profile NAME`). |
-
----
+Course-specific routing rules and PDF merge settings are configured in TOML; the
+settings screen covers the common options and groups the rest under Advanced.
 
 ## Features
 
@@ -86,16 +62,17 @@ All course names in the screenshots are made up.</sub>
 | **Automatic routing** | a file no rule matches still lands in the right folder when its Stud.IP folder says what it is (`Übungen`, `Tutorium`, `Notebooks`, `Folien`, `Slides`, `Vorlesung`, …) — also for folders created mid-semester. |
 | **Rule suggestions** | understand German and English folder names on both sides (`Übungsblätter`, `Homework`, `Tutorium …` → your `Exercises`/`Übungen`/… folder) — including courses with one folder per session. |
 | **Renaming** | templates with regex groups (`Blatt (\d+)` → `Exercise_{1:02}{ext}`), zero padding, umlauts, spaces, prefixes. |
-| **Settings screen** | every option on one page, change with ←/→ (or `h`/`l`), saved immediately — comments in your config file are kept. |
+| **Settings screen** | essentials plus advanced options, change with ←/→ (or `h`/`l`), saved immediately; `u` undoes the last change — comments in your config file are kept. |
 | **Knows your existing files** | hand-downloaded files are recognised (even as `Name_with_underscores.pdf`); a file you moved within the course folder is followed. |
 | **Updates become versions** | a changed file becomes `name_v2.pdf` (configurable). Renames, moves and re-uploads of the *same* content never create copies. |
-| **Robust** | a failing course is reported while all others still sync; messy names, interrupted transfers, HTML error pages, broken ZIPs and iCloud are handled — see [tricky files](#tricky-files). |
+| **Robust** | a failing course is reported while all others still sync; messy names, interrupted transfers, HTML error pages, broken ZIPs and iCloud are handled — see [tricky files](docs/USAGE.md#tricky-files). |
 | **Background sync** | with desktop notifications, also about problems; a failed login pauses it so a changed password cannot lock your account. |
 | **Changed dates** | after each sync: cancelled, moved and re-roomed course dates and new exam dates — in the summary and as a notification; `studip dates` lists upcoming exams. |
-| **Locked PDFs** | one shared PDF password per course (keychain) — PDFs locked with it are stored without it; see [FAQ](#faq). |
+| **Locked PDFs** | one shared PDF password per course (keychain) — PDFs locked with it are stored without it; see [FAQ](docs/USAGE.md#faq). |
 | **Extras** | Courseware files (opt-in), announcements, ZIP extraction, merged slide PDFs, never-download list, `--json` output, profiles. |
 
 ---
+
 
 ## Quick start
 
@@ -132,13 +109,14 @@ same setup in the terminal.
 
 ---
 
+
 ## Requirements
 
 - Python 3.11+, macOS or Linux. **Windows is not supported** (not tested; background
   sync and notifications do not exist there).
 - An OS keychain: macOS Keychain, or a Secret Service keyring on Linux (GNOME
   Keyring, KWallet). On servers, WSL or containers without one, set
-  `STUDIP_ROUTER_PASSWORD` instead (see [Headless use](#troubleshooting)); the
+  `STUDIP_ROUTER_PASSWORD` instead (see [Headless use](docs/TROUBLESHOOTING.md#troubleshooting)); the
   password is never stored in a file.
 - A Stud.IP instance with the **JSON:API enabled** and **username/password login**
   (local or LDAP accounts). Check: `https://<your-studip>/jsonapi.php/v1/discovery`
@@ -146,6 +124,7 @@ same setup in the terminal.
 - SSO-only accounts (Shibboleth/OIDC without a Stud.IP password) and two-factor
   authentication are not supported yet — contributions welcome, see
   [docs/DESIGN.md](https://github.com/nbomers/studip-router/blob/main/docs/DESIGN.md).
+
 
 ## Installation
 
@@ -208,469 +187,6 @@ source checkout.
 
 ---
 
-## Usage
-
-### The terminal UI
-
-The home screen shows **one next step** — a new course or a new semester to set
-up, files that landed in the default folder, a failed sync, or simply *Sync now* — and `Enter`
-does it. Below are the everyday actions; *More* holds the rest. Every key works
-whether its line is shown or not:
-
-| Key | | Key | |
-|---|---|---|---|
-| `s` | **Sync now** (summary → confirm) | `r` | Rules: suggestions, test a file name |
-| `p` | Preview every file and its target | `o` | Reorganize synced files (`u` undo) |
-| `w` | What's new: open / reveal / preview | `m` | Merge slides: pick the folder, one PDF |
-| `a` | Announcements | `t` | Dates: changes and exams |
-| `c` | Courses: sync on/off, choose folders | `,` | Settings |
-| `d` | Doctor: check the setup | `?` | all keys |
-| `n` | New semester: folders, new courses, archive old ones | `+` | in preview: a rule for files like this one |
-| `i` | in preview / what's new: never download this file | `b` | in preview: report a file the automatic sorting placed wrong (you check and send it) |
-
-`j`/`k` and arrow keys move, `Enter` opens, `Esc` goes back.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/sync-preview.svg" width="49%" alt="Sync preview: every file with its target and the rule that placed it">
-  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/settings.svg" width="49%" alt="Settings screen with options side by side">
-</p>
-
-<sub>Left the preview — every file, its target and why it goes there; files bound
-for the default folder are marked `!` and listed first, files not downloaded are
-counted with their reason (`v` shows them).
-Right the settings — saved immediately, comments in the config file are kept.</sub>
-
-<details>
-<summary><b>More screenshots</b>: rule suggestions, courses, sync</summary>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/rule-suggestions.svg" width="49%" alt="Rule suggestions derived from folder names">
-  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/courses.svg" width="49%" alt="Course list with sync status">
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/sync-confirm.svg" width="49%" alt="One-line summary before syncing">
-  <img src="https://raw.githubusercontent.com/nbomers/studip-router/main/docs/screenshots/sync-done.svg" width="49%" alt="Result after the sync">
-</p>
-
-</details>
-
-### The command line
-
-Everything works without the UI:
-
-```bash
-studip init
-```
-
-```bash
-studip rules suggest --write
-```
-
-```bash
-studip sync --dry-run
-```
-
-```bash
-studip sync
-```
-
-Setup, add the suggested rules, see exactly what would happen, do it.
-
----
-
-## Defaults and how to change them
-
-| What | Default | Change it |
-|---|---|---|
-| Folder with your course folders | found by the setup | settings (`,`) → *course folders in* · `sync.root` |
-| Subfolders of a new course folder | your existing structure, else `Folien, Übungen, Klausur, Sonstiges` | settings → *new course gets* · `sync.course_folders` |
-| Files nothing places | `Sonstiges` (created when needed) | settings → *default folder* · `sync.default_target` |
-| Sorting by Stud.IP folder name, then file name (`Übungen` → your exercise folder, …) | on | settings → *auto-route* · `sync.auto_route` |
-| Your own routing and renaming | none needed | `r` (suggestions, test a name) · `+` on a file in the preview · `[[courses.<id>.rules]]` |
-| New course mid-semester | listed as *new* | `c` → pick a folder or *+ new folder* |
-| Videos, files > 200 MB, Courseware import images | skipped | settings → *skip videos*, *size limit* · `sync.exclude` |
-| Changed file on Stud.IP | kept next to the old one as `_v2` | settings → *changed files* · `sync.on_update` |
-| File names | as on Stud.IP, numbers padded (`1` → `01`) | settings → *names* · `[rename]` |
-| Reports changed course dates | on | settings → *watch dates* · `sync.watch_dates` |
-| Background sync | off | settings → *auto-sync* · `studip schedule install` |
-
-In the settings screen `h`/`l` switches options and **Enter edits a text value**;
-every change is saved at once. The config file (`e` in the settings,
-`studip config edit`) has the same keys, with comments kept.
-
----
-
-## Where files go
-
-```text
-~/Uni/Semester 5/                  sync.root — you pick it in the setup
-├── Quantum Cooking/               one folder per course (its target)
-│   ├── Exercises/                 by a rule, or automatically from a Stud.IP
-│   ├── Slides/                    folder name like "Übungen" or "Folien", else the file name
-│   └── Sonstiges/                 everything else (sync.default_target)
-└── Underwater Basket Weaving/
-```
-
-| Folder | Where it comes from | Created automatically? |
-|---|---|---|
-| **Root** (`sync.root`) | asked in the setup; files go into the course folders inside it (unless you give a course an absolute target). `/`, your home folder itself and system folders are refused | the setup in the UI expects an existing folder; `studip init` creates it together with the course folders |
-| **Course folder** | the setup matches each course to an existing folder in the root | the setup (UI and `studip init`) offers to create missing ones; for a new course choose *+ new folder* under `c`. A course folder that disappears later is an error (renamed or moved?), never silently recreated |
-| **Default folder** (`Sonstiges`) | files that no rule, folder name or file name places | **yes**, the first time a file needs it |
-| **Rule targets** | `target` of your rules | no: a missing one is an error, so a typo never creates folders. `sync.create_missing_dirs = true` creates them |
-| **Automatic targets** | your existing folders whose names match (`Übungen`, `Folien`, …) | never needed: only existing folders are used |
-
-Courses you never set up are not synced, unless you set
-`sync.only_configured_courses = false`: then each gets a folder named like the
-course, created automatically.
-
-Config, state and log stay **outside** your course folders (also on macOS):
-`~/.config/studip-router/config.toml` and `~/.local/state/studip-router/`.
-
----
-
-## Configuration
-
-The config lives at `~/.config/studip-router/config.toml` (`studip config path`).
-Most options are in the settings screen; rules are written in the file. The fully
-commented reference is **[config.example.toml](https://github.com/nbomers/studip-router/blob/main/config.example.toml)**.
-
-```toml
-[server]
-base_url = "https://studip.example.edu"
-username = "jdoe"                         # password: OS keychain only
-
-[sync]
-root = "~/Uni/Semester 5"
-default_target = "Misc"                   # where files go that no rule matches
-
-[courses.0123456789abcdef0123456789abcdef]   # Stud.IP course ID (`studip courses`)
-name = "Quantum Cooking"
-target = "Quantum Cooking"
-
-[[courses.0123456789abcdef0123456789abcdef.rules]]
-id = "sheets"
-match = { folder = "Übungsblätter*", name_regex = '(?:blatt|sheet)[ _]?(\d+)' }
-target = "Exercises"
-rename = "Exercise_{1:02}{ext}"
-```
-
-Test a rule without downloading anything (also in the UI under `r`):
-
-```bash
-studip rules test quantum "Blatt 7.pdf" --folder "Übungsblätter"
-```
-
-```text
-Rule sheets
-  → ~/Uni/Semester 5/Quantum Cooking/Exercises/Exercise_07.pdf
-```
-
-> [!TIP]
-> **Changed your rules after syncing?** A sync never moves files that are already
-> there; it tells you when some are no longer where your rules put them (also on
-> the home screen). `studip reorganize --dry-run` shows how they would move,
-> `studip reorganize` moves them, `studip undo` moves them back.
-
-<details>
-<summary><b>Settings reference</b></summary>
-
-| Key | Default | Meaning |
-|---|---|---|
-| `sync.semester` | `"current"` | `"current"`, `"all"` or a title like `"WiSe 2026/27"` |
-| `sync.on_update` | `"version"` | changed remote file: `version` (`_v2`), `overwrite`, `skip` |
-| `sync.on_conflict` | `"suffix"` | two files, same name: `suffix` (`_2`), `skip`, `error` |
-| `sync.default_target` | `"Sonstiges"` | folder for files no rule matches (`init` detects yours) |
-| `sync.course_folders` | your structure / `Folien, Übungen, Klausur, Sonstiges` | subfolders of every course folder the setup or `c` creates |
-| `sync.create_missing_dirs` | `false` | create rule target folders that do not exist (the default folder is always created) |
-| `sync.unzip` | `false` | extract `.zip` downloads into a folder named like them and remove the archive (fetched again only when it changes) |
-| `sync.notify` | `true` | notification after background syncs |
-| `sync.auto_route` | `true` | no rule matches: use the Stud.IP folder name (Übung, Folien, Literatur, …), a homework folder, then the file name before the default folder |
-| `sync.keywords` | none | your own words per category for that sorting, e.g. `exercises = ["Werkstatt"]` (categories: `exams`, `solutions`, `exercises`, `slides`, `reading`) |
-| `sync.watch_dates` | `true` | report cancelled, moved and re-roomed dates after a sync |
-| `sync.follow_renames` | `true` | rename the local copy when a file is renamed on Stud.IP |
-| `sync.courseware` | `false` | also sync files from Courseware pages (per course: `courses.<id>.courseware`) |
-| `sync.only_configured_courses` | `true` | `false`: sync every course into a folder named like it |
-| `sync.exclude` | videos, > 200 MB, `CoursewareImport*` folders | `globs`, `mime`, `max_size_mb` (`0` = no limit), `folders` |
-| `rename.pad_numbers` | `2` | `lecture-1` → `lecture-01`; `0` disables |
-| `rename.spaces` / `umlauts` / `lowercase` | keep | `_` or `-` / `transliterate` / `true` |
-| `rename.portable` | `true` | replace `: * ? " < > \|` (Windows, OneDrive, iCloud) |
-| `rename.strip_prefixes` | `[]` | e.g. `["Vorlesung_"]` |
-| `ui.theme` | `"tokyo-night"` | terminal UI colours |
-| `ui.update_check` | `false` | ask pypi.org once a week for a newer version (UI and `studip status`, never the background sync) |
-| `courses.<id>.exclude` | `false` | never touch this course (archived courses get `true`) |
-| `courses.<id>.default_target` / `unzip` / `courseware` | the `sync.` value | per-course override |
-| `courses.<id>.exclude_files` | none | added to `sync.exclude`; its `max_size_mb` replaces the limit |
-| `courses.<id>.rename` | `[rename]` | the keys given replace those of `[rename]` for this course |
-| `courses.<id>.merge` | – | `{ source = "Slides", output = "All slides.pdf" }` — or in the UI: Merge slides (`m`), Enter on a course |
-
-From scripts: `studip config set sync.on_update skip`.
-
-</details>
-
----
-
-## Command reference
-
-| Command | |
-|---|---|
-| `studip` / `studip tui` | terminal UI |
-| `studip init [--force]` | setup in the terminal (login, courses, folders, config) |
-| `studip sync [--dry-run] [--course X] [--semester S] [--include-large] [-v] [-q] [--notify]` | sync; `-v` also lists skips, `-q` only problems |
-| `studip courses [--semester S]` | courses with status active / excluded / new |
-| `studip semester [--dry-run] [--yes] [--keep-root] [--read-only]` | semester change: new folders, new courses, archive old ones |
-| `studip status [--offline]` | new courses, files only placed by the default folder, last run |
-| `studip rules list / test / suggest [--write]` | inspect and create rules |
-| `studip reorganize` / `studip undo` | apply changed rules to synced files / revert |
-| `studip history [--limit 30]` | recently synced files |
-| `studip news [--course X] [--all] [--keep-unread]` | unread announcements (`--all`: read ones too) |
-| `studip dates [--offline] [--days 14] [--ics FILE]` | changed course dates and upcoming exams; `--ics` writes all dates as a calendar file |
-| `studip open COURSE` | open a course folder in Finder / the file manager |
-| `studip completion zsh` | print the shell completion script (zsh, bash, fish) |
-| `studip config remove-course COURSE` | remove a course you left on Stud.IP from the config (files stay) |
-| `studip merge [--course X] [--force]` | merge slide PDFs (`--force` downloads iCloud-only PDFs) |
-| `studip schedule install --every 120` / `status` / `run-now` / `uninstall` | background sync (opt-in) |
-| `studip ignore add / list / remove` | files you never want |
-| `studip pdf-password set / list / remove COURSE` | unlock a course's password-protected PDFs |
-| `studip doctor [--test-notification]` | check config, folders, keychain, server, scheduler |
-| `studip auth login / status / logout` | password in the OS keychain |
-| `studip config path / validate / edit / set` | config file |
-
-**Global options:** `--profile NAME` (separate config + state, e.g. a second
-university), `--json` (machine-readable output for scripts, Raycast, Alfred, …).
-
----
-
-## How it stays safe
-
-| Promise | How |
-|---|---|
-| **Nothing is ever deleted** | files removed on Stud.IP are only reported. |
-| **Nothing is overwritten unnoticed** | name clashes get a suffix, updates become `_v2`; `overwrite` mode never replaces a file you edited (size/mtime/hash check against the state, repeated right before the file is replaced, so an edit made while the preview is open is kept too). |
-| **Dry run == real run** | both use the same planner; the real run only executes the plan and re-checks every file before it writes. A dry run touches none of your files (it only creates the state database and log). |
-| **Downloads are atomic** | `name.part`, fsync, rename, fsync of the folder. Ctrl-C leaves no partial files. |
-| **Your password stays put** | only in the OS keychain (or `STUDIP_ROUTER_PASSWORD`) — never in the config, state, logs or output; crash reports of the UI show no variable values. A rejected login stops at the first attempt and pauses auto-sync, so a wrong password cannot lock your account. |
-| **Config edits are checked** | settings screen and rule suggestions validate before writing; the first change keeps a `config.toml.bak`. |
-| **Private files** | state database and log (course names, paths) are readable only by you (`0600`, folder `0700`). |
-| **Stays on your machine** | the only server contacted is your `server.base_url`; no telemetry. Update check only if you turn it on (*update check* in the settings: pypi.org once a week, nothing sent). |
-
-Found a security problem? See [SECURITY.md](https://github.com/nbomers/studip-router/blob/main/SECURITY.md).
-
----
-
-## Tricky files
-
-<details>
-<summary><b>What happens with odd names, broken downloads, iCloud & co.</b></summary>
-
-| Situation | What happens |
-|---|---|
-| `:` `*` `?` `"` `<` `>` `\|` in names | replaced (`Kapitel 1: Intro` → `Kapitel 1 - Intro`), so the folder also syncs to Windows/OneDrive/iCloud for Windows (`rename.portable`) |
-| names longer than 255 bytes (umlauts count twice) | shortened, extension kept, room left for `_v2` |
-| `/`, control and bidi characters, leading dot, trailing dots/spaces, `CON`/`NUL`… | made safe (`Lösung\u202Efdp.exe` cannot pose as a PDF) |
-| `&amp;` & co. in Stud.IP names | decoded |
-| file without extension | added from the MIME type (`Blatt 1` + PDF → `Blatt 1.pdf`) |
-| upper/lower case, NFC/NFD (`ü` vs `u` + `¨`) | treated as the same name; no duplicates |
-| two files want the same name | `name_2.pdf` (or skip/report) |
-| hand-downloaded `Homework_1.pdf` vs `Homework 1.pdf` on Stud.IP | recognised as the same file |
-| interrupted download, wrong size | retried; never leaves half files |
-| Stud.IP sends a login/error page instead of the file | rejected and reported, retried next time |
-| Stud.IP reports a slightly wrong size | accepted once two downloads agree; a file far bigger than announced (or than the size limit) is stopped while downloading |
-| `[b]`, `[link=…]` in titles, file names or announcements | shown as text, never as formatting or a clickable link |
-| a server that pages endlessly or repeats pages | stopped; every record is used once |
-| one file fails | the others continue; the failed one is retried next sync |
-| files only in iCloud (also old `.name.icloud` placeholders) | never downloaded just to compare |
-| ZIPs with garbled umlaut names, ZIP-slip, ZIP bombs | names repaired and made safe, unsafe archives refused (more than 1 GiB, 20 000 entries including folders, 32 folder levels or a compression ratio above 200:1); a broken or password-protected ZIP fails only itself |
-| `H2O`, `Python3`, `IPv6`, `A4`, `2x2` | left alone by number padding (only standalone numbers are padded) |
-| renamed / moved / re-uploaded on Stud.IP | followed; identical content is never stored twice |
-| two syncs at once (auto-sync + manual) | the second one stops with a message instead of racing |
-| crash or power loss mid-download | leftover temp files are cleaned up after a day |
-| university CA or TLS-inspecting proxy | the operating system's certificate store is used |
-| link to an external site redirects elsewhere | your credentials are never sent to the other host; redirects to plain `http://` are refused |
-
-</details>
-
----
-
-## FAQ
-
-<details>
-<summary><b>My folders have different names than in the examples.</b></summary>
-
-That's the point: targets are whatever folders you have. `studip init`, the rule
-suggestions and automatic routing detect them (German and English, with or
-without umlauts) and never pick archive folders like `old` or `Archiv`. Files
-whose Stud.IP folder says nothing clear (`Tag 1`, `Material`) go to the default
-folder; add a rule for those.
-
-</details>
-
-<details>
-<summary><b>I already downloaded files by hand. Will they be downloaded twice?</b></summary>
-
-No. A file with the same name (spaces, `_`, `-` treated alike) and size anywhere
-in the course folder is recorded instead. A same-named file with different
-content that you fetched this semester is treated as an older version: the new
-one goes next to it as `_v2`.
-
-Limit: a hand-downloaded file with the same name **and** the same size is not
-compared byte by byte (that would mean downloading it). If you keep an unrelated
-file under exactly the remote name, rename it before the first sync.
-
-</details>
-
-<details>
-<summary><b>I deleted a file locally. Will it come back?</b></summary>
-
-Yes, the next sync downloads it again. Files you never want: press `i` on them
-(preview or what's new), `studip ignore add NAME`, a rule with `skip = true`, or
-`sync.exclude`.
-
-</details>
-
-<details>
-<summary><b>The lecturer renamed or re-uploaded a file. Do I get duplicates?</b></summary>
-
-No. A rename or move on Stud.IP renames your local copy (unless you edited it).
-A re-upload under the same name becomes `name_v2.pdf` — or nothing at all if the
-content is identical.
-
-</details>
-
-<details>
-<summary><b>What happens at the end of the semester?</b></summary>
-
-Courses of the next semester show up a few weeks before it starts. The home
-screen then offers *New semester* (`n`, or `studip semester` on the command line):
-
-- **a folder for the new semester**, when your root is named after one
-  (`Semester 5` → `Semester 6`, `WiSe 2026-27` → `SoSe 2027`); otherwise the new
-  course folders go next to the old ones. Old courses keep their folders: their
-  targets are written out in full;
-- **a folder per new course**, with the subfolders your current courses share;
-- **archive** courses that have ended: they are no longer synced, your files stay.
-  Courses that have not ended yet keep syncing unless you archive them (retake
-  exams, late solutions). `studip semester --read-only` also makes the files of
-  archived courses read-only (`chmod -R u+w FOLDER` undoes it).
-
-After a course has ended the home screen asks once more whether to archive it.
-An archived course can be turned on again under `c`. Older semesters:
-`studip sync --semester "SoSe 2026"`, `--semester all`, or `a` in the courses screen.
-
-</details>
-
-<details>
-<summary><b>Does it get the files inside Courseware?</b></summary>
-
-Turn on *courseware* in the settings (or per course in the config).
-`studip doctor` tells you which of your courses use Courseware. Videos are
-skipped by default (*skip videos*).
-
-</details>
-
-<details>
-<summary><b>Which date changes are reported?</b></summary>
-
-After every sync the course dates are compared with the last check:
-**cancelled** (and taking place again), **moved** (new day or time),
-**room changed**, **removed**, and **new exam dates** (category *Klausur* /
-*Prüfung*). Only dates that are still ahead count. The first check of a course
-only remembers its dates, so a new semester starts quietly; a room filled in for
-the first time is no news either.
-
-Background syncs send one notification for all changes. `studip dates` (or `t`)
-shows the changes of the last two weeks and your upcoming exams. Turn it off with
-*watch dates* in the settings.
-
-</details>
-
-<details>
-<summary><b>A course protects every PDF with the same password.</b></summary>
-
-```bash
-studip pdf-password set "Quantum Cooking"
-```
-
-The password goes into the OS keychain. PDFs of the course synced so far are
-unlocked right away, every new one during the sync — the date stays the Stud.IP
-date, and an identical re-upload still creates no copy.
-
-PDF passwords are separate for each server, account and profile. After upgrading
-from 0.4.2 or earlier, enter them once again with `studip pdf-password set COURSE`:
-the old entries did not record which server/account they belonged to and cannot
-be safely migrated automatically.
-
-Left untouched, byte for byte: other files, PDFs without a password, PDFs that
-open without one (print/copy restrictions only), and PDFs locked with a
-**different** password. If the password fits none of them, the course probably
-uses one password per file; then unlocking does not help —
-`studip pdf-password remove COURSE`.
-
-> [!NOTE]
-> Lecturers usually lock PDFs because the material is only licensed for course
-> participants. Unlocking your own copy is fine; do not put the unlocked files in
-> a shared folder.
-
-</details>
-
-<details>
-<summary><b>iCloud: evicted files, two Macs, <code>Skript / Alle Folien</code></b></summary>
-
-- **Files "optimised" away** are fine: evicted files are never downloaded for
-  comparison. Keep the state outside synced folders (the default).
-- **Two Macs with the same iCloud folder:** run auto-sync on one of them only;
-  two machines downloading the same file at the same time make iCloud create
-  "Name 2.pdf" conflict copies.
-- **A folder is called `Skript / Alle Folien` in Finder** but the tool says it
-  does not exist: macOS shows `:` as `/` in Finder. On disk it is
-  `Skript : Alle Folien` — use that in the config. `studip doctor` points this out.
-
-</details>
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `authentication failed (HTTP 401)` | `studip auth login` (or `L` in settings); your account needs a Stud.IP password, not SSO-only |
-| `JSON:API not available (HTTP 404)` | the JSON:API is disabled at your university; ask the Stud.IP admins |
-| `target folder does not exist` | a rule points to a folder that is missing: create it, fix the rule target, or turn on *create folders* in the settings |
-| `course folder does not exist` | the course folder was renamed or moved: point `target` to it (`c` in the UI) or create it |
-| `received an HTML page instead of the file` | log in to Stud.IP in the browser and check the file is accessible |
-| `another studip-router run is in progress` | auto-sync is running right now; try again in a minute |
-| `auto-sync paused after a failed login` | `studip auth login` (or `L` in the settings) resumes it |
-| auto-sync "waits after the update" | the new version would sort synced files differently: open `studip` (or run `studip sync` once) to look; `o` moves them |
-| no notifications | `studip doctor --test-notification`; allow notifications for "Script Editor" in System Settings |
-| background sync cannot read the password | `studip schedule run-now` and choose *Always Allow* when macOS asks for keychain access (again after `uv tool upgrade`) |
-| a course is listed under "could not be read" | usually a temporary Stud.IP problem; the other courses were synced, the log has details |
-| config errors | `studip config validate` names the exact key, e.g. `courses.<id>.rules[2].match.name_regex` |
-| `keychain not accessible` | no OS keychain (server, WSL, container): install and unlock a Secret Service keyring, or set `STUDIP_ROUTER_PASSWORD` for headless use (never put it in a file others can read) |
-| `Stud.IP sent text/html instead of JSON` | your university logs in via SSO, shows a maintenance page, or has the JSON:API disabled |
-| `state … is damaged` | rename the state file as the message says and sync again; files on disk are recognised, nothing is downloaded twice |
-| anything else | `studip doctor`, then the log at `~/.local/state/studip-router/studip-router.log` |
-
----
-
-## Exit codes and JSON
-
-For scripts: `0` success, `1` some files or courses failed (or files the plan
-cannot place, such as a missing target folder), `2` invalid config or
-arguments, `3` login or keychain problem, `4` damaged state database, `75` another
-run is in progress, `130` interrupted. With `--json`, errors are printed as
-`{"error": "..."}`; the other fields of `--json` output may still grow, but existing
-ones are kept.
-
-## Uninstall
-
-```bash
-studip schedule uninstall          # background job (per profile: --profile NAME)
-studip auth logout                 # Stud.IP password from the keychain
-studip pdf-password list           # then `studip pdf-password remove COURSE` for each
-uv tool uninstall studip-router    # or: pipx uninstall studip-router
-rm -r ~/.config/studip-router ~/.local/state/studip-router
-```
-
-Your course folders and downloaded files are never touched.
 
 ## Terms of use
 
@@ -679,6 +195,7 @@ browser. Check whether your university's terms of use allow automated access; ke
 the background interval reasonable (at least 15 minutes is enforced, 2 hours is the
 default). Licensed course material stays licensed after it is downloaded or
 unlocked.
+
 
 ## Development
 
@@ -698,6 +215,7 @@ Ground rules, layout and conventions: [CONTRIBUTING.md](https://github.com/nbome
 Invariants, architecture and the Stud.IP API calls: [docs/DESIGN.md](https://github.com/nbomers/studip-router/blob/main/docs/DESIGN.md).
 Changes: [CHANGELOG.md](https://github.com/nbomers/studip-router/blob/main/CHANGELOG.md).
 
+
 ## Use of AI
 
 The code was written with Claude (Anthropic) via
@@ -713,6 +231,7 @@ The code was written with Claude (Anthropic) via
 Tests run against a fake Stud.IP (`tests/fake_studip.py`); no real course data,
 IDs or accounts are in the repository.
 
+
 ## Credits
 
 | | License | Use |
@@ -727,6 +246,7 @@ IDs or accounts are in the repository.
 | [cryptography](https://github.com/pyca/cryptography) | Apache-2.0 / BSD-3-Clause | AES for locked PDFs |
 | [platformdirs](https://github.com/tox-dev/platformdirs) | MIT | config, state and log paths |
 | [truststore](https://github.com/sethmlarson/truststore) | MIT | the operating system's certificates |
+
 
 ## License
 

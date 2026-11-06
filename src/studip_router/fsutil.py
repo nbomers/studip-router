@@ -99,6 +99,28 @@ def truncate_name(stem: str, ext: str, limit: int = MAX_NAME_BYTES) -> str:
     return stem + ext
 
 
+def path_problem(path: Path, reserve: int = 32) -> str | None:
+    """Validate byte limits, including room for version and temporary suffixes."""
+    probe = path.parent
+    while probe != probe.parent:
+        try:
+            if probe.exists():
+                break
+        except OSError:
+            pass  # an overlong component is diagnosed below against its ancestor
+        probe = probe.parent
+    try:
+        total = os.pathconf(probe, "PC_PATH_MAX")
+        component = os.pathconf(probe, "PC_NAME_MAX")
+    except (OSError, ValueError):
+        total, component = 4096, 255
+    if total > 0 and len(os.fsencode(path.absolute())) + reserve >= total:
+        return "Path is too long; shorten sync.root, the course target or the rule target."
+    if component > 0 and any(len(os.fsencode(p)) > component for p in path.parts):
+        return "A folder or file name is too long; shorten the course or rule target."
+    return None
+
+
 def icloud_placeholder(path: Path) -> Path:
     """Older macOS keeps evicted files as ".name.icloud" placeholders."""
     return path.with_name(f".{path.name}.icloud")

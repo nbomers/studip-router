@@ -18,6 +18,7 @@ from .fsutil import (
     local_stat,
     move_no_clobber,
     path_key,
+    path_problem,
     sha256_file,
 )
 from .models import RemoteFile
@@ -62,7 +63,7 @@ def execute(
         if action.kind in (Kind.SKIP, Kind.ERROR):
             continue
         try:
-            _apply(action, state, download, run_id, plan.max_bytes)
+            _apply(action, state, download, run_id, plan.max_bytes, plan.course_dir)
             if pdf_password and action.kind in UNLOCKS:
                 _unlock(action, state, pdf_password, outcome)
         except AuthFailed:
@@ -181,8 +182,13 @@ def _apply(
     download: Downloader,
     run_id: int,
     max_bytes: int | None = None,
+    course_dir: Path | None = None,
 ) -> None:
     assert action.dest is not None
+    if problem := path_problem(action.dest):
+        raise OSError(problem)
+    if course_dir is not None and not action.dest.resolve().is_relative_to(course_dir.resolve()):
+        raise OSError("Target escapes the configured course folder (check symlinks).")
     if action.kind is Kind.UNZIP:
         return  # the archive is unchanged; execute() extracts it afterwards
     if action.kind is Kind.MKDIR:

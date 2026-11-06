@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Audit follow-up
+- Validate blank login fields, malformed course tables and finite size limits;
+  resolve relative sync roots against the config file and pin background job paths.
+- Share local/remote/exam vocabulary, handle deep folders and false friends,
+  and support custom target terms, quizzes and flashcards.
+- Fit dialogs to small terminals; add full path details, clipboard copy, preview
+  filtering/pagination, a narrow announcements layout, custom size limits and
+  settings undo. Display every rule condition and editable simulation metadata.
+- Serialize and flush private config updates; refuse detected external edits.
+  Keep concurrent merge/PDF edits and remove the unsafe no-clobber rename fallback.
+- Bound JSON bodies, retry interrupted reads, reject foreign direct API origins,
+  and check target path length/containment. Ask before opening unknown file types.
+- Update pypdf to 6.21.4 and certifi to 2026.10.23, raise vulnerable dependency
+  lower bounds and audit runtime advisories in CI.
+- Compare date changes by actual instants across the repeated daylight-saving hour.
+- Split CLI/TUI workflow modules and user documentation; add storage failure,
+  recovery, keyboard/resize tests and an offline 1k/10k/50k-file benchmark.
+
 ### Added
 - **Semester change:** `n` in the UI (shown on the home screen when a new
   semester's courses appear or a course has ended) and `studip semester`. Creates

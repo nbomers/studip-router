@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -840,6 +840,7 @@ name = "studip-router"
 version = "0.4.2"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "httpx" },
     { name = "keyring" },
     { name = "platformdirs" },
@@ -861,6 +862,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2026.10.18" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "keyring", specifier = ">=25.0,<26" },
     { name = "platformdirs", specifier = ">=4.0,<5" },

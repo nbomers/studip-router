@@ -199,6 +199,12 @@ class State:
         rows = self._db.execute("SELECT * FROM files WHERE course_id = ?", (course_id,))
         return {row["file_id"]: _record(row) for row in rows}
 
+    def file_counts(self) -> tuple[int, int]:
+        row = self._db.execute(
+            "SELECT count(*), coalesce(sum(routed_by_default), 0) FROM files"
+        ).fetchone()
+        return int(row[0]), int(row[1])
+
     def all(self) -> list[FileRecord]:
         return [_record(r) for r in self._db.execute("SELECT * FROM files ORDER BY local_path")]
 

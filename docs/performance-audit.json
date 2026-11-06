@@ -1,0 +1,42 @@
+{
+  "python": "3.12.14",
+  "platform": "linux",
+  "results": [
+    {
+      "files": 1000,
+      "unchanged": 1000,
+      "moves": 0,
+      "plan_seconds": 0.1026,
+      "pending_moves_seconds": 0.0361,
+      "count_seconds": 0.000151,
+      "tracked": 1000,
+      "planner_peak_bytes": 1490676,
+      "process_peak_rss_kib": 26424,
+      "http_requests": 0
+    },
+    {
+      "files": 10000,
+      "unchanged": 10000,
+      "moves": 0,
+      "plan_seconds": 1.0663,
+      "pending_moves_seconds": 0.3729,
+      "count_seconds": 0.001009,
+      "tracked": 10000,
+      "planner_peak_bytes": 15222348,
+      "process_peak_rss_kib": 71292,
+      "http_requests": 0
+    },
+    {
+      "files": 50000,
+      "unchanged": 50000,
+      "moves": 0,
+      "plan_seconds": 5.7491,
+      "pending_moves_seconds": 1.8882,
+      "count_seconds": 0.003963,
+      "tracked": 50000,
+      "planner_peak_bytes": 77888324,
+      "process_peak_rss_kib": 259884,
+      "http_requests": 0
+    }
+  ]
+}

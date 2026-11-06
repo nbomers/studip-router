@@ -216,9 +216,8 @@ class HomeScreen(Screen):
         )
         with State(paths.state_db()) as state:
             last = state.last_run()
-            tracked = len(state.all())
-            default_routed = len(state.default_routed())
-            to_move = len(pending_moves(cfg, state))
+            tracked, default_routed = state.file_counts()
+            to_move = getattr(self, "_move_count", 0)
             # Not the last run's count: a file synced, ignored or gone since then is
             # no reason to "try again" (that would loop: nothing left to retry).
             failed = state.pending_failures()
@@ -245,8 +244,38 @@ class HomeScreen(Screen):
         }
         cached = app.status_cache()
         self._show_status(cached)
+        self.load_move_count(cfg)
         if logged_in and cached is None:
             self.load_remote_status()
+
+    def load_move_count(self, cfg: Config) -> None:
+        if getattr(self, "_moves_fetching", False):
+            return
+        self._moves_fetching = True
+        state_path = paths.state_db()
+
+        def calculate() -> None:
+            try:
+                with State(state_path) as state:
+                    count = len(pending_moves(cfg, state))
+                previous = update_hold.seen_version()
+                update_hold.mark_seen()
+                _to_ui(self.app, self._got_move_count, cfg, count, previous)
+            except Exception:
+                pass  # a status hint must not prevent starting or quitting
+            finally:
+                self._moves_fetching = False
+
+        threading.Thread(target=calculate, daemon=True).start()
+
+    def _got_move_count(self, cfg: Config, count: int, previous: str | None) -> None:
+        if self.app.cfg is not cfg or not self.is_mounted:  # type: ignore[attr-defined]
+            return
+        if count and previous != __version__:
+            self.app.updated_from = previous or "an older version"  # type: ignore[attr-defined]
+        self._move_count = count
+        self._local["to_move"] = count
+        self._show_status(self.app.status_cache())  # type: ignore[attr-defined]
 
     def _steps(self, remote: dict | None) -> list[tuple[str, str, str]]:
         """What needs doing, most important first: (message, key, action label)."""
@@ -496,16 +525,21 @@ class StudipRouterApp(App):
     #news-body { padding: 1 2; border: round $panel; }
     .form { padding: 1 2; height: auto; }
     .form Label { margin-top: 1; }
-    .form Input { width: 80; }
-    ConfirmScreen, PasswordScreen, ChoiceScreen, TextScreen, HelpScreen, ReportScreen {
+    .form Input { width: 100%; max-width: 80; }
+    ConfirmScreen, PasswordScreen, ChoiceScreen, TextScreen, HelpScreen,
+    ReportScreen, DetailScreen {
         align: center middle;
     }
-    .report { width: 90; }
+    .report { width: 90; max-width: 100%; }
     #report-body { height: 12; }
-    .dialog { width: 72; height: auto; max-height: 90%; padding: 1 2; border: thick $accent;
+    .dialog { width: 72; max-width: 100%; overflow-y: auto; height: auto;
+              max-height: 90%; padding: 1 2; border: thick $accent;
               background: $surface; }
     .dialog OptionList { height: auto; max-height: 20; }
-    .help { width: 76; }
+    .help { width: 76; max-width: 100%; }
+    .news-narrow #news-list { width: 100%; }
+    .news-narrow #news-body { width: 100%; }
+    #plan-filter { height: 3; }
     .question { text-style: bold; margin-bottom: 1; }
     .detail { color: $text-muted; margin-bottom: 1; }
     .buttons { height: auto; align-horizontal: right; margin-top: 1; }
@@ -550,12 +584,6 @@ class StudipRouterApp(App):
         if self.cfg is None and not paths.config_file().exists():
             self.push_screen(SetupScreen())
             return
-        if self.cfg is not None:  # the home screen shows the moves: the update is seen
-            with contextlib.suppress(Exception):
-                with State(paths.state_db()) as state:
-                    notice = update_hold.check(self.cfg, state)
-                self.updated_from = notice.previous if notice else None
-                update_hold.mark_seen()
         self.push_screen(HomeScreen())
 
     def watch_theme(self, theme: str) -> None:

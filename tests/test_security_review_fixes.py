@@ -334,7 +334,10 @@ def test_undo_retries_only_unfinished_steps(tmp_path, state):
 
 def test_rule_append_keeps_private_permissions(tmp_path):
     config = tmp_path / "config.toml"
-    config.write_text("[server]\nusername='dummy-user'\n")
+    config.write_text(
+        "[server]\nbase_url='https://example.edu'\nusername='dummy-user'\n"
+        f"[sync]\nroot='{tmp_path / 'uni'}'\n"
+    )
     config.chmod(0o600)
     previous_umask = os.umask(0o022)
     try:

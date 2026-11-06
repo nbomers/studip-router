@@ -82,8 +82,9 @@ class CourseDate:
 
     @property
     def is_exam(self) -> bool:
-        category = self.category.casefold()
-        return any(word in category for word in EXAM_WORDS)
+        from .suggest import folder_category
+
+        return folder_category(self.category) == "exams"
 
     def when(self) -> str:
         """Local time, e.g. "Wed 14.10. 10:00"."""
