@@ -284,6 +284,13 @@ SECTIONS: list[tuple[str, list[Setting]]] = [
                 ("ui", "theme"),
                 special="theme",
             ),
+            Setting(
+                "update check",
+                "once a week ask pypi.org for a newer version (the only other host)",
+                ON_OFF,
+                lambda c: c.update_check,
+                ("ui", "update_check"),
+            ),
         ],
     ),
 ]

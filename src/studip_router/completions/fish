@@ -9,7 +9,7 @@ function __studip_profiles
     command studip _complete profiles 2>/dev/null
 end
 
-set -l cmds init open courses sync status reorganize undo history news merge doctor tui auth config rules schedule ignore pdf-password dates completion
+set -l cmds init open courses semester sync status reorganize undo history news merge doctor tui auth config rules schedule ignore pdf-password dates completion
 complete -c studip -f
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -s p -l profile -xa '(__studip_profiles)' -d 'Config/state profile'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -l json -d 'Machine-readable output'
@@ -23,6 +23,7 @@ complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a status -d 'Open
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a reorganize -d 'Apply rules to synced files'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a undo -d 'Revert last reorganize'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a history -d 'Recently synced files'
+complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a semester -d 'New semester: set up new courses, archive old ones'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a news -d 'Course announcements'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a merge -d 'Merge slide PDFs'
 complete -c studip -n "not __fish_seen_subcommand_from $cmds" -a doctor -d 'Check setup'
@@ -55,6 +56,10 @@ complete -c studip -n "__fish_seen_subcommand_from dates" -l days -x -d 'Changes
 complete -c studip -n "__fish_seen_subcommand_from dates" -l ics -rF -d 'Write a calendar file'
 complete -c studip -n "__fish_seen_subcommand_from status doctor dates" -l offline -d 'Do not contact Stud.IP'
 complete -c studip -n "__fish_seen_subcommand_from history" -s l -l limit -x -d 'Number of files'
+complete -c studip -n "__fish_seen_subcommand_from semester" -s n -l dry-run -d 'Only show the plan'
+complete -c studip -n "__fish_seen_subcommand_from semester" -s y -l yes -d 'Accept every suggestion'
+complete -c studip -n "__fish_seen_subcommand_from semester" -l keep-root -d 'No new semester folder'
+complete -c studip -n "__fish_seen_subcommand_from semester" -l read-only -d 'Make archived files read-only'
 complete -c studip -n "__fish_seen_subcommand_from completion" -xa 'zsh bash fish'
 complete -c studip -n "__fish_seen_subcommand_from init" -l force -d 'Overwrite config'
 

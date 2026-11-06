@@ -250,6 +250,59 @@ class TextScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class ReportScreen(ModalScreen[None]):
+    """A text to check and edit, then copy or open as a GitHub issue in the browser.
+
+    Nothing is sent from here: the browser shows the issue form, you submit it.
+    """
+
+    BINDINGS: ClassVar = [
+        Binding("escape", "close", "Close"),
+        # priority: the text area has the focus and uses ctrl+y for "redo"
+        Binding("ctrl+y", "copy", "Copy text", priority=True),
+        Binding("ctrl+o", "open", "Open issue form", priority=True),
+    ]
+
+    def __init__(self, title: str, body: str) -> None:
+        super().__init__()
+        self.issue_title = title
+        self.body = body
+
+    def compose(self) -> ComposeResult:
+        from textual.widgets import Footer, TextArea
+
+        with Vertical(classes="dialog report"):
+            yield Label("[b]Report a file sorted into the wrong folder[/b]")
+            yield Static(
+                "Check the text and fill in where it should go. Remove names of people."
+                " [b]Ctrl+O[/b] opens the GitHub issue form in your browser (you send it"
+                " there), [b]Ctrl+Y[/b] copies the text.",
+                classes="detail",
+            )
+            yield TextArea(self.body, id="report-body")
+        yield Footer()
+
+    def _text(self) -> str:
+        from textual.widgets import TextArea
+
+        return self.query_one("#report-body", TextArea).text
+
+    def action_copy(self) -> None:
+        self.app.copy_to_clipboard(self._text())
+        self.notify("Copied (in terminals that allow it; otherwise select the text).")
+
+    def action_open(self) -> None:
+        import webbrowser
+
+        from ..sorting_report import issue_url
+
+        if not webbrowser.open(issue_url(self.issue_title, self._text())):
+            self.notify("No browser found; Ctrl+Y copies the text.", severity="warning")
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class ChoiceScreen(ModalScreen[Any]):
     """Pick one of several values; j/k or arrows, Enter selects, Esc cancels."""
 
@@ -304,13 +357,16 @@ HELP = """\
   a  announcements o reorganize (u undo)
   t  dates         m  merge slides
   c  courses       d  doctor
-  +  more / fewer
+  n  new semester  +  more / fewer
 
 [b]Lists[/b]
   Space      tick / untick
   a          show all (semesters, read announcements)
   x          announcements: mark all read
+             courses: remove one gone from Stud.IP
   f          what's new: show in folder
+  +          preview: a rule for files like this one
+  b          preview: report a file sorted wrong (you send it)
   Ctrl+R     sync: list again
   ← →        change a setting (saved at once)
 """

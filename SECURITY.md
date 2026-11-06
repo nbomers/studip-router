@@ -38,7 +38,11 @@ Only the latest release (and `main`) gets fixes. Update with
 - Text from Stud.IP (titles, file names, announcements) is never interpreted as
   terminal markup or links; downloads are stopped when far bigger than announced or
   than the size limit; endless or repeating pagination is stopped.
-- The only host contacted is the configured Stud.IP (no telemetry, no update checks).
+- The only host contacted is the configured Stud.IP (no telemetry). The one
+  exception is opt-in: with `[ui] update_check = true` (*update check* in the
+  settings) the UI and `studip status` ask `pypi.org` once a week for the newest
+  version; the request carries no data but the User-Agent `studip-router/<version>`.
+  The background sync never makes it.
 
 ## In scope
 

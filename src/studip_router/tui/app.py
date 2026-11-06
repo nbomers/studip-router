@@ -19,13 +19,14 @@ from textual.screen import Screen
 from textual.widgets import Footer, OptionList, Static
 from textual.widgets.option_list import Option
 
-from .. import __version__, auth, paths
+from .. import __version__, auth, new_version, paths, update_check
 from ..api import ApiError, AuthFailed, StudipClient
 from ..config import Config, ConfigError, load
 from ..config_edit import open_in_editor
 from ..news import fetch_news, unread
 from ..reorganize import pending_moves
 from ..report import esc
+from ..semester import detect as detect_semester_change
 from ..state import State
 from ..sync import CourseStatus, list_courses, resolve_semester
 from .settings import THEMES, SettingsScreen
@@ -39,6 +40,7 @@ from .views import (
     NewsView,
     ReorganizeView,
     RulesView,
+    SemesterView,
     SyncView,
 )
 from .widgets import (
@@ -63,12 +65,13 @@ ACTIONS: list[tuple[str, str, str, Callable[[], Screen]]] = [
     ("p", "Preview", "where files would go", SyncView),
     ("r", "Rules", "sort files your way", RulesView),
     ("o", "Reorganize", "move to new folders", ReorganizeView),
+    ("n", "New semester", "new folders, archive old courses", SemesterView),
     ("m", "Merge slides", "all slides in one PDF", MergeView),
     ("comma", "Settings", "options, account", SettingsScreen),
     ("d", "Doctor", "check the setup", DoctorView),
 ]
 PRIMARY = {"s", "w", "a", "t", "c"}
-NEEDS_LOGIN = {"s", "p", "a", "c", "r", "t"}
+NEEDS_LOGIN = {"s", "p", "a", "c", "r", "t", "n"}
 KEY_LABEL = {"comma": ","}
 
 
@@ -224,6 +227,8 @@ class HomeScreen(Screen):
             with contextlib.suppress(ValueError):
                 last_summary = json.loads(last["summary"])
         active = sum(1 for c in cfg.courses.values() if not c.exclude)
+        if not to_move:  # the moves of the update are done: later ones are your rules'
+            app.updated_from = None
         self._local = {
             "never": last is None,
             "when": _ago(last["finished_at"] if last else None),
@@ -269,7 +274,23 @@ class HomeScreen(Screen):
             steps.append(
                 (f"[red][b]{local['failed']}[/b] file(s) failed last time.[/red]", "s", "Try again")
             )
-        if remote and remote.get("new_courses"):
+        change = remote.get("semester") if remote else None
+        if change:
+            if change["new"]:
+                message = (
+                    f"[yellow]New semester [b]{esc(change['title'])}[/b]: "
+                    f"{change['new']} new course{'s' if change['new'] != 1 else ''}, "
+                    f"{change['old']} from before.[/yellow]"
+                )
+                label = "Set up the new semester"
+            else:
+                message = (
+                    f"[yellow]{change['old']} course{'s have' if change['old'] != 1 else ' has'}"
+                    " ended.[/yellow]"
+                )
+                label = "Archive " + ("them" if change["old"] != 1 else "it")
+            steps.append((message, "n", label))
+        elif remote and remote.get("new_courses"):
             n = remote["new_courses"]
             steps.append(
                 (
@@ -281,10 +302,12 @@ class HomeScreen(Screen):
         if local["never"] and local["logged_in"]:
             steps.append(("[b]Ready[/b] for the first sync.", "s", "Start the first sync"))
         if local["to_move"]:
+            updated = self.app.updated_from  # type: ignore[attr-defined]
             steps.append(
                 (
-                    f"[yellow]{local['to_move']} synced file(s) belong in another folder now."
-                    "[/yellow]",
+                    f"[yellow]{local['to_move']} synced file(s) belong in another folder now"
+                    + (f" (new in {__version__}, before: {esc(updated)})" if updated else "")
+                    + ".[/yellow]",
                     "o",
                     "Move them",
                 )
@@ -332,6 +355,10 @@ class HomeScreen(Screen):
             facts.append("[yellow]Stud.IP not reachable[/yellow] [dim](tried again in 1 min)[/dim]")
         elif remote is not None:
             facts.append(f"[b]{esc(remote['unread'])}[/b] unread")
+        if remote is not None and remote.get("newer"):
+            facts.append(
+                f"[cyan]{esc(remote['newer'])} available[/cyan] [dim](uv tool upgrade)[/dim]"
+            )
         self.query_one("#facts", Static).update("  ·  ".join(facts))
 
     def load_remote_status(self) -> None:
@@ -366,6 +393,9 @@ class HomeScreen(Screen):
                 # fail must not cost them (Stud.IP is reachable, the list just came).
                 with contextlib.suppress(Exception):
                     save_course_groups(client.course_groups(client.me()["id"]))
+                change = None
+                with contextlib.suppress(Exception):  # best effort, like the colours
+                    change = detect_semester_change(client, cfg)
                 items = [
                     n
                     for c in cfg.courses.values()
@@ -373,6 +403,9 @@ class HomeScreen(Screen):
                     for n in fetch_news(client, c.id, c.name or c.target)
                 ]
                 fresh = unread(state, items)
+            newer = None
+            if cfg.update_check:  # opt-in, best effort, at most once a week
+                newer = new_version.check()
         except Exception:  # status cards are best effort, never crash the app
             # Say so, and do not ask again on every return to this screen.
             offline: dict = {"offline": True}
@@ -380,8 +413,16 @@ class HomeScreen(Screen):
             _to_ui(app, self._show_status, offline)
             return
         remote = {
+            "newer": newer,
             "unread": len(fresh),
             "new_courses": sum(1 for e in entries if e.status is CourseStatus.UNCONFIGURED),
+            "semester": {
+                "title": change.semester.title,
+                "new": len(change.new_courses),
+                "old": len(change.old_courses),
+            }
+            if change
+            else None,
         }
         app.set_status_cache(remote)
         _to_ui(app, self._show_status, remote)
@@ -456,7 +497,11 @@ class StudipRouterApp(App):
     .form { padding: 1 2; height: auto; }
     .form Label { margin-top: 1; }
     .form Input { width: 80; }
-    ConfirmScreen, PasswordScreen, ChoiceScreen, HelpScreen { align: center middle; }
+    ConfirmScreen, PasswordScreen, ChoiceScreen, TextScreen, HelpScreen, ReportScreen {
+        align: center middle;
+    }
+    .report { width: 90; }
+    #report-body { height: 12; }
     .dialog { width: 72; height: auto; max-height: 90%; padding: 1 2; border: thick $accent;
               background: $surface; }
     .dialog OptionList { height: auto; max-height: 20; }
@@ -475,6 +520,7 @@ class StudipRouterApp(App):
         self.cfg: Config | None = None
         self.config_error = ""
         self._status: tuple[float, dict] | None = None  # (time, remote status)
+        self.updated_from: str | None = None  # this version sorts synced files differently
 
     STATUS_TTL = 300  # seconds; the home screen must not hammer Stud.IP
     OFFLINE_TTL = 60  # not reachable: try again after a minute, not on every screen change
@@ -504,6 +550,12 @@ class StudipRouterApp(App):
         if self.cfg is None and not paths.config_file().exists():
             self.push_screen(SetupScreen())
             return
+        if self.cfg is not None:  # the home screen shows the moves: the update is seen
+            with contextlib.suppress(Exception):
+                with State(paths.state_db()) as state:
+                    notice = update_check.check(self.cfg, state)
+                self.updated_from = notice.previous if notice else None
+                update_check.mark_seen()
         self.push_screen(HomeScreen())
 
     def watch_theme(self, theme: str) -> None:

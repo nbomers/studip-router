@@ -94,6 +94,12 @@ umlauts = "keep"             # "keep" | "transliterate" (ä -> ae)
 lowercase = false
 strip_prefixes = []          # e.g. ["Vorlesung_", "VL_"]
 
+[ui]
+theme = "tokyo-night"
+# Once a week ask pypi.org whether a newer studip-router exists. Off by default:
+# it is the only host besides your Stud.IP that the tool would contact.
+update_check = false
+
 # ---------------------------------------------------------------------------
 # Courses are keyed by their Stud.IP ID (see `studip courses`); names may change,
 # IDs do not. `name` is only a label for you.

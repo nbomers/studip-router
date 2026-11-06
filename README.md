@@ -154,6 +154,11 @@ same setup in the terminal.
 | [pipx](https://pipx.pypa.io/) | `pipx install studip-router` | `pipx upgrade studip-router` |
 | pip (in a [venv](https://docs.python.org/3/library/venv.html)) | `python3 -m venv ~/.venvs/studip && ~/.venvs/studip/bin/pip install studip-router` | `~/.venvs/studip/bin/pip install -U studip-router` |
 
+**After an update** the background sync checks whether the new version would put
+files you already have into other folders. If so, it waits (at most three days)
+and sends one notification; opening `studip` or one `studip sync` by hand ends the
+wait, and `o` moves the files if you agree.
+
 `uv` and `pipx` put the `studip` command on your `PATH` and keep it apart from other
 Python packages. Plain `pip install studip-router` into the system Python is refused
 by Homebrew and most Linux distributions ("externally-managed-environment"); with a
@@ -206,8 +211,8 @@ source checkout.
 
 ### The terminal UI
 
-The home screen shows **one next step** — a new course to set up, files that
-landed in the default folder, a failed sync, or simply *Sync now* — and `Enter`
+The home screen shows **one next step** — a new course or a new semester to set
+up, files that landed in the default folder, a failed sync, or simply *Sync now* — and `Enter`
 does it. Below are the everyday actions; *More* holds the rest. Every key works
 whether its line is shown or not:
 
@@ -219,7 +224,8 @@ whether its line is shown or not:
 | `a` | Announcements | `t` | Dates: changes and exams |
 | `c` | Courses: sync on/off, choose folders | `,` | Settings |
 | `d` | Doctor: check the setup | `?` | all keys |
-| `i` | in preview / what's new: never download this file | | |
+| `n` | New semester: folders, new courses, archive old ones | `+` | in preview: a rule for files like this one |
+| `i` | in preview / what's new: never download this file | `b` | in preview: report a file sorted wrong (you check and send it) |
 
 `j`/`k` and arrow keys move, `Enter` opens, `Esc` goes back.
 
@@ -279,7 +285,7 @@ Setup, add the suggested rules, see exactly what would happen, do it.
 | Subfolders of a new course folder | your existing structure, else `Folien, Übungen, Klausur, Sonstiges` | settings → *new course gets* · `sync.course_folders` |
 | Files nothing places | `Sonstiges` (created when needed) | settings → *default folder* · `sync.default_target` |
 | Sorting by Stud.IP folder name, then file name (`Übungen` → your exercise folder, …) | on | settings → *auto-route* · `sync.auto_route` |
-| Your own routing and renaming | none needed | `r` (suggestions, test a name) · `[[courses.<id>.rules]]` |
+| Your own routing and renaming | none needed | `r` (suggestions, test a name) · `+` on a file in the preview · `[[courses.<id>.rules]]` |
 | New course mid-semester | listed as *new* | `c` → pick a folder or *+ new folder* |
 | Videos, files > 200 MB, Courseware import images | skipped | settings → *skip videos*, *size limit* · `sync.exclude` |
 | Changed file on Stud.IP | kept next to the old one as `_v2` | settings → *changed files* · `sync.on_update` |
@@ -405,6 +411,7 @@ From scripts: `studip config set sync.on_update skip`.
 | `studip` | terminal UI |
 | `studip sync [--dry-run] [--course X] [--semester S] [--include-large]` | sync |
 | `studip courses` | courses with status active / excluded / new |
+| `studip semester [--dry-run] [--yes] [--keep-root] [--read-only]` | semester change: new folders, new courses, archive old ones |
 | `studip status` | new courses, files only placed by the default folder |
 | `studip rules list / test / suggest [--write]` | inspect and create rules |
 | `studip reorganize` / `studip undo` | apply changed rules to synced files / revert |
@@ -437,7 +444,7 @@ university), `--json` (machine-readable output for scripts, Raycast, Alfred, …
 | **Your password stays put** | only in the OS keychain (or `STUDIP_ROUTER_PASSWORD`) — never in the config, state, logs or output; crash reports of the UI show no variable values. A rejected login stops at the first attempt and pauses auto-sync, so a wrong password cannot lock your account. |
 | **Config edits are checked** | settings screen and rule suggestions validate before writing; the first change keeps a `config.toml.bak`. |
 | **Private files** | state database and log (course names, paths) are readable only by you (`0600`, folder `0700`). |
-| **Stays on your machine** | the only server contacted is your `server.base_url`; no telemetry, no update checks. |
+| **Stays on your machine** | the only server contacted is your `server.base_url`; no telemetry. Update check only if you turn it on (*update check* in the settings: pypi.org once a week, nothing sent). |
 
 Found a security problem? See [SECURITY.md](https://github.com/nbomers/studip-router/blob/main/SECURITY.md).
 
@@ -525,12 +532,22 @@ content is identical.
 <details>
 <summary><b>What happens at the end of the semester?</b></summary>
 
-Courses you set up keep syncing (retake exams, late solutions) until you switch
-them off under `c`. Courses of the next semester show up as "new" a few weeks
-before it starts. For a new semester folder, point `sync.root` to it
-(`studip config set sync.root "~/Uni/Semester 6"`) or give courses absolute
-targets (they may lie outside the root; `studip doctor` lists them). Older semesters: `studip sync --semester "SoSe 2026"`, `--semester all`,
-or `a` in the courses screen.
+Courses of the next semester show up a few weeks before it starts. The home
+screen then offers *New semester* (`n`, or `studip semester` on the command line):
+
+- **a folder for the new semester**, when your root is named after one
+  (`Semester 5` → `Semester 6`, `WiSe 2026-27` → `SoSe 2027`); otherwise the new
+  course folders go next to the old ones. Old courses keep their folders: their
+  targets are written out in full;
+- **a folder per new course**, with the subfolders your current courses share;
+- **archive** courses that have ended: they are no longer synced, your files stay.
+  Courses that have not ended yet keep syncing unless you archive them (retake
+  exams, late solutions). `studip semester --read-only` also makes the files of
+  archived courses read-only (`chmod -R u+w FOLDER` undoes it).
+
+After a course has ended the home screen asks once more whether to archive it.
+An archived course can be turned on again under `c`. Older semesters:
+`studip sync --semester "SoSe 2026"`, `--semester all`, or `a` in the courses screen.
 
 </details>
 
@@ -610,6 +627,7 @@ uses one password per file; then unlocking does not help —
 | `received an HTML page instead of the file` | log in to Stud.IP in the browser and check the file is accessible |
 | `another studip-router run is in progress` | auto-sync is running right now; try again in a minute |
 | `auto-sync paused after a failed login` | `studip auth login` (or `L` in the settings) resumes it |
+| auto-sync "waits after the update" | the new version would sort synced files differently: open `studip` (or run `studip sync` once) to look; `o` moves them |
 | no notifications | `studip doctor --test-notification`; allow notifications for "Script Editor" in System Settings |
 | background sync cannot read the password | `studip schedule run-now` and choose *Always Allow* when macOS asks for keychain access (again after `uv tool upgrade`) |
 | a course is listed under "could not be read" | usually a temporary Stud.IP problem; the other courses were synced, the log has details |

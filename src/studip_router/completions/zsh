@@ -30,6 +30,7 @@ _studip() {
     'reorganize:Apply rules to synced files'
     'undo:Revert last reorganize'
     'history:Recently synced files'
+    'semester:New semester - set up new courses, archive old ones'
     'news:Course announcements'
     'merge:Merge slide PDFs'
     'doctor:Check setup'
@@ -70,6 +71,9 @@ _studip() {
             '(-y --yes)'{-y,--yes}'[Do not ask]' ;;
         undo) _arguments '(-y --yes)'{-y,--yes}'[Do not ask]' ;;
         history) _arguments '(-l --limit)'{-l,--limit}'[Number of files]:number:' ;;
+        semester) _arguments '(-n --dry-run)'{-n,--dry-run}'[Only show the plan]' \
+          '(-y --yes)'{-y,--yes}'[Accept every suggestion]' \
+          '--keep-root[No new semester folder]' '--read-only[Make archived files read-only]' ;;
         completion) _arguments '1:shell:(zsh bash fish)' ;;
         news) _arguments '--course[Course]:course:_studip_courses' '--all[Include read ones]' '--keep-unread[Do not mark as read]' ;;
         merge) _arguments '--course[Course]:course:_studip_courses' '--force[Download iCloud-only PDFs]' ;;

@@ -541,3 +541,52 @@ def _unique(rule_id: str, taken: set[str]) -> str:
         n += 1
     taken.add(candidate)
     return candidate
+
+
+# -- a rule from one file (preview: "+ Rule") --------------------------------------------
+
+_DIGITS = re.compile(r"\d+")
+
+
+def glob_escape(text: str) -> str:
+    """``text`` as a glob that matches only itself."""
+    return re.sub(r"([*?\[])", r"[\1]", text)
+
+
+def name_pattern(name: str) -> str | None:
+    """A glob for files named like ``name``: numbers become ``*``.
+
+    "Blatt_03.pdf" -> "Blatt_*.pdf", "VL 4 Logik.pdf" -> "VL * Logik.pdf".
+    None when the name has no number (the glob would only match this file).
+    """
+    name = nfc(name)
+    if not _DIGITS.search(name):
+        return None
+    # Numbers first, as a marker that cannot occur in a name: only they are merged
+    # ("3.1" -> one "*"), never a "*" that was in the name itself.
+    marked = re.sub(r"\x00(?:[^\w\x00]?\x00)+", "\x00", _DIGITS.sub("\x00", name))
+    return glob_escape(marked).replace("\x00", "*")
+
+
+def rule_from_file(
+    course_rules: tuple[str, ...], file_folder: str, file_name: str, by: str, target: str
+) -> dict:
+    """A rule for files like this one: ``by`` is "folder" (its Stud.IP folder) or
+    "name" (files named like it). ``course_rules`` are the ids already taken."""
+    match: dict[str, str] = {}
+    if by == "folder":
+        if not file_folder:
+            raise ValueError("the file is not in a Stud.IP folder")
+        match["folder"] = glob_escape(nfc(file_folder))
+    elif by == "name":
+        pattern = name_pattern(file_name)
+        if pattern is None:
+            raise ValueError("the name has no number to generalise")
+        match["name_glob"] = pattern
+    else:
+        raise ValueError(f"unknown kind {by!r}")
+    return {
+        "id": _unique(_slug(target), set(course_rules)),
+        "match": match,
+        "target": target,
+    }

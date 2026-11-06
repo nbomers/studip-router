@@ -76,3 +76,17 @@ The `Release` workflow checks that tag, versions and changelog agree, runs the
 checks and tests, builds, smoke-tests the wheel and publishes to PyPI via Trusted
 Publishing (environment `pypi`). A tag that does not match stops before anything
 is uploaded; PyPI never accepts the same version twice, so fix it with a new version.
+
+6. **Homebrew** (once the tap `nbomers/homebrew-tap` exists): when the version is on
+   PyPI, write the formula and test it on a Mac before pushing it to the tap:
+
+   ```bash
+   uv run python scripts/homebrew_formula.py X.Y.Z > ../homebrew-tap/Formula/studip-router.rb
+   ```
+
+   ```bash
+   brew install --build-from-source ../homebrew-tap/Formula/studip-router.rb && brew test studip-router && brew audit --strict studip-router
+   ```
+
+   The formula pins every dependency from `uv.lock` and takes `cryptography` from
+   Homebrew. Users install with `brew install nbomers/tap/studip-router`.

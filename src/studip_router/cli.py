@@ -21,7 +21,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
-from . import __version__, auth, doctor, paths, report, schedule
+from . import __version__, auth, doctor, new_version, paths, report, schedule
 from .api import ApiError, AuthFailed, StudipClient
 from .config import DEFAULT_COURSE_FOLDERS, Config, ConfigError, CourseConfig, load, unsafe_folder
 from .config import parse as parse_config
@@ -494,6 +494,160 @@ def courses_cmd(
         )
 
 
+@app.command("semester")
+def semester_cmd(
+    config: ConfigOpt = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-n", help="Only show the plan.")] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Accept every suggestion.")] = False,
+    keep_root: Annotated[bool, typer.Option("--keep-root", help="No new semester folder.")] = False,
+    read_only: Annotated[
+        bool,
+        typer.Option("--read-only", help="Also make the files of archived courses read-only."),
+    ] = False,
+) -> None:
+    """Semester change: set up the new courses, archive the old ones.
+
+    Offers a folder for the new semester (when the root is named after one),
+    a folder per new course, and stops syncing courses that have ended.
+    Files already synced stay where they are.
+    """
+    from . import semester as sem_mod
+
+    cfg = load_config(config)
+    if OPTS.json and not (yes or dry_run):
+        raise fail("with --json, add --dry-run (show the plan) or --yes (apply it)", 2)
+    try:
+        with open_client(cfg) as client:
+            change = sem_mod.detect(client, cfg)
+    except ApiError as exc:
+        raise fail(str(exc)) from None
+    if change is None:
+        if OPTS.json:
+            emit_json({"change": None})
+            return
+        console.print(
+            "[green]✓[/green] No semester change to make: no set-up course has ended and "
+            "no new semester has started. New courses mid-semester: `studip courses`."
+        )
+        return
+    choices = sem_mod.default_choices(change)
+    if keep_root:
+        choices.new_root = None
+        choices.add = sem_mod.new_targets(change, new_root=False)
+    choices.read_only = read_only
+    home = Path.home()
+    interactive = not (yes or dry_run or OPTS.json)
+
+    if not OPTS.json:
+        console.print(f"[bold]Semester change to {esc(change.semester.title)}[/bold]\n")
+    if interactive and change.proposed_root and not keep_root:
+        answer = Prompt.ask(
+            f"Folder for the new semester [dim](now {esc(display_path(cfg.root, home))};"
+            " '-' keeps it)[/dim]",
+            default=display_path(change.proposed_root, home),
+        ).strip()
+        if answer == "-":
+            choices.new_root = None
+        elif answer != display_path(change.proposed_root, home):
+            choices.new_root = sem_mod.typed_root(cfg, answer)
+        if choices.new_root != change.proposed_root:
+            change.proposed_root = choices.new_root
+            choices.add = sem_mod.new_targets(change, new_root=choices.new_root is not None)
+    if interactive and change.new_courses:
+        console.print(
+            "\n[bold]New courses[/bold] [dim]Enter keeps the folder name, '-' does not sync"
+            " the course[/dim]"
+        )
+        for course in change.new_courses:
+            answer = Prompt.ask(f"  {esc(course.title)}", default=choices.add[course.id]).strip()
+            if answer == "-":
+                del choices.add[course.id]
+                choices.skip.add(course.id)
+            else:
+                choices.add[course.id] = answer
+    if interactive and change.old_courses:
+        console.print("\n[bold]Courses from before[/bold] [dim]archived = no longer synced[/dim]")
+        for old in change.old_courses:
+            until = old.course.end_semester.title if old.course.end_semester else "?"
+            when = "ended" if old.ended else "runs until the end of"
+            if Confirm.ask(
+                f"  Archive {esc(old.label)} [dim]({when} {esc(until)})[/dim]?",
+                default=old.ended,
+            ):
+                choices.archive.add(old.config.id)
+                choices.keep.discard(old.config.id)
+            else:
+                choices.archive.discard(old.config.id)
+                choices.keep.add(old.config.id)
+
+    target_root = choices.new_root or cfg.root
+    if OPTS.json:
+        data: dict[str, Any] = {
+            "semester": change.semester.title,
+            "root": str(target_root),
+            "new_courses": [
+                {"id": c.id, "title": c.title, "target": choices.add.get(c.id)}
+                for c in change.new_courses
+            ],
+            "archive": sorted(choices.archive),
+            "keep": sorted(choices.keep),
+        }
+    else:
+        console.print("\n[bold]Plan[/bold]")
+        if choices.new_root and choices.new_root != cfg.root:
+            console.print(
+                f"  new semester folder [b]{esc(display_path(target_root, home))}[/b]"
+                " [dim](set-up courses keep their folders)[/dim]"
+            )
+        for course in change.new_courses:
+            if course.id in choices.add:
+                console.print(
+                    f"  [green]+[/green] {esc(course.title)} → "
+                    f"{esc(choices.add[course.id])}/ [dim]({esc(', '.join(change.subfolders))})"
+                    "[/dim]"
+                )
+            else:
+                console.print(f"  [dim]- {esc(course.title)}: not synced[/dim]")
+        for old in change.old_courses:
+            mark = "[yellow]archive[/yellow]" if old.config.id in choices.archive else "keep"
+            console.print(f"  {mark} {esc(old.label)}")
+    if dry_run:
+        if OPTS.json:
+            emit_json(data)
+        else:
+            console.print("\n[dim]Dry run: nothing changed.[/dim]")
+        return
+    if interactive and not Confirm.ask("\nApply?", default=True):
+        raise typer.Exit(1)
+    try:
+        applied = sem_mod.apply_change(cfg, change, choices)
+    except (ConfigError, ValueError, OSError) as exc:
+        raise fail(f"nothing changed: {exc}", 2) from None
+    if OPTS.json:
+        data["created"] = [str(p) for p in applied.created]
+        data["read_only_files"] = applied.read_only_files
+        data["problems"] = applied.problems
+        emit_json(data)
+        return
+    console.print(f"\n[green]✓[/green] Config updated (backup: {esc(cfg.path)}.bak)")
+    for folder in applied.created:
+        console.print(f"  [green]✓[/green] created {esc(display_path(folder, home))}")
+    if applied.read_only_files:
+        console.print(
+            f"  {applied.read_only_files} file(s) made read-only"
+            " [dim](undo: chmod -R u+w FOLDER)[/dim]"
+        )
+    for problem in applied.problems:
+        console.print(f"  [red]✗[/red] {esc(problem)}")
+    if choices.add:
+        console.print(
+            "Next: [bold]studip rules suggest --write[/bold], then"
+            " [bold]studip sync --dry-run[/bold]."
+        )
+    if applied.problems:
+        raise typer.Exit(1)
+
+
 @app.command("sync")
 def sync_cmd(
     config: ConfigOpt = None,
@@ -523,6 +677,17 @@ def sync_cmd(
         log_line = "auto-sync paused after a failed login; run `studip auth login`"
         logging.getLogger("studip_router").warning(log_line)
         raise typer.Exit(3)
+    if background:
+        from . import update_check
+
+        with State(paths.state_db()) as state:
+            held = update_check.hold_background(cfg, state)
+        if held is not None:
+            notice, first = held
+            logging.getLogger("studip_router").warning(update_check.message(notice))
+            if first:
+                notify("studip-router", update_check.message(notice))
+            return
     try:
         password = auth.get_password(cfg.base_url, cfg.username)
     except auth.AuthError as exc:
@@ -551,6 +716,10 @@ def sync_cmd(
                 notify("studip-router", f"Sync failed: {exc}")
             raise fail(str(exc)) from None
         pause.unlink(missing_ok=True)  # login works again
+        if not background:  # a sync by hand shows the plan: the update has been seen
+            from .update_check import mark_seen
+
+            mark_seen()
         if dry_run or verbose:
             for plan in sync_plan.plans:
                 if (table := report.plan_table(plan, verbose)) is not None:
@@ -695,7 +864,11 @@ def status_cmd(
         except (ApiError, typer.Exit) as exc:
             if isinstance(exc, ApiError):
                 err.print(f"[yellow]Could not reach Stud.IP:[/yellow] {esc(exc)}")
+    newer = None
+    if cfg.update_check:
+        newer = new_version.cached_newer() if offline else new_version.check()
     data = {
+        "newer_version": newer,
         "last_run": dict(last) if last else None,
         "default_routed": [
             {"path": r.local_path, "remote": f"{r.remote_folder_path}/{r.remote_name}".lstrip("/")}
@@ -727,6 +900,8 @@ def status_cmd(
             console.print(f"  {esc(r.local_path)}  [dim]← {remote}[/dim]")
     if to_move:
         console.print(f"\n{report.reorganize_hint(len(to_move))}")
+    if newer:
+        console.print(f"\n[cyan]{esc(new_version.hint(newer))}[/cyan]")
     if not unconfigured and not default_routed and not to_move:
         console.print("[green]✓[/green] Nothing to do.")
 

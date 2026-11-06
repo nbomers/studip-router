@@ -30,9 +30,9 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
-from .. import doctor, paths
+from .. import doctor, paths, semester
 from ..api import ApiError, AuthFailed, StudipClient
-from ..config import Config, ConfigError, CourseConfig
+from ..config import Config, ConfigError, CourseConfig, unsafe_folder
 from ..config_edit import remove_course, set_course
 from ..dates import Change, check_dates, upcoming_exams
 from ..fsutil import Locked
@@ -49,8 +49,17 @@ from ..reorganize import (
     plan_undo,
 )
 from ..report import STYLE, SYMBOL, esc, reorganize_hint, summarize, unlocked_lines
+from ..rules import parse_rules
+from ..sorting_report import report_text
 from ..state import State
-from ..suggest import Suggestion, local_category_dirs, local_subdirs, suggest_rules
+from ..suggest import (
+    Suggestion,
+    local_category_dirs,
+    local_subdirs,
+    name_pattern,
+    rule_from_file,
+    suggest_rules,
+)
 from ..sync import (
     CourseEntry,
     CourseStatus,
@@ -66,10 +75,11 @@ from ..tomlwrite import append_blocks, rule_block
 from ..wizard import (
     course_folder_name,
     create_course_folder,
+    display_path,
     local_course_folders,
     propose_target,
 )
-from .widgets import ChoiceScreen, ConfirmScreen, course_color
+from .widgets import ChoiceScreen, ConfirmScreen, ReportScreen, TextScreen, course_color
 
 
 def clip(text: str, width: int) -> str:
@@ -319,6 +329,8 @@ class SyncView(View):
         Binding("s,enter", "start", "Sync now"),
         Binding("v", "toggle_skipped", "Show skipped"),
         Binding("i", "ignore", "Never download"),
+        Binding("plus", "add_rule", "Rule for this file"),
+        Binding("b", "report", "Sorted wrong?"),
         Binding("ctrl+r", "refresh", "Refresh"),
         Binding("r", "refresh", show=False),  # before 0.4.2; r is Rules on the home screen
         Binding("j", "cursor('down')", show=False),
@@ -505,6 +517,126 @@ class SyncView(View):
                 state.clear_failure(action.file.id)
                 self.notify(f"{esc(action.file.name)} will never be downloaded.")
         self.action_refresh()
+
+    def action_report(self) -> None:
+        """Write a report about a wrongly sorted file, to check and send yourself."""
+        table = self.query_one(DataTable)
+        rows = getattr(self, "row_actions", [])
+        if self.running or not rows or table.cursor_row >= len(rows):
+            return
+        action = rows[table.cursor_row]
+        if action.file is None:
+            return
+        title, body = report_text(action.file.folder_path, action.file.name, action.route)
+        self.app.push_screen(ReportScreen(title, body))
+
+    def action_add_rule(self) -> None:
+        """A rule for files like the selected one: by its Stud.IP folder or its name."""
+        table = self.query_one(DataTable)
+        rows = getattr(self, "row_actions", [])
+        if self.running or not rows or table.cursor_row >= len(rows):
+            return
+        action = rows[table.cursor_row]
+        course = self.cfg.courses.get(action.course_id)
+        if action.file is None or course is None:
+            return
+        route = action.route
+        if (
+            route
+            and route.rule_id
+            and not route.rule_id.startswith("auto:")
+            and not route.by_default
+        ):
+            self.notify(
+                f"Already placed by your rule {esc(route.rule_id)}; change it in the config.",
+                severity="warning",
+            )
+            return
+        file = action.file
+        kinds: list[tuple[str, str]] = []
+        if file.folder_path:
+            kinds.append(
+                ("folder", f"every file in the Stud.IP folder [b]{esc(file.folder_path)}[/b]")
+            )
+        if pattern := name_pattern(file.name):
+            kinds.append(("name", f"every file named like [b]{esc(pattern)}[/b]"))
+        if not kinds:
+            self.notify(
+                "This file has neither a Stud.IP folder nor a number in its name;"
+                " Rules (r) can test a pattern by hand.",
+                severity="warning",
+            )
+            return
+        course_dir = self.cfg.course_dir(course)
+
+        def write(by: str, target: str) -> None:
+            rule = rule_from_file(
+                tuple(r.id for r in course.rules), file.folder_path, file.name, by, target
+            )
+            _, problems = parse_rules([rule], "rule")
+            if problems:
+                self.notify(f"Not added: {esc(problems[0])}", severity="error")
+                return
+            try:
+                append_blocks(
+                    self.cfg.path,
+                    [rule_block(course.id, rule, f"from the preview: {file.name}")],
+                    "rule added in the preview",
+                )
+                self.app.reload_config()  # type: ignore[attr-defined]
+            except Exception as exc:
+                self.notify(f"Could not write: {esc(exc)}", severity="error")
+                return
+            self.notify(
+                f"Rule [b]{esc(rule['id'])}[/b] added → {esc(target)}. Files synced before:"
+                " Reorganize (o) moves them."
+            )
+            self.action_refresh()
+
+        def typed(by: str, value: str | None) -> None:
+            if not value:
+                return
+            value = value.strip().strip("/")
+            if not value or ".." in Path(value).parts or Path(value).is_absolute():
+                self.notify("Give a folder inside the course folder.", severity="error")
+                return
+            try:
+                (course_dir / value).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                self.notify(f"Folder not created: {esc(exc)}", severity="error")
+                return
+            write(by, value)
+
+        def target_chosen(by: str, target: str | None) -> None:
+            if target is None:
+                return
+            if target == NEW_FOLDER:
+                self.app.push_screen(
+                    TextScreen("New folder inside the course folder", "", esc(str(course_dir))),
+                    lambda value: typed(by, value),
+                )
+                return
+            write(by, target)
+
+        def kind_chosen(by: str | None) -> None:
+            if by is None:
+                return
+            folders = local_subdirs(course_dir)
+            choices: list[tuple[str, str]] = [(f, esc(f)) for f in folders]
+            choices.append((NEW_FOLDER, "[green]+ new folder…[/green]"))
+            self.app.push_screen(
+                ChoiceScreen(f"Into which folder of {esc(course.name or course.target)}?", choices),
+                lambda target: target_chosen(by, target),
+            )
+
+        self.app.push_screen(
+            ChoiceScreen(
+                "A rule for which files?",
+                kinds,
+                f"like {esc(file.name)} - the rule is added to your config",
+            ),
+            kind_chosen,
+        )
 
     def action_toggle_skipped(self) -> None:
         self.show_skipped = not self.show_skipped
@@ -907,6 +1039,266 @@ class CoursesView(View):
         self.all_semesters = not self.all_semesters
         self.status("Loading…")
         self.load()
+
+
+class SemesterView(View):
+    """Semester change: a folder for the new semester, new courses, archive old ones."""
+
+    TITLE = "New semester"
+    HINT = "Space changes the selected line · Enter applies everything"
+    BINDINGS: ClassVar = [
+        *View.BINDINGS,
+        Binding("space", "change_line", "Change"),
+        Binding("enter", "apply", "Apply"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.change: semester.SemesterChange | None = None
+        self.choices: semester.Choices | None = None
+        self.proposal: Path | None = None  # the root folder proposed at first
+        self.rows: list[tuple[str, str]] = []  # (kind, id) per table row
+        self.done = False
+
+    def compose(self) -> ComposeResult:
+        yield from self.compose_header()
+        yield Static("Loading…", id="status", classes="status")
+        yield DataTable(id="semester", cursor_type="row", zebra_stripes=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one(DataTable).add_columns(" ", "Course", "What happens")
+        self.load()
+
+    @work(thread=True, exclusive=True)
+    def load(self) -> None:
+        self.busy(text="Asking Stud.IP for your courses and semesters…")
+        try:
+            with self.client() as client:
+                change = semester.detect(client, self.cfg)
+        except ApiError as exc:
+            self.idle()
+            self.check_login(exc)
+            self.app.call_from_thread(self.status, f"[red]{esc(exc)}[/red]")
+            return
+        self.idle()
+        self.app.call_from_thread(self.show, change)
+
+    def after_login(self) -> None:
+        self.load()
+
+    def show(self, change: semester.SemesterChange | None) -> None:
+        self.change = change
+        if change is None:
+            self.status(
+                "[green]✓ No semester change to make.[/green] [dim]No set-up course has ended"
+                " and no new semester has started. New courses mid-semester: Courses (c).[/dim]"
+            )
+            return
+        self.proposal = change.proposed_root
+        self.choices = semester.default_choices(change)
+        self.render_rows()
+
+    def _root(self) -> Path:
+        assert self.change is not None and self.choices is not None
+        return self.choices.new_root or self.change.root
+
+    def render_rows(self) -> None:
+        change, choices = self.change, self.choices
+        if change is None or choices is None:
+            return
+        home = Path.home()
+        table = self.query_one(DataTable)
+        cursor = table.cursor_row
+        table.clear()
+        self.rows = []
+        if change.new_courses:
+            new_root = choices.new_root is not None and choices.new_root != change.root
+            table.add_row(
+                Text("▸ new" if new_root else "▸ keep", style="green" if new_root else "dim"),
+                Text("Folder for the new courses", style="bold"),
+                Text(
+                    display_path(self._root(), home)
+                    + ("  (old courses keep their folders)" if new_root else "")
+                ),
+            )
+            self.rows.append(("root", ""))
+        for course in change.new_courses:
+            added = course.id in choices.add
+            table.add_row(
+                Text("+ add" if added else "- skip", style="green" if added else "dim"),
+                Text(clip(course.title, 48), style="bold" if added else "dim"),
+                Text(
+                    f"→ {clip(choices.add[course.id], 30)}/ ({', '.join(change.subfolders)})"
+                    if added
+                    else "not synced",
+                    style="" if added else "dim",
+                ),
+            )
+            self.rows.append(("new", course.id))
+        for old in change.old_courses:
+            archived = old.config.id in choices.archive
+            until = old.course.end_semester.title if old.course.end_semester else "?"
+            table.add_row(
+                Text(
+                    "◼ archive" if archived else "● keep", style="yellow" if archived else "green"
+                ),
+                Text(clip(old.label, 48), style="dim" if archived else course_color(old.config.id)),
+                Text(
+                    ("no longer synced, files stay" if archived else "keeps syncing")
+                    + (f" · ended {until}" if old.ended else f" · runs until the end of {until}"),
+                    style="dim",
+                ),
+            )
+            self.rows.append(("old", old.config.id))
+        if self.rows:
+            table.move_cursor(row=min(cursor, len(self.rows) - 1))
+        lines = [f"[b]{esc(change.semester.title)}[/b]"]
+        if change.new_courses:
+            lines.append(f"{plural(len(choices.add), 'new course')} to set up")
+        if change.old_courses:
+            lines.append(f"{plural(len(choices.archive), 'course')} to archive")
+        running = [o for o in change.old_courses if not o.ended]
+        note = (
+            "\n[dim]Courses that have not ended yet keep syncing unless you archive them"
+            " (exams and late solutions still come).[/dim]"
+            if running
+            else ""
+        )
+        self.status(" · ".join(lines) + "  → [b]Enter[/b] applies" + note)
+
+    def _selected(self) -> tuple[str, str] | None:
+        row = self.query_one(DataTable).cursor_row
+        return self.rows[row] if 0 <= row < len(self.rows) else None
+
+    def _retarget(self) -> None:
+        """New folder names for the courses being added, below the chosen root."""
+        assert self.change is not None and self.choices is not None
+        self.change.proposed_root = self.choices.new_root
+        targets = semester.new_targets(self.change, new_root=self.choices.new_root is not None)
+        self.choices.add = {cid: targets[cid] for cid in self.choices.add}
+
+    def action_change_line(self) -> None:
+        selected = self._selected()
+        if self.done or selected is None or self.choices is None or self.change is None:
+            return
+        kind, cid = selected
+        choices = self.choices
+        if kind == "new":
+            if cid in choices.add:
+                del choices.add[cid]
+                choices.skip.add(cid)
+            else:
+                choices.skip.discard(cid)
+                choices.add[cid] = semester.new_targets(
+                    self.change, new_root=choices.new_root is not None
+                )[cid]
+        elif kind == "old":
+            if cid in choices.archive:
+                choices.archive.discard(cid)
+                choices.keep.add(cid)
+            else:
+                choices.archive.add(cid)
+                choices.keep.discard(cid)
+        elif kind == "root":
+            self._choose_root()
+            return
+        self.render_rows()
+
+    def _choose_root(self) -> None:
+        assert self.change is not None and self.choices is not None
+        home = Path.home()
+        options: list[tuple[str, str]] = []
+        if self.proposal is not None:
+            options.append(
+                ("proposal", f"{esc(display_path(self.proposal, home))}  [dim](new folder)[/dim]")
+            )
+        options.append(
+            ("keep", f"{esc(display_path(self.change.root, home))}  [dim](as now)[/dim]")
+        )
+        options.append(("other", "another folder…"))
+
+        def use(root: Path | None) -> None:
+            assert self.choices is not None
+            self.choices.new_root = root
+            self._retarget()
+            self.render_rows()
+
+        def typed(value: str | None) -> None:
+            if not value:
+                return
+            path = semester.typed_root(self.cfg, value)
+            if problem := unsafe_folder(str(path)):
+                self.notify(f"{esc(value)}: {esc(problem)}", severity="error")
+                return
+            use(path)
+
+        def chosen(choice: str | None) -> None:
+            if choice == "proposal":
+                use(self.proposal)
+            elif choice == "keep":
+                use(None)
+            elif choice == "other":
+                start = self.choices.new_root if self.choices and self.choices.new_root else None
+                self.app.push_screen(
+                    TextScreen(
+                        "Folder for the new semester",
+                        display_path(start or self.change.root, home),  # type: ignore[union-attr]
+                        "Old courses keep their folders.",
+                    ),
+                    typed,
+                )
+
+        self.app.push_screen(ChoiceScreen("Folder for the new courses", options), chosen)
+
+    @on(DataTable.RowSelected)
+    def _row_selected(self) -> None:
+        self.action_apply()
+
+    def action_apply(self) -> None:
+        change, choices = self.change, self.choices
+        if self.done or change is None or choices is None:
+            return
+        parts = []
+        if choices.new_root and choices.new_root != change.root:
+            parts.append(f"create {esc(display_path(choices.new_root, Path.home()))}")
+        if choices.add:
+            parts.append(f"set up {plural(len(choices.add), 'new course')}")
+        if choices.archive:
+            parts.append(f"archive {plural(len(choices.archive), 'course')}")
+        if not parts and not choices.skip and not choices.keep:
+            self.notify("Nothing to change.")
+            return
+
+        def confirmed(ok: bool | None) -> None:
+            if not ok:
+                return
+            try:
+                applied = semester.apply_change(self.cfg, change, choices)
+            except (ConfigError, ValueError, OSError) as exc:
+                self.notify(f"Nothing changed: {esc(exc)}", severity="error")
+                return
+            self.app.cfg = applied.config  # type: ignore[attr-defined]
+            self.done = True
+            self.app.refresh_home(remote_changed=True)  # type: ignore[attr-defined]
+            lines = ["[green]✓ Done.[/green] [dim]A backup of the config: config.toml.bak[/dim]"]
+            lines += [
+                f"[green]+[/green] {esc(display_path(p, Path.home()))}" for p in applied.created
+            ]
+            lines += [f"[red]✗ {esc(p)}[/red]" for p in applied.problems]
+            if choices.add:
+                lines.append("Next: Rules (r) suggests rules for the new courses, then sync.")
+            self.status("\n".join(lines))
+            self.query_one(DataTable).display = False
+
+        self.app.push_screen(
+            ConfirmScreen(
+                ", ".join(parts).capitalize() + "?" if parts else "Save your choices?",
+                "Files already synced stay where they are. Archived courses can be turned on"
+                " again under Courses (c).",
+            ),
+            confirmed,
+        )
 
 
 EXCLUDE = "\0exclude"  # cannot be a folder name

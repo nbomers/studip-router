@@ -163,6 +163,13 @@ def _check_paused() -> Iterator[Check]:
         yield Check(
             "auto-sync", Level.FAIL, "paused after a failed login - run `studip auth login`"
         )
+    if paths.update_hold_file().exists():
+        yield Check(
+            "auto-sync",
+            Level.WARN,
+            "waits after the update: synced files would go to other folders now -"
+            " open studip (Reorganize, o) or run `studip sync` once",
+        )
 
 
 def _check_schedule() -> Iterator[Check]:
