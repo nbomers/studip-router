@@ -1,5 +1,11 @@
 # studip-router: changes from 0.2.4 to 0.4.1
 
+> [!NOTE]
+> A write-up of one day of work (0.2.4 → 0.4.1, with the 0.4.2 review fixes and the
+> roadmap items built after it). The file keeps its name because tests and commits
+> link its section numbers. For what is in a release, [CHANGELOG.md](../CHANGELOG.md)
+> is the reference; new changes go there, not here.
+
 All changes made on 2026-11-05: three releases on PyPI and four merged pull requests:
 [nbomers/studip-router#17](https://github.com/nbomers/studip-router/pull/17),
 [#18](https://github.com/nbomers/studip-router/pull/18),
@@ -421,7 +427,7 @@ This happens every six months and is currently the only routine task that requir
 
 16. **Shared rule sets per university or course.** Export and import the rules of a course, so a whole year can share one file. This helps more than ever longer keyword lists.
 17. ✅ **Own keywords as a list in the config,** *built:* `[sync.keywords]` with `exams`, `solutions`, `exercises`, `slides`, `reading`; checked before the built-in lists. Original idea: for example `keywords.exercises = ["Werkstatt"]`, instead of only `name_regex` rules (see [Known limits](#14-known-limits)).
-18. ✅ **"Sorted wrong" key in the preview.** *Built (not released yet):* `b`; you check and edit the text, then copy it or open the GitHub issue form; the tool sends nothing. Original idea: It writes an issue text with only the folder and file name, no course data, so the keyword lists grow from real mistakes instead of research.
+18. ✅ **"Sorted wrong" key in the preview.** *Built (not released yet):* `b`; you check and edit the text, then copy it or open a prefilled new GitHub issue; the tool sends nothing. Original idea: It writes an issue text with only the folder and file name, no course data, so the keyword lists grow from real mistakes instead of research.
 19. ✅ **Check after an update.** *Built (not released yet):* the background sync remembers the version you last used by hand. After an update it waits, at most three days and with one notification, when files you already have would now go elsewhere; the UI or a `studip sync` by hand (also `--dry-run`) ends the wait. It cannot preview files that are not synced yet. Original idea: Show which synced files the new version would place elsewhere, *before* auto-sync runs again. This closes the gap described in [section 13](#13-coming-from-02x), step 3.
 
 ### Robustness

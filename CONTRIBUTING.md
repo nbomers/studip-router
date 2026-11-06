@@ -37,12 +37,20 @@ src/studip_router/
   state.py        SQLite state         fsutil.py     names, NFC, iCloud, atomic writes
   suggest.py      rule suggestions     postprocess.py  unzip, PDF unlock + merge
   reorganize.py   reorganize/undo      news.py, notify.py, schedule.py, doctor.py
-  dates.py        course date changes, exams
+  dates.py        course date changes, exams   ics.py  calendar export (`dates --ics`)
+  semester.py     semester change: new courses, archiving
+  update_hold.py  check after an update (background sync waits)
+  new_version.py  opt-in PyPI check (`[ui] update_check`)
+  sorting_report.py  text of a "sorted wrong" report (`b` in the preview)
   auth.py         keychain (Stud.IP and PDF passwords)
   models.py       shared data types    paths.py      config/state locations, profiles
   report.py       tables, summaries    tomlwrite.py  appending rule blocks
   wizard.py       setup helpers        cli.py        typer CLI
   tui/            Textual UI: app.py (home), views.py, settings.py, setup.py, widgets.py
+  completions/    zsh, bash and fish scripts (`studip completion`)
+scripts/
+  make_screenshots.py   README screenshots (fake data)
+  homebrew_formula.py   Homebrew formula for a released version
 ```
 
 Screenshots in the README come from `uv run python scripts/make_screenshots.py` (fake data only).

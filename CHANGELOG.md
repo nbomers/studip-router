@@ -23,7 +23,7 @@ All notable changes to this project are documented here. The format follows
   asks. `SECURITY.md` names it as the only exception to "only Stud.IP is contacted".
 - **Report a file sorted wrong:** `b` in the preview writes a short report (Stud.IP
   folder, file name, what placed it, where it went; no course data) that you edit
-  and then copy or open as a GitHub issue form in the browser. Nothing is sent by
+  and then copy or open as a new GitHub issue (prefilled) in the browser. Nothing is sent by
   the tool.
 - `scripts/homebrew_formula.py` writes a Homebrew formula for a released version
   (for a tap; not tested on a Mac yet).
@@ -34,6 +34,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 - Dialogs for typed text are centred like the other dialogs.
+- Internal: the module for the check after an update is `update_hold.py` (was
+  `update_check.py`, easily confused with the `[ui] update_check` setting, which
+  belongs to `new_version.py`).
+- Docs: `docs/DESIGN.md` describes the semester change, the update hold, all state
+  tables and the small files next to the state; the README lists every command
+  option and per-course setting; `config.example.toml` no longer mentions Windows.
 
 ## [0.4.2] - 2026-11-05
 

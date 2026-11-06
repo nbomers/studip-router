@@ -678,15 +678,15 @@ def sync_cmd(
         logging.getLogger("studip_router").warning(log_line)
         raise typer.Exit(3)
     if background:
-        from . import update_check
+        from . import update_hold
 
         with State(paths.state_db()) as state:
-            held = update_check.hold_background(cfg, state)
+            held = update_hold.hold_background(cfg, state)
         if held is not None:
             notice, first = held
-            logging.getLogger("studip_router").warning(update_check.message(notice))
+            logging.getLogger("studip_router").warning(update_hold.message(notice))
             if first:
-                notify("studip-router", update_check.message(notice))
+                notify("studip-router", update_hold.message(notice))
             return
     try:
         password = auth.get_password(cfg.base_url, cfg.username)
@@ -717,7 +717,7 @@ def sync_cmd(
             raise fail(str(exc)) from None
         pause.unlink(missing_ok=True)  # login works again
         if not background:  # a sync by hand shows the plan: the update has been seen
-            from .update_check import mark_seen
+            from .update_hold import mark_seen
 
             mark_seen()
         if dry_run or verbose:

@@ -19,7 +19,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, OptionList, Static
 from textual.widgets.option_list import Option
 
-from .. import __version__, auth, new_version, paths, update_check
+from .. import __version__, auth, new_version, paths, update_hold
 from ..api import ApiError, AuthFailed, StudipClient
 from ..config import Config, ConfigError, load
 from ..config_edit import open_in_editor
@@ -553,9 +553,9 @@ class StudipRouterApp(App):
         if self.cfg is not None:  # the home screen shows the moves: the update is seen
             with contextlib.suppress(Exception):
                 with State(paths.state_db()) as state:
-                    notice = update_check.check(self.cfg, state)
+                    notice = update_hold.check(self.cfg, state)
                 self.updated_from = notice.previous if notice else None
-                update_check.mark_seen()
+                update_hold.mark_seen()
         self.push_screen(HomeScreen())
 
     def watch_theme(self, theme: str) -> None:
