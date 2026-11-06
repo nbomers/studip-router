@@ -154,7 +154,7 @@ def _unzip(action: Action, state: State, run_id: int, outcome: Outcome) -> None:
         return  # never pull an archive out of iCloud just to extract it
     try:
         folder = extract_zip(action.dest)
-    except (PostprocessError, OSError, zipfile.BadZipFile) as exc:
+    except (PostprocessError, OSError, zipfile.BadZipFile, RecursionError) as exc:
         log.error("unzip failed for %s: %s", action.dest, exc)
         outcome.failed.append((action, f"unzip failed: {exc}"))
         return

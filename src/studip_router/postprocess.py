@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import os
 import re
 import shutil
 import tempfile
@@ -19,6 +18,8 @@ from .fsutil import (
     is_ignored,
     local_stat,
     nfc,
+    rename_no_replace,
+    require_unchanged,
     sanitize_filename,
     sha256_file,
     split_ext,
@@ -26,6 +27,7 @@ from .fsutil import (
 
 MAX_UNZIPPED_BYTES = 1024**3  # 1 GiB extracted per archive
 MAX_MEMBERS = 20_000
+MAX_MEMBER_DEPTH = 64
 MAX_RATIO = 200  # extracted/compressed per member; zip bombs reach 1000:1 and more
 
 
@@ -63,9 +65,13 @@ def extract_zip(zip_path: Path) -> Path | None:
     tmp = Path(tempfile.mkdtemp(prefix=f".{target.name[:40]}.", suffix=".unzip", dir=target.parent))
     try:
         with zipfile.ZipFile(zip_path) as archive:
-            members = [m for m in archive.infolist() if not m.is_dir()]
-            if len(members) > MAX_MEMBERS:
-                raise PostprocessError(f"{zip_path.name}: too many entries ({len(members)})")
+            entries = archive.infolist()
+            if len(entries) > MAX_MEMBERS:
+                raise PostprocessError(f"{zip_path.name}: too many entries ({len(entries)})")
+            # Validate directories too: they cannot bypass the path/depth budget.
+            for entry in entries:
+                _safe_member_path(member_name(entry))
+            members = [m for m in entries if not m.is_dir()]
             if sum(m.file_size for m in members) > MAX_UNZIPPED_BYTES:
                 raise PostprocessError(f"{zip_path.name}: archive too large when extracted")
             for member in members:
@@ -94,7 +100,7 @@ def extract_zip(zip_path: Path) -> Path | None:
                     shutil.copyfileobj(src, out, 1 << 20)
         if target.exists():  # appeared meanwhile: never merge into it
             raise PostprocessError(f"{target.name} appeared while extracting")
-        os.rename(tmp, target)
+        rename_no_replace(tmp, target)
         fsync_dir(target.parent)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -130,6 +136,8 @@ def _safe_member_path(name: str) -> PurePosixPath | None:
         or re.match(r"^[A-Za-z]:", path.parts[0])
     ):
         raise PostprocessError(f"unsafe path in archive: {name!r}")
+    if len(path.parts) > MAX_MEMBER_DEPTH:
+        raise PostprocessError("archive path is too deeply nested")
     if path.parts[0] == "__MACOSX" or is_ignored(path.name):
         return None
     parts = [p for p in path.parts if p not in ("", ".")]
@@ -170,6 +178,7 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
     from pypdf.errors import DependencyError, PyPdfError
 
     try:
+        original_sha = sha256_file(path)
         reader = PdfReader(path)
         if not reader.is_encrypted:
             return Unlock.NOT_ENCRYPTED
@@ -179,7 +188,12 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
             return Unlock.WRONG_PASSWORD
         buffer = io.BytesIO()  # pypdf needs a seekable stream
         PdfWriter(clone_from=reader).write(buffer)
-        with atomic_writer(path) as (fh, _):
+
+        def commit(_sha: str) -> bool:
+            require_unchanged(path, original_sha)
+            return True
+
+        with atomic_writer(path, commit) as (fh, _):
             fh.write(buffer.getvalue())
     except (PyPdfError, DependencyError, ValueError, KeyError) as exc:  # broken PDF, no AES
         raise PostprocessError(f"{path.name}: could not unlock: {exc}") from exc
@@ -262,7 +276,14 @@ def merge_pdfs(
     fingerprint = inputs_fingerprint(inputs)
     if fingerprint == previous_fingerprint and output.exists():
         return MergeResult(output, inputs, False, "up to date"), previous_sha, fingerprint
-    if output.exists():
+    output_stat = local_stat(output)
+    if output_stat is not None:
+        if output_stat.dataless:
+            return (
+                MergeResult(output, inputs, False, "output only in iCloud; not overwriting"),
+                previous_sha,
+                previous_fingerprint,
+            )
         if previous_sha is None:
             return (
                 MergeResult(
@@ -271,8 +292,7 @@ def merge_pdfs(
                 previous_sha,
                 previous_fingerprint,
             )
-        st = local_stat(output)
-        if st and not st.dataless and sha256_file(output) != previous_sha:
+        if sha256_file(output) != previous_sha:
             return (
                 MergeResult(output, inputs, False, "output was modified, not overwriting"),
                 previous_sha,
@@ -296,6 +316,15 @@ def merge_pdfs(
         writer.append(str(pdf), outline_item=split_ext(pdf.name)[0])
     buffer = io.BytesIO()
     writer.write(buffer)
-    with atomic_writer(output) as (fh, digest):  # unique temp name, fsync, replace
+
+    def commit(_sha: str) -> bool:
+        if output_stat is not None:
+            assert previous_sha is not None
+            require_unchanged(output, previous_sha)
+        elif local_stat(output) is not None:
+            raise OSError(f"{output.name} appeared while merging; not overwriting")
+        return True
+
+    with atomic_writer(output, commit, no_clobber=output_stat is None) as (fh, digest):
         fh.write(buffer.getvalue())
     return MergeResult(output, inputs, True), digest(), fingerprint

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from urllib.parse import urlsplit
 
 import keyring
 import keyring.errors
+from keyring.backend import KeyringBackend
+from keyring.backends.chainer import ChainerBackend
+
+from . import paths
 
 SERVICE = "studip-router"
 
@@ -31,12 +37,36 @@ def _account(base_url: str, username: str) -> str:
     return f"{username}@{urlsplit(base_url).hostname}"
 
 
+_OS_BACKENDS = {
+    ("keyring.backends.macOS", "Keyring"),
+    ("keyring.backends.Windows", "WinVaultKeyring"),
+    ("keyring.backends.SecretService", "Keyring"),
+    ("keyring.backends.libsecret", "Keyring"),
+    ("keyring.backends.kwallet", "DBusKeyring"),
+    ("keyring.backends.kwallet", "DBusKeyringKWallet4"),
+}
+
+
+def _os_keyring() -> KeyringBackend:
+    """Select one OS backend and use it directly, without file-backend fallback."""
+    try:
+        backend = keyring.get_keyring()
+        candidates = backend.backends if isinstance(backend, ChainerBackend) else [backend]
+        for candidate in candidates:
+            identity = (type(candidate).__module__, type(candidate).__name__)
+            if identity in _OS_BACKENDS and candidate.priority > 0:
+                return candidate
+    except Exception as exc:
+        raise _keychain_error(exc) from None
+    raise AuthError(f"no supported OS keychain: {NO_KEYCHAIN_HINT}")
+
+
 def get_password(base_url: str, username: str) -> str:
     """Return the stored password, or STUDIP_ROUTER_PASSWORD if set (for CI/headless use)."""
     if env := os.environ.get("STUDIP_ROUTER_PASSWORD"):
         return env
     try:
-        password = keyring.get_password(SERVICE, _account(base_url, username))
+        password = _os_keyring().get_password(SERVICE, _account(base_url, username))
     except keyring.errors.KeyringError as exc:
         raise _keychain_error(exc) from None
     if not password:
@@ -49,14 +79,14 @@ def get_password(base_url: str, username: str) -> str:
 def set_password(base_url: str, username: str, password: str) -> None:
     """Store the password; raises AuthError (never containing it) if that fails."""
     try:
-        keyring.set_password(SERVICE, _account(base_url, username), password)
+        _os_keyring().set_password(SERVICE, _account(base_url, username), password)
     except keyring.errors.KeyringError as exc:
         raise _keychain_error(exc) from None
 
 
 def delete_password(base_url: str, username: str) -> bool:
     try:
-        keyring.delete_password(SERVICE, _account(base_url, username))
+        _os_keyring().delete_password(SERVICE, _account(base_url, username))
     except keyring.errors.PasswordDeleteError:
         return False
     except keyring.errors.KeyringError as exc:
@@ -67,13 +97,9 @@ def delete_password(base_url: str, username: str) -> bool:
 def keychain_problem() -> str | None:
     """Why no password can be stored in the keychain, or None if a backend is usable."""
     try:
-        backend = keyring.get_keyring()
-    except Exception as exc:  # pragma: no cover - broken keyring configuration
-        return f"{type(exc).__name__}: {NO_KEYCHAIN_HINT}"
-    priority = getattr(backend, "priority", 1)
-    module = type(backend).__module__
-    if module.startswith(("keyring.backends.fail", "keyring.backends.null")) or priority <= 0:
-        return f"{type(backend).__name__} backend: {NO_KEYCHAIN_HINT}"
+        _os_keyring()
+    except AuthError as exc:
+        return str(exc)
     return None
 
 
@@ -81,36 +107,51 @@ def has_password(base_url: str, username: str) -> bool:
     if os.environ.get("STUDIP_ROUTER_PASSWORD"):
         return True
     try:
-        return bool(keyring.get_password(SERVICE, _account(base_url, username)))
-    except keyring.errors.KeyringError:
+        return bool(_os_keyring().get_password(SERVICE, _account(base_url, username)))
+    except (keyring.errors.KeyringError, AuthError):
         return False
 
 
 # -- PDF passwords: one shared password per course, used to unlock its PDFs ---------
 
 
-def _pdf_account(course_id: str) -> str:
-    return f"pdf:{course_id}"
+def _pdf_account(course_id: str, base_url: str, username: str) -> str:
+    # Old pdf:<id> entries cannot be bound to a server/account safely. Do not
+    # read or migrate them implicitly; users re-enter the course password once.
+    url = urlsplit(base_url)
+    identity = [
+        paths.profile(),
+        url.scheme.lower(),
+        (url.hostname or "").lower(),
+        url.port,
+        url.path.rstrip("/"),
+        username,
+        course_id,
+    ]
+    digest = hashlib.sha256(json.dumps(identity, ensure_ascii=True).encode()).hexdigest()
+    return f"pdf:v2:{digest}"
 
 
-def get_pdf_password(course_id: str) -> str | None:
+def get_pdf_password(course_id: str, *, base_url: str, username: str) -> str | None:
     """The course's PDF password, or None if none is stored or the keychain is locked."""
     try:
-        return keyring.get_password(SERVICE, _pdf_account(course_id)) or None
-    except keyring.errors.KeyringError:
+        return (
+            _os_keyring().get_password(SERVICE, _pdf_account(course_id, base_url, username)) or None
+        )
+    except (keyring.errors.KeyringError, AuthError):
         return None
 
 
-def set_pdf_password(course_id: str, password: str) -> None:
+def set_pdf_password(course_id: str, password: str, *, base_url: str, username: str) -> None:
     try:
-        keyring.set_password(SERVICE, _pdf_account(course_id), password)
+        _os_keyring().set_password(SERVICE, _pdf_account(course_id, base_url, username), password)
     except keyring.errors.KeyringError as exc:
         raise _keychain_error(exc) from None
 
 
-def delete_pdf_password(course_id: str) -> bool:
+def delete_pdf_password(course_id: str, *, base_url: str, username: str) -> bool:
     try:
-        keyring.delete_password(SERVICE, _pdf_account(course_id))
+        _os_keyring().delete_password(SERVICE, _pdf_account(course_id, base_url, username))
     except keyring.errors.PasswordDeleteError:
         return False
     except keyring.errors.KeyringError as exc:

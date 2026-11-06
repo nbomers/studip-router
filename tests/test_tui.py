@@ -200,7 +200,8 @@ async def test_rules_suggest_and_test(course_dir: Path) -> None:
 
 
 @respx.mock
-async def test_first_run_setup(root: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("password", ["pw", " pw "])
+async def test_first_run_setup(root: Path, monkeypatch, password: str) -> None:
     install(respx.mock)
     monkeypatch.setenv("HOME", str(root.parent))  # the folder search starts here
     stored = {}
@@ -215,7 +216,7 @@ async def test_first_run_setup(root: Path, monkeypatch) -> None:
         for field, value in (
             ("url", "studip.example.edu"),
             ("username", "jdoe"),
-            ("password", "pw"),
+            ("password", password),
         ):
             app.screen.query_one(f"#{field}", Input).value = value
         await pilot.click("#connect")
@@ -234,7 +235,7 @@ async def test_first_run_setup(root: Path, monkeypatch) -> None:
         assert cfg.courses[COURSE].target == "Quantum Cooking"
         assert cfg.courses[OTHER].exclude and cfg.default_target == "Misc"
         assert cfg.course_folders == ("Misc", "Slides")
-        assert stored == {"pw": "pw"}
+        assert stored == {"pw": password}
         assert "pw" not in Path(paths.config_file()).read_text()
 
 

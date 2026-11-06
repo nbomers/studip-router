@@ -197,8 +197,6 @@ class _Claims:
 
 def is_locally_modified(record: FileRecord, st: LocalStat, path: Path) -> bool:
     """Compare a local file against what we wrote. Never reads evicted iCloud files."""
-    if st.size == record.local_size and abs(st.mtime - record.local_mtime) < 1:
-        return False
     if st.size != record.local_size:
         return True
     if st.dataless or record.local_digest is None:
@@ -470,7 +468,34 @@ def _plan_known(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
         return
     same_file = record.file_id == file.id
     if same_file and same_time(record.chdate, file.chdate) and record.filesize == file.size:
-        plan.unchanged += 1
+        # A recorded download may still need extraction after an interrupted or
+        # failed postprocess. Retry locally, without downloading it a second time.
+        try:
+            route = ctx.route_file(file)
+        except RenameError:
+            route = None
+        if (
+            route is not None
+            and route.unzip
+            and path.suffix.lower() == ".zip"
+            and not unzip_target(path).exists()
+            and not st.dataless
+            and not is_locally_modified(record, st, path)
+        ):
+            plan.actions.append(
+                Action(
+                    Kind.ADOPT,
+                    plan.course.id,
+                    file,
+                    dest=path,
+                    previous=record,
+                    route=route,
+                    version=record.version,
+                    note="retry archive extraction",
+                )
+            )
+        else:
+            plan.unchanged += 1
         return
 
     try:

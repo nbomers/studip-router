@@ -46,6 +46,25 @@ All notable changes to this project are documented here. The format follows
   tables and the small files next to the state; the README lists every command
   option and per-course setting; `config.example.toml` no longer mentions Windows.
 
+### Security
+- Bound ZIP entry counts and nesting depth, isolate extraction failures and retry
+  unfinished extraction without downloading the archive again.
+- Recheck content before replacing PDFs or downloaded files; keep unverifiable
+  iCloud merge outputs and files saved while a merge is running.
+- Use exclusive rename operations when hard links are unavailable; never fall back
+  to a rename that can replace a file created by another application.
+- Disable CLI traceback locals on all supported Typer versions, pause background
+  sync after rejected authentication during news/date checks, and accept only OS
+  keychain backends for passwords.
+- Keep configuration files private when appending suggested rules.
+
+### Fixed
+- Partially blocked undo operations keep their unfinished steps available.
+- PDF passwords are scoped to the server, account and profile. Existing course
+  passwords must be entered again with `studip pdf-password set COURSE`; ambiguous
+  legacy entries are no longer read or automatically migrated.
+- Setup preserves leading and trailing spaces in passwords.
+
 ## [0.4.2] - 2026-11-05
 
 ### Added
