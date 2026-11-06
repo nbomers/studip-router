@@ -197,3 +197,101 @@ def test_move_without_hard_links_never_replaces_a_file_that_appeared(
     with pytest.raises(FileExistsError):
         move_no_clobber(src, dst)
     assert dst.read_bytes() == b"saved by the user" and src.read_bytes() == b"new"
+
+
+# -- safe writes by default (one interface for downloads, merge, unlock) -------------
+
+
+def test_atomic_writer_never_replaces_without_permission(tmp_path: Path) -> None:
+    from studip_router.fsutil import ReplaceRefused, atomic_writer
+
+    dest = tmp_path / "a.pdf"
+    dest.write_bytes(b"mine")
+    with pytest.raises(FileExistsError), atomic_writer(dest) as (fh, _):
+        fh.write(b"new")
+    assert dest.read_bytes() == b"mine"
+    with (
+        pytest.raises(ReplaceRefused),
+        atomic_writer(dest, may_replace=lambda p: False) as (
+            fh,
+            _,
+        ),
+    ):
+        fh.write(b"new")
+    assert dest.read_bytes() == b"mine"
+    with atomic_writer(dest, may_replace=lambda p: p.read_bytes() == b"mine") as (fh, _):
+        fh.write(b"new")
+    assert dest.read_bytes() == b"new"
+    assert not list(tmp_path.glob("*.part"))
+
+
+def test_unlock_keeps_a_pdf_changed_while_unlocking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pypdf import PdfWriter as Writer
+
+    path = tmp_path / "locked.pdf"
+    writer = Writer()
+    writer.add_blank_page(width=100, height=100)
+    writer.encrypt("secret", algorithm="RC4-128")
+    with path.open("wb") as fh:
+        writer.write(fh)
+    real_write = Writer.write
+
+    def write_and_annotate(self, stream):
+        result = real_write(self, stream)
+        if isinstance(stream, io.BytesIO):  # the unlocked copy, before it is published
+            path.write_bytes(b"%PDF annotated meanwhile")
+        return result
+
+    monkeypatch.setattr(Writer, "write", write_and_annotate)
+    with pytest.raises(PostprocessError, match="changed while unlocking"):
+        postprocess.unlock_pdf(path, "secret")
+    assert path.read_bytes() == b"%PDF annotated meanwhile"
+
+
+# -- an extraction that failed for a passing reason is tried again ---------------------
+
+
+def test_unzip_failing_on_the_file_system_is_retried_next_sync(
+    root: Path, state, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from studip_router.planner import Kind
+
+    cfg = _cfg(root)
+    data = _zip({"a.pdf": b"pdf"})
+    files = [remote("A.zip", size=len(data))]
+    plan = plan_course(cfg, cfg.courses[COURSE_ID], files, {})
+    real = executor.extract_zip
+    monkeypatch.setattr(
+        executor, "extract_zip", lambda p: (_ for _ in ()).throw(OSError(28, "No space left"))
+    )
+    outcome = execute(plan, state, FakeDownloads({"file-A.zip": data}), run_id=1)
+    assert outcome.failed and state.pending_failures() == 1
+
+    monkeypatch.setattr(executor, "extract_zip", real)
+    records = state.for_course(COURSE_ID)
+    again = plan_course(cfg, cfg.courses[COURSE_ID], files, records, failures=state.failures())
+    assert [a.kind for a in again.actions] == [Kind.UNZIP] and again.actions[0].unzips
+    downloads = FakeDownloads({"file-A.zip": data})
+    outcome = execute(again, state, downloads, run_id=2)
+    assert downloads.calls == []  # extracted from the archive on disk, not downloaded
+    assert [p.name for p in outcome.extracted] == ["A"]
+    assert state.pending_failures() == 0
+    third = plan_course(
+        cfg, cfg.courses[COURSE_ID], files, state.for_course(COURSE_ID), failures=state.failures()
+    )
+    assert third.actions == [] and third.unchanged == 1
+
+
+def test_a_broken_archive_is_not_retried(root: Path, state) -> None:
+    cfg = _cfg(root)
+    data = b"PK\x03\x04 not really a zip"
+    files = [remote("A.zip", size=len(data))]
+    plan = plan_course(cfg, cfg.courses[COURSE_ID], files, {})
+    outcome = execute(plan, state, FakeDownloads({"file-A.zip": data}), run_id=1)
+    assert outcome.failed  # reported once
+    again = plan_course(
+        cfg, cfg.courses[COURSE_ID], files, state.for_course(COURSE_ID), failures=state.failures()
+    )
+    assert again.actions == [] and again.unchanged == 1

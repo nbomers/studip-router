@@ -14,6 +14,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
 from .fsutil import (
+    ReplaceRefused,
     atomic_writer,
     fsync_dir,
     is_ignored,
@@ -174,7 +175,9 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
     from pypdf.errors import DependencyError, PyPdfError
 
     try:
-        reader = PdfReader(path)
+        data = path.read_bytes()
+        original = hashlib.sha256(data).hexdigest()
+        reader = PdfReader(io.BytesIO(data))
         if not reader.is_encrypted:
             return Unlock.NOT_ENCRYPTED
         if reader.decrypt("") != PasswordType.NOT_DECRYPTED:
@@ -183,8 +186,10 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
             return Unlock.WRONG_PASSWORD
         buffer = io.BytesIO()  # pypdf needs a seekable stream
         PdfWriter(clone_from=reader).write(buffer)
-        with atomic_writer(path) as (fh, _):
+        with atomic_writer(path, may_replace=lambda p: sha256_file(p) == original) as (fh, _):
             fh.write(buffer.getvalue())
+    except ReplaceRefused as exc:
+        raise PostprocessError(f"{path.name}: changed while unlocking, kept as it is") from exc
     except (PyPdfError, DependencyError, ValueError, KeyError) as exc:  # broken PDF, no AES
         raise PostprocessError(f"{path.name}: could not unlock: {exc}") from exc
     except (
@@ -310,22 +315,14 @@ def merge_pdfs(
     buffer = io.BytesIO()
     writer.write(buffer)
 
-    refused: list[bool] = []
+    def still_ours(path: Path) -> bool:
+        # Merging takes a while: the output may have been edited or saved meanwhile.
+        return sha256_file(path) == previous_sha
 
-    def still_ours(_sha: str) -> bool:
-        """Right before the replace: merging takes a while, and the output may have
-        been edited or saved meanwhile. A new output is never replaced (no_clobber)."""
-        if existed and not (output.exists() and sha256_file(output) == previous_sha):
-            refused.append(True)
-            return False
-        return True
-
-    changed = MergeResult(output, inputs, False, "output changed while merging, not overwriting")
     try:
-        with atomic_writer(output, still_ours, no_clobber=not existed) as (fh, digest):
+        with atomic_writer(output, may_replace=still_ours if existed else None) as (fh, digest):
             fh.write(buffer.getvalue())
-    except FileExistsError:
-        return changed, previous_sha, previous_fingerprint
-    if refused:
-        return changed, previous_sha, previous_fingerprint
+    except FileExistsError:  # also ReplaceRefused: changed, or a new output appeared
+        reason = "output changed while merging, not overwriting"
+        return MergeResult(output, inputs, False, reason), previous_sha, previous_fingerprint
     return MergeResult(output, inputs, True), digest(), fingerprint

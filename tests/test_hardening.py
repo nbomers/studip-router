@@ -328,13 +328,16 @@ def test_parallel_writers_do_not_share_temp_files(cfg, root: Path, tmp_path: Pat
     def run():
         try:
             fetch_verified(file, dest, slow)
-        except Exception as exc:  # pragma: no cover - would be the bug
+        except Exception as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=run) for _ in range(2)]
     [t.start() for t in threads]
     [t.join() for t in threads]
-    assert errors == [] and dest.stat().st_size == 50_000
+    # one wins; the other never replaces the finished file (safe by default)
+    assert len(errors) <= 1 and all(isinstance(e, FileExistsError) for e in errors)
+    assert dest.stat().st_size == 50_000
+    assert not list(dest.parent.glob("*.part"))
 
 
 def test_execute_plan_holds_the_lock(cfg, state, monkeypatch) -> None:

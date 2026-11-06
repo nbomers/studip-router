@@ -42,6 +42,7 @@ class Kind(StrEnum):
     REFRESH = "refresh"  # only Stud.IP metadata changed (name, folder, date): record only
     MOVE = "rename"  # file renamed on Stud.IP: rename the unmodified local copy too
     MKDIR = "mkdir"
+    UNZIP = "unzip"  # extract an archive again after a temporary failure (disk full...)
     SKIP = "skip"
     ERROR = "error"
 
@@ -98,8 +99,8 @@ class Action:
             return False
         if self.dest.suffix.lower() != ".zip":
             return False
-        if self.kind is Kind.ADOPT:
-            return not self.dest.with_suffix("").exists()
+        if self.kind in (Kind.ADOPT, Kind.UNZIP):
+            return not unzip_target(self.dest).exists()
         return self.transfers
 
 
@@ -293,7 +294,8 @@ def plan_course(
         for f in remote_files
         if f.folder_type and f.id in records and not records[f.id].folder_type
     }
-    ctx = _Ctx(cfg, plan, claims, route_file, by_name, by_base, adopted, planned_dirs)
+    unzip_retry = {fid for fid, (_, error, _) in failures.items() if error.startswith(UNZIP_RETRY)}
+    ctx = _Ctx(cfg, plan, claims, route_file, by_name, by_base, adopted, planned_dirs, unzip_retry)
 
     for file in sorted(remote_files, key=lambda f: (f.folder_path, nfc(f.name))):
         reason: str | None = exclusion_reason(file, excludes)
@@ -431,6 +433,33 @@ class _Ctx:
     by_base: dict[str, list[Path]]
     adopted: set[str]
     planned_dirs: set[str]
+    unzip_retry: set[str] = field(default_factory=set)  # file ids to extract again
+
+
+# Prefix of a failure that is worth retrying: the archive is fine, extracting it was
+# not (disk full, iCloud, permissions). Broken or encrypted archives are not retried.
+UNZIP_RETRY = "unzip failed, retrying: "
+
+
+def _plan_unzip_retry(ctx: _Ctx, file: RemoteFile, record: FileRecord, path: Path) -> None:
+    """Extract an unchanged archive again. Also when there is nothing left to do (now
+    extracted, or unzip turned off): the action then only clears the old failure."""
+    try:
+        route = ctx.route_file(file)
+    except RenameError:
+        route = None
+    ctx.plan.actions.append(
+        Action(
+            Kind.UNZIP,
+            ctx.plan.course.id,
+            file,
+            dest=path,
+            route=route,
+            previous=record,
+            version=record.version,
+            note="extracting again after a failure",
+        )
+    )
 
 
 MAX_FAILURES = 3
@@ -479,7 +508,10 @@ def _plan_known(ctx: _Ctx, file: RemoteFile, record: FileRecord) -> None:
         return
     same_file = record.file_id == file.id
     if same_file and same_time(record.chdate, file.chdate) and record.filesize == file.size:
-        plan.unchanged += 1
+        if file.id in ctx.unzip_retry:
+            _plan_unzip_retry(ctx, file, record, path)
+        else:
+            plan.unchanged += 1
         return
 
     try:

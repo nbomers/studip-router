@@ -46,6 +46,12 @@ Only the latest release (and `main`) gets fixes. Update with
   version; the request carries no data but the User-Agent `studip-router/<version>`.
   The background sync never makes it.
 
+## Dependencies
+
+The locked dependencies are checked with `pip-audit` every week and on every change
+to them (`.github/workflows/audit.yml`); Dependabot proposes updates of the
+Python packages and GitHub Actions once a month.
+
 ## In scope
 
 Leaks of the password or session, writes outside the configured folders, deletion or

@@ -39,6 +39,7 @@ STYLE = {
     Kind.MKDIR: "blue",
     Kind.REFRESH: "dim cyan",
     Kind.MOVE: "cyan",
+    Kind.UNZIP: "cyan",
     Kind.SKIP: "dim",
     Kind.ERROR: "red",
 }
@@ -50,6 +51,7 @@ SYMBOL = {
     Kind.MKDIR: "+",
     Kind.REFRESH: "·",
     Kind.MOVE: "→",
+    Kind.UNZIP: "⇲",
     Kind.SKIP: "◎",
     Kind.ERROR: "✗",
 }
@@ -201,6 +203,7 @@ def print_summary(
         "mkdir": "folders created",
         "refresh": "details updated (no new content)",
         "rename": "renamed like on Stud.IP",
+        "unzip": "archives extracted again",
         "error": "errors",
     }
     for key, value in sorted(counts.items()):

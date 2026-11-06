@@ -32,6 +32,11 @@ All notable changes to this project are documented here. The format follows
   `studip sync` by hand), at most three days, and sends one notification.
   `studip doctor` shows the wait.
 
+### Fixed
+- An archive whose extraction failed for a passing reason (disk full, permissions,
+  only in iCloud) is extracted again on the next sync, from the file on disk; a
+  broken or encrypted archive is reported once and left until it changes.
+
 ### Changed
 - Dialogs for typed text are centred like the other dialogs.
 - `b` (report a file sorted wrong) only reports files the automatic sorting or the
@@ -39,6 +44,10 @@ All notable changes to this project are documented here. The format follows
 - `studip sync --dry-run -v` lists three or more skipped files of one Stud.IP
   folder with the same reason as one line (`Folder/ (45 files)`), and prints the
   course folder above each table in one piece, so the path can be copied.
+- Internal: every file reaches the course folders through `fsutil.publish`, which
+  never replaces an existing file unless the caller passes a check that runs right
+  before the replace (`may_replace`). Safe is the default; the merge bug above came
+  from the old default, which replaced.
 - Internal: the module for the check after an update is `update_hold.py` (was
   `update_check.py`, easily confused with the `[ui] update_check` setting, which
   belongs to `new_version.py`).
@@ -47,6 +56,10 @@ All notable changes to this project are documented here. The format follows
   option and per-course setting; `config.example.toml` no longer mentions Windows.
 
 ### Security
+- pypdf 6.21.4 or newer is required (it reads PDFs from Stud.IP); the versions
+  locked before had 14 published advisories. certifi updated as well.
+- A weekly `pip-audit` of the locked dependencies (`.github/workflows/audit.yml`),
+  also on every change to `uv.lock` or `pyproject.toml`.
 - A crafted ZIP (folders nested thousands of levels deep, or encrypted) no longer
   stops the whole sync with `sync.unzip = true`: archives with more than 32 folder
   levels are refused, folder entries count towards the 20 000 entry limit, and any
