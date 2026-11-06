@@ -166,7 +166,12 @@ class SetupScreen(Screen):
     @on(Button.Pressed, "#connect")
     def connect(self) -> None:
         values = {
-            k: self.query_one(f"#{k}", Input).value.strip() for k in ("url", "username", "password")
+            k: (
+                self.query_one(f"#{k}", Input).value
+                if k == "password"
+                else self.query_one(f"#{k}", Input).value.strip()
+            )
+            for k in ("url", "username", "password")
         }
         if not all(values.values()):
             self.query_one("#status", Static).update("[yellow]Please fill in all fields.[/yellow]")

@@ -32,6 +32,7 @@ REMOTE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "exam",  # also Exams, Past exams, Mock exam, Examination
         "past paper",
         "midterm",
+        "quiz",
         "testat",
     ),
     "solutions": (
@@ -64,6 +65,8 @@ REMOTE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "lab",
         "notebook",  # Jupyter notebooks ("Notebooks", "notebook-03") are worked on like sheets
         "workbook",
+        "lernkarte",
+        "flashcard",
     ),
     "slides": (
         "folie",  # also Vorlesungsfolien, Foliensatz
@@ -158,6 +161,10 @@ LOCAL_KEYWORDS: dict[str, tuple[str, ...]] = {
     ),
     "misc": ("sonstig", "misc", "other", "allgemein", "general", "divers", "inbox", "extra"),
 }
+# Use the same vocabulary on both sides, keeping local-only aliases.
+for _kind, _words in REMOTE_KEYWORDS.items():
+    LOCAL_KEYWORDS[_kind] = tuple(dict.fromkeys((*LOCAL_KEYWORDS[_kind], *_words)))
+
 # Words that contain a keyword but mean something else. They are removed before the
 # keywords are matched: "Examples" is no exam, "Cheat sheet" or "Datasheet" no exercise
 # sheet, "Merkblatt"/"Deckblatt" no exercise, "Laufzettel" a form, a "Scripts"/"Code"
@@ -247,8 +254,8 @@ def _category(text: str, own: Keywords | None = None) -> str | None:
 
 
 def folder_category(folder_path: str, own: Keywords | None = None) -> str | None:
-    """Category of the first of the top three Stud.IP folders whose name reveals one."""
-    for part in [p for p in folder_path.split("/") if p][:3]:
+    """Category of the first meaningful folder, parent before child at every depth."""
+    for part in (p for p in folder_path.split("/") if p):
         if (category := _category(part, own)) is not None:
             return category
     return None
@@ -337,15 +344,17 @@ def auto_route(
     elif (category := file_category(name, own)) is not None:
         candidates.append((category, "file name"))
     for category, why in candidates:
-        target = _local_target(category, subdirs)
+        target = _local_target(category, subdirs, own)
         if target is not None:
             return category, target, why
     return None
 
 
-def local_category_dirs(subdirs: list[str], category: str) -> list[str]:
+def local_category_dirs(
+    subdirs: list[str], category: str, own: Keywords | None = None
+) -> list[str]:
     """Local folders for ``category``, best first; archive folders are never offered."""
-    keywords = LOCAL_KEYWORDS[category]
+    keywords = (*LOCAL_KEYWORDS[category], *((own or {}).get(category, ())))
     scored: list[tuple[int, str]] = []
     for rel in subdirs:
         parts = [normalise_name(p) for p in rel.split("/")]
@@ -358,7 +367,9 @@ def local_category_dirs(subdirs: list[str], category: str) -> list[str]:
         # "Klausur/Alt" is where old exams belong, not an archive to keep away from
         if not old_exams and any(_has_keyword(p, _ARCHIVE) for p in parts):
             continue
-        if not _has_keyword(parts[-1], keywords) and not (
+        local_words = _FALSE_FRIENDS.sub(" ", parts[-1])
+        custom_hit = _has_keyword(parts[-1], (own or {}).get(category, ()))
+        if not (custom_hit or _has_keyword(local_words, keywords)) and not (
             category == "exams"
             and len(parts) > 1
             and _has_keyword(parts[0], keywords)
@@ -372,12 +383,12 @@ def local_category_dirs(subdirs: list[str], category: str) -> list[str]:
     return [rel for _, rel in sorted(scored, key=lambda x: (-x[0], x[1]))]
 
 
-def _local_target(category: str, subdirs: list[str]) -> str | None:
-    found = local_category_dirs(subdirs, category)
+def _local_target(category: str, subdirs: list[str], own: Keywords | None = None) -> str | None:
+    found = local_category_dirs(subdirs, category, own)
     if found:
         return found[0]
     if category == "solutions":  # no own folder: solutions go with the exercises
-        return _local_target("exercises", subdirs)
+        return _local_target("exercises", subdirs, own)
     return None
 
 
@@ -423,6 +434,7 @@ def suggest_rules(
     existing_ids: set[str] | None = None,
     *,
     by_name: bool = True,
+    own: Keywords | None = None,
 ) -> list[Suggestion]:
     """One rule per top-level Stud.IP folder whose name reveals its category.
 
@@ -439,9 +451,9 @@ def suggest_rules(
     # whose name reveals a category: "Material/Folien/x.pdf" -> "Material/Folien".
     by_prefix: Counter[str] = Counter()
     for f in files:
-        parts = [p for p in f.folder_path.split("/") if p][:3]
+        parts = [p for p in f.folder_path.split("/") if p]
         for depth in range(1, len(parts) + 1):
-            if _category(parts[depth - 1]) is not None:
+            if _category(parts[depth - 1], own) is not None:
                 by_prefix["/".join(parts[:depth])] += 1
                 break
         else:
@@ -458,13 +470,13 @@ def suggest_rules(
     for pattern, names in members.items():
         # one session folder named "... Vorlesung" classifies the whole series
         category = next(
-            (c for n in names if (c := _category(n.rpartition("/")[2])) is not None), None
+            (c for n in names if (c := _category(n.rpartition("/")[2], own)) is not None), None
         )
         if category is not None:
             grouped[pattern] = (category, sum(by_prefix[n] for n in names), names)
 
     for pattern, (category, count, names) in grouped.items():
-        target = _local_target(category, subdirs)
+        target = _local_target(category, subdirs, own)
         if target is None:
             continue
         rule_id = _unique(f"{category}-{_slug(pattern.strip('*').rpartition('/')[2])}", taken)
@@ -492,7 +504,7 @@ def suggest_rules(
         count = by_category[category]
         if any(i == f"{category}-by-name" or i.startswith(f"{category}-by-name-") for i in taken):
             continue  # added before: do not offer "-2", "-3", ... on every run
-        target = _local_target(category, subdirs)
+        target = _local_target(category, subdirs, own)
         if target is None:
             continue
         words = "|".join(_with_umlauts(k) for k in keywords[category] if len(k) > 3)

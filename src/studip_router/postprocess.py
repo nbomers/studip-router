@@ -169,6 +169,7 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
     from pypdf import PasswordType, PdfReader, PdfWriter  # lazily: only for this feature
     from pypdf.errors import DependencyError, PyPdfError
 
+    original_sha = sha256_file(path)
     try:
         reader = PdfReader(path)
         if not reader.is_encrypted:
@@ -179,7 +180,13 @@ def unlock_pdf(path: Path, password: str) -> Unlock:
             return Unlock.WRONG_PASSWORD
         buffer = io.BytesIO()  # pypdf needs a seekable stream
         PdfWriter(clone_from=reader).write(buffer)
-        with atomic_writer(path) as (fh, _):
+
+        def unchanged(_sha: str) -> bool:
+            if sha256_file(path) != original_sha:
+                raise PostprocessError(f"{path.name}: changed while unlocking; kept your edit")
+            return True
+
+        with atomic_writer(path, commit=unchanged) as (fh, _):
             fh.write(buffer.getvalue())
     except (PyPdfError, DependencyError, ValueError, KeyError) as exc:  # broken PDF, no AES
         raise PostprocessError(f"{path.name}: could not unlock: {exc}") from exc
@@ -262,7 +269,9 @@ def merge_pdfs(
     fingerprint = inputs_fingerprint(inputs)
     if fingerprint == previous_fingerprint and output.exists():
         return MergeResult(output, inputs, False, "up to date"), previous_sha, fingerprint
-    if output.exists():
+    existed = output.exists()
+    original_output_sha = previous_sha
+    if existed:
         if previous_sha is None:
             return (
                 MergeResult(
@@ -272,7 +281,13 @@ def merge_pdfs(
                 previous_fingerprint,
             )
         st = local_stat(output)
-        if st and not st.dataless and sha256_file(output) != previous_sha:
+        if st and st.dataless and not allow_icloud_download:
+            return (
+                MergeResult(output, inputs, False, "output is only in iCloud; restore it first"),
+                previous_sha,
+                previous_fingerprint,
+            )
+        if sha256_file(output) != original_output_sha:
             return (
                 MergeResult(output, inputs, False, "output was modified, not overwriting"),
                 previous_sha,
@@ -296,6 +311,12 @@ def merge_pdfs(
         writer.append(str(pdf), outline_item=split_ext(pdf.name)[0])
     buffer = io.BytesIO()
     writer.write(buffer)
-    with atomic_writer(output) as (fh, digest):  # unique temp name, fsync, replace
+
+    def unchanged(_sha: str) -> bool:
+        if existed and (not output.exists() or sha256_file(output) != original_output_sha):
+            raise PostprocessError(f"{output.name}: changed while merging; kept your edit")
+        return True
+
+    with atomic_writer(output, commit=unchanged, no_clobber=not existed) as (fh, digest):
         fh.write(buffer.getvalue())
     return MergeResult(output, inputs, True), digest(), fingerprint

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import fnmatch
+import math
 import re
 import string
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import date, datetime
 from pathlib import PurePosixPath
 from typing import Any
@@ -108,6 +109,17 @@ class Rule:
     skip: bool = False
 
 
+def match_values(match: Match) -> dict[str, Any]:
+    """All effective conditions for CLI JSON and human-readable rule summaries."""
+    result: dict[str, Any] = {}
+    for field in fields(match):
+        value = getattr(match, field.name)
+        if value is None or value == () or (field.name == "case_sensitive" and not value):
+            continue
+        result[field.name] = value.pattern if hasattr(value, "pattern") else value
+    return result
+
+
 def _compile(pattern: Any, where: str, problems: list[str], case_sensitive: bool):
     if not isinstance(pattern, str):
         problems.append(f"{where}: expected a string")
@@ -143,7 +155,12 @@ def _str_tuple(value: Any, where: str, problems: list[str]) -> tuple[str, ...]:
 
 
 def _number(value: Any, where: str, problems: list[str]) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
         problems.append(f"{where}: expected a non-negative number")
         return None
     return float(value)

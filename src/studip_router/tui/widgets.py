@@ -303,6 +303,35 @@ class ReportScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class DetailScreen(ModalScreen[None]):
+    """Scrollable full text; copy does not shorten paths or interpret markup."""
+
+    BINDINGS: ClassVar = [
+        Binding("escape,q", "close", "Close"),
+        Binding("ctrl+y", "copy", "Copy", priority=True),
+    ]
+
+    def __init__(self, body: str) -> None:
+        super().__init__()
+        from ..api import _clean
+
+        self.body = _clean(body)
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(classes="dialog help"):
+            yield Static(self.body, markup=False)
+        from textual.widgets import Footer
+
+        yield Footer()
+
+    def action_copy(self) -> None:
+        self.app.copy_to_clipboard(self.body)
+        self.notify("Copied (if your terminal permits clipboard access).")
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class ChoiceScreen(ModalScreen[Any]):
     """Pick one of several values; j/k or arrows, Enter selects, Esc cancels."""
 
@@ -367,6 +396,11 @@ HELP = """\
   f          what's new: show in folder
   +          preview: a rule for files like this one
   b          preview: report a file sorted wrong (you send it)
+  d          preview: full paths and metadata (Ctrl+Y copies)
+  /          preview: filter by course or path
+  v          announcements: switch list / text on small screens
+  u          settings: undo last change
+  Enter      size limit: enter a custom MB value
   Ctrl+R     sync: list again
   ← →        change a setting (saved at once)
 """

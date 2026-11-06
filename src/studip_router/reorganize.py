@@ -15,7 +15,16 @@ from pathlib import Path
 
 from . import paths
 from .config import Config
-from .fsutil import exclusive_lock, move_no_clobber, nfc, path_key, with_suffix_number
+from .fsutil import (
+    exclusive_lock,
+    fsync_dir,
+    move_no_clobber,
+    nfc,
+    path_key,
+    path_problem,
+    sha256_file,
+    with_suffix_number,
+)
 from .models import RemoteFile
 from .planner import build_router
 from .postprocess import extracted_instead
@@ -35,6 +44,7 @@ class Move:
     rule_id: str | None
     by_default: bool
     problem: str = ""  # non-empty: will not be moved
+    course_dir: Path | None = None
 
 
 def _remote_from(record: FileRecord) -> RemoteFile:
@@ -70,7 +80,7 @@ def plan_reorganize(cfg: Config, state: State, course_id: str | None = None) -> 
             try:
                 route = route_file(_remote_from(record))
             except RenameError as exc:
-                moves.append(Move(record, src, src, None, False, str(exc)))
+                moves.append(Move(record, src, src, None, False, str(exc), course_dir))
                 continue
             if route.skip:
                 continue
@@ -93,7 +103,11 @@ def plan_reorganize(cfg: Config, state: State, course_id: str | None = None) -> 
             if path_key(dst) == path_key(src):
                 continue
             problem = ""
-            if not src.exists():
+            if issue := path_problem(dst):
+                problem = issue
+            elif not dst.resolve().is_relative_to(course_dir.resolve()):
+                problem = "target escapes the configured course folder (symlink)"
+            elif not src.exists():
                 problem = "source missing (moved by hand?)"
             elif dst.exists() or path_key(dst) in claimed:
                 problem = "target already exists"
@@ -108,7 +122,9 @@ def plan_reorganize(cfg: Config, state: State, course_id: str | None = None) -> 
                 problem = "target folder does not exist"
             if not problem:
                 claimed.add(path_key(dst))
-            moves.append(Move(record, src, dst, route.rule_id, route.by_default, problem))
+            moves.append(
+                Move(record, src, dst, route.rule_id, route.by_default, problem, course_dir)
+            )
     return moves
 
 
@@ -143,11 +159,17 @@ def _apply_reorganize(moves: list[Move], state: State) -> tuple[int, list[tuple[
         if move.problem:
             continue
         try:
+            if move.course_dir is not None and not move.dst.resolve().is_relative_to(
+                move.course_dir.resolve()
+            ):
+                raise OSError("Target escapes the configured course folder (symlink).")
             if not move.dst.parent.is_dir():
                 move.dst.parent.mkdir(parents=True)
                 state.journal(run_id, "mkdir", str(move.dst.parent))
+            state.journal(run_id, "move-intent", str(move.dst), src=str(move.src))
             move_no_clobber(move.src, move.dst)
         except OSError as exc:
+            state.journal(run_id, "move-aborted", str(move.dst), src=str(move.src))
             failed.append((move, str(exc)))
             continue
         state.journal(run_id, "move", str(move.dst), src=str(move.src))
@@ -183,8 +205,32 @@ def plan_undo(state: State) -> tuple[int | None, list[UndoStep]]:
     if run is None:
         return None, []
     steps = []
-    for entry in reversed(state.journal_entries(run["run_id"])):
+    entries = state.journal_entries(run["run_id"])
+    completed = {(e["src"], e["dst"]) for e in entries if e["op"] in ("move", "move-aborted")}
+    records = {path_key(r.local_path): r for r in state.all()}
+    for entry in reversed(entries):
         problem = ""
+        if entry["op"] == "move-aborted":
+            continue
+        if entry["op"] == "move-intent":
+            if (entry["src"], entry["dst"]) in completed:
+                continue
+            src, dst = Path(entry["src"]), Path(entry["dst"])
+            if not dst.exists():
+                continue  # crash before publication: nothing to undo
+            if src.exists():
+                if src.samefile(dst):
+                    steps.append(UndoStep("unlink-hardlink", str(src), str(dst)))
+                continue  # an occupied original is never replaced
+            record = records.get(path_key(src)) or records.get(path_key(dst))
+            if record is None or record.local_digest is None:
+                problem = "unfinished move has no verifiable digest; inspect both paths"
+            elif sha256_file(dst) != record.local_digest:
+                problem = "unfinished move target was modified; inspect both paths"
+            steps.append(UndoStep("move", str(src), str(dst), problem))
+            continue
+        if entry["op"] not in ("move", "mkdir"):
+            continue
         if entry["op"] == "move":
             if not Path(entry["dst"]).exists():
                 problem = "file is no longer where reorganize put it"
@@ -208,11 +254,17 @@ def _apply_undo(state: State, run_id: int, steps: list[UndoStep]) -> int:
             continue
         if step.op == "move" and step.src:
             move_no_clobber(Path(step.dst), Path(step.src))
-            record = by_path.get(path_key(step.dst))
+            record = by_path.get(path_key(step.dst)) or by_path.get(path_key(step.src))
             if record:
                 state.upsert(replace(record, local_path=nfc(step.src)))
             state.journal(undo_run, "move", step.src, src=step.dst)
             undone += 1
+        elif step.op == "unlink-hardlink" and step.src:
+            source, destination = Path(step.src), Path(step.dst)
+            if source.exists() and destination.exists() and source.samefile(destination):
+                destination.unlink()
+                fsync_dir(destination.parent)
+                undone += 1
         elif step.op == "mkdir":
             directory = Path(step.dst)
             if directory.is_dir() and not any(directory.iterdir()):

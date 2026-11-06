@@ -38,9 +38,11 @@ Only the latest release (and `main`) gets fixes. Update with
 - Text from Stud.IP (titles, file names, announcements) is never interpreted as
   terminal markup or links; downloads are stopped when far bigger than announced or
   than the size limit; endless or repeating pagination is stopped.
-- The only host contacted is the configured Stud.IP (no telemetry). The one
-  exception is opt-in: with `[ui] update_check = true` (*update check* in the
-  settings) the UI and `studip status` ask `pypi.org` once a week for the newest
+- Requests start at the configured Stud.IP (no telemetry). File downloads may
+  follow HTTPS redirects to a university CDN; another origin receives no Stud.IP
+  credentials. Direct API requests to other origins are refused. A separate
+  opt-in request is made: with `[ui] update_check = true` (*update check* in the
+  settings), the UI and `studip status` ask `pypi.org` once a week for the newest
   version; the request carries no data but the User-Agent `studip-router/<version>`.
   The background sync never makes it.
 
@@ -51,3 +53,31 @@ silent overwriting of user files, and code execution through files or API answer
 from Stud.IP.
 
 When filing bug reports, remove user names, course names and paths from logs.
+
+## Local filesystem and document trust
+
+The threat boundary is untrusted course content and server responses. Configuration,
+OS file associations, and the account that can edit local course folders are
+trusted. Existing symlink targets outside a course are rejected before a sync
+write; this does not constitute protection against an attacker who can replace
+parent directories concurrently using the same local account.
+
+New files use atomic no-overwrite publication. A filesystem without hard links
+fails safely instead of using a rename that could replace a concurrent file.
+Updates to existing owned files check for local changes again before replacement;
+external editors do not participate in the tool's lock, so a final local
+check/replace race remains. Keep independent backups of annotations. Config writes
+also detect external edits before publication, with the same non-cooperating editor
+limitation.
+
+Known program/shortcut extensions are not opened from history. Unknown extensions
+require confirmation; supported document extensions use the default system
+application. A document handler can itself have vulnerabilities; this is not a
+sandbox for PDF/Office viewers. PDF parsing dependencies are audited and updated,
+but the parser is not run in a separate resource-limited process. User-provided
+regex rules are trusted code-like configuration; choose bounded patterns.
+
+JSON responses are limited to 16 MiB after decompression. Downloads, pagination
+and ZIPs have their own limits; explicitly lifting the download size limit also
+accepts the corresponding disk-space risk. See [the review and validation
+limits](docs/SECURITY_REVIEW.md) for the November audit evidence.

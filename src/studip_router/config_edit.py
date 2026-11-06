@@ -18,25 +18,23 @@ import tomlkit
 from tomlkit.items import Table
 
 from .config import Config, parse
-from .paths import private_file
+from .config_io import config_locked, save_config
 
 _backed_up: set[Path] = set()
 
 
 def _load(path: Path) -> tomlkit.TOMLDocument:
-    return tomlkit.parse(path.read_text(encoding="utf-8"))
+    original = path.read_text(encoding="utf-8")
+    doc = tomlkit.parse(original)
+    doc.__dict__["_source_text"] = original
+    return doc
 
 
 def _save(path: Path, doc: tomlkit.TOMLDocument) -> Config:
     text = tomlkit.dumps(doc)
     config = parse(tomllib.loads(text), path)  # raises ConfigError, nothing written
-    if path not in _backed_up:
-        shutil.copy2(path, path.with_name(path.name + ".bak"))
-        _backed_up.add(path)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    private_file(tmp)  # user name and course names: readable only by the user
-    tmp.replace(path)
+    save_config(path, doc.__dict__["_source_text"], text, backup=path not in _backed_up)
+    _backed_up.add(path)
     return config
 
 
@@ -49,6 +47,7 @@ def _table(doc: Any, keys: tuple[str, ...]) -> Any:
     return node
 
 
+@config_locked
 def set_value(path: Path, keys: tuple[str, ...], value: Any) -> Config:
     """Set ``keys`` (e.g. ("sync", "on_update")) to ``value``; None removes the key."""
     doc = _load(path)
@@ -70,6 +69,7 @@ def get_value(path: Path, keys: tuple[str, ...], default: Any = None) -> Any:
     return node.unwrap() if hasattr(node, "unwrap") else node
 
 
+@config_locked
 def set_course(path: Path, course_id: str, **fields: Any) -> Config:
     """Create or update ``[courses.<id>]``; a value of None removes that key."""
     doc = _load(path)
@@ -86,6 +86,7 @@ def set_course(path: Path, course_id: str, **fields: Any) -> Config:
     return _save(path, doc)
 
 
+@config_locked
 def edit_courses(
     path: Path, *, root: str | None = None, courses: dict[str, dict[str, Any]]
 ) -> Config:
@@ -110,6 +111,7 @@ def edit_courses(
     return _save(path, doc)
 
 
+@config_locked
 def remove_course(path: Path, course_id: str) -> Config:
     """Delete ``[courses.<id>]`` with its rules (a course that is gone from Stud.IP).
 

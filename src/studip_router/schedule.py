@@ -67,6 +67,14 @@ def _systemd_dir() -> Path:
     return Path(base).expanduser() / "systemd" / "user"
 
 
+def job_environment() -> dict[str, str]:
+    """Pin data paths at installation; never persist credential variables."""
+    return {
+        "STUDIP_ROUTER_CONFIG": str(paths.config_file().absolute()),
+        "STUDIP_ROUTER_STATE_DIR": str(paths.state_dir().absolute()),
+    }
+
+
 def launchd_plist(exe: str, minutes: int, profile: str | None) -> dict:
     args = [exe]
     if profile:
@@ -82,7 +90,10 @@ def launchd_plist(exe: str, minutes: int, profile: str | None) -> dict:
         "LowPriorityIO": True,
         "StandardOutPath": log,
         "StandardErrorPath": log,
-        "EnvironmentVariables": {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+        "EnvironmentVariables": {
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
+            **job_environment(),
+        },
     }
 
 
@@ -94,9 +105,13 @@ def _systemd_quote(arg: str) -> str:
 
 def systemd_units(exe: str, minutes: int, profile: str | None) -> tuple[str, str]:
     args = [exe, *(["--profile", profile] if profile else []), "sync", "--notify", "--quiet"]
+    environment = "".join(
+        "Environment=" + _systemd_quote(f"{key}={value}") + "\n"
+        for key, value in job_environment().items()
+    )
     service = (
         "[Unit]\nDescription=studip-router sync\n\n"
-        f"[Service]\nType=oneshot\nExecStart={' '.join(map(_systemd_quote, args))}\n"
+        f"[Service]\nType=oneshot\n{environment}ExecStart={' '.join(map(_systemd_quote, args))}\n"
     )
     timer = (
         "[Unit]\nDescription=Run studip-router sync periodically\n\n"
@@ -107,6 +122,8 @@ def systemd_units(exe: str, minutes: int, profile: str | None) -> tuple[str, str
 
 
 def install(minutes: int, profile: str | None = None) -> Path:
+    if isinstance(minutes, bool) or minutes < 1:
+        raise ValueError("sync interval must be at least one minute")
     exe = executable()
     paths.private_dir(paths.state_dir())  # launchd writes scheduler.log into it
     if sys.platform == "darwin":

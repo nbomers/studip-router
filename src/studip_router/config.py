@@ -6,6 +6,7 @@ TOML syntax errors additionally carry line and column from ``tomllib``.
 
 from __future__ import annotations
 
+import math
 import re
 import tomllib
 import unicodedata
@@ -285,8 +286,10 @@ class _Validator:
     def exclude(self, data: Any, where: str, base: ExcludeConfig) -> ExcludeConfig:
         data = self.table(data, where, {"globs", "mime", "max_size_mb", "folders"})
         size = self.get(data, "max_size_mb", where, (int, float), base.max_size_mb)
-        if size is not None and size < 0:
-            self.problems.append(f"{where}.max_size_mb: must be 0 (no limit) or positive")
+        if size is not None and (not math.isfinite(size) or size < 0):
+            self.problems.append(
+                f"{where}.max_size_mb: must be finite and 0 (no limit) or positive"
+            )
         globs = self.str_list(data, "globs", where)
         mime = self.str_list(data, "mime", where)
         folders = self.str_list(data, "folders", where)
@@ -320,10 +323,14 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
     ui = v.table(top.get("ui", {}), "ui", {"theme", "update_check"})
 
     server = v.table(top.get("server", {}), "server", {"base_url", "username"})
-    base_url = v.get(server, "base_url", "server", str, "", required=True)
+    base_url = v.get(server, "base_url", "server", str, "", required=True).strip()
+    if not base_url:
+        v.problems.append("server.base_url: enter your Stud.IP HTTPS address")
     if base_url and (problem := base_url_problem(base_url)):
         v.problems.append(f"server.base_url: {problem}")
-    username = v.get(server, "username", "server", str, "", required=True)
+    username = v.get(server, "username", "server", str, "", required=True).strip()
+    if not username:
+        v.problems.append("server.username: enter your Stud.IP username")
 
     sync = v.table(
         top.get("sync", {}),
@@ -347,8 +354,11 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
             "keywords",
         },
     )
-    root = v.get(sync, "root", "sync", str, "", required=True)
-    if root.strip() and (problem := unsafe_folder(nfc(root.strip()))):
+    root = nfc(v.get(sync, "root", "sync", str, "", required=True).strip())
+    root_path = Path(root).expanduser()
+    if not root_path.is_absolute():
+        root_path = path.expanduser().absolute().parent / root_path
+    if root.strip() and (problem := unsafe_folder(str(root_path))):
         v.problems.append(f"sync.root: {problem}")
     elif "root" in sync and not root.strip():
         v.problems.append("sync.root: must not be empty")
@@ -365,9 +375,11 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
     rename = v.rename(top.get("rename", {}), "rename", RenameOptions())
 
     courses: dict[str, CourseConfig] = {}
-    for cid, course in v.table(
-        top.get("courses", {}), "courses", set(top.get("courses") or {})
-    ).items():
+    raw_courses = top.get("courses", {})
+    course_table = v.table(
+        raw_courses, "courses", set(raw_courses) if isinstance(raw_courses, dict) else set()
+    )
+    for cid, course in course_table.items():
         where = f"courses.{cid}"
         course = v.table(
             course,
@@ -387,6 +399,8 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         )
         excluded = v.get(course, "exclude", where, bool, False)
         target = v.get(course, "target", where, str, "", required=not excluded)
+        if not excluded and "target" in course and not target.strip():
+            v.problems.append(f"{where}.target: must not be empty")
         if target:
             target = v.rel_path(target, f"{where}.target", allow_absolute=True)
             # absolute targets (outside the root) are allowed, but never "/", "~" or /etc
@@ -429,7 +443,7 @@ def parse(raw: dict[str, Any], path: Path) -> Config:
         path=path,
         base_url=base_url.rstrip("/"),
         username=username,
-        root=Path(nfc(root)).expanduser(),
+        root=root_path,
         semester=v.get(sync, "semester", "sync", str, "current"),
         only_configured_courses=v.get(sync, "only_configured_courses", "sync", bool, True),
         on_update=v.choice(sync, "on_update", "sync", ON_UPDATE, "version"),

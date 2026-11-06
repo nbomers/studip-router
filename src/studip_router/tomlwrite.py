@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import tomllib
 from pathlib import Path
 from typing import Any
+
+from .config import parse
+from .config_io import config_locked, save_config
 
 _BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -47,6 +49,7 @@ def rule_block(course_id: str, rule: dict[str, Any], comment: str = "") -> str:
     return "\n".join(lines) + "\n"
 
 
+@config_locked
 def append_blocks(path: Path, blocks: list[str], header: str) -> Path:
     """Append blocks to ``path`` after writing ``path.bak``. Returns the backup path.
 
@@ -56,10 +59,7 @@ def append_blocks(path: Path, blocks: list[str], header: str) -> Path:
     original = path.read_text(encoding="utf-8")
     addition = f"\n# --- {header} ---\n" + "\n".join(blocks)
     combined = original.rstrip("\n") + "\n" + addition
-    tomllib.loads(combined)  # raises before anything is written
+    parse(tomllib.loads(combined), path)  # validate semantics before any write
     backup = path.with_name(path.name + ".bak")
-    shutil.copy2(path, backup)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(combined, encoding="utf-8")
-    tmp.replace(path)
+    save_config(path, original, combined)
     return backup

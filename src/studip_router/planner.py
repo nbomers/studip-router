@@ -21,6 +21,7 @@ from .fsutil import (
     local_stat,
     nfc,
     path_key,
+    path_problem,
     sanitize_filename,
     sha256_file,
     walk_files,
@@ -229,6 +230,9 @@ def plan_course(
     """
     course_dir = cfg.course_dir(course)
     plan = CoursePlan(course=course, course_dir=course_dir)
+    if problem := path_problem(course_dir):
+        plan.actions.append(Action(Kind.ERROR, course.id, dest=course_dir, reason=problem))
+        return plan
     route_file = router or build_router(cfg, course)
     excludes = cfg.course_exclude(course)
     if include_large:
@@ -409,6 +413,13 @@ def plan_course(
         for fid, r in records.items()
         if fid not in remote_ids and fid not in replaced and not r.gone
     ]
+    for action in plan.actions:
+        if action.dest is None or action.kind in (Kind.SKIP, Kind.ERROR):
+            continue
+        if problem := path_problem(action.dest):
+            action.kind, action.reason = Kind.ERROR, problem
+        elif not action.dest.resolve().is_relative_to(course_dir.resolve()):
+            action.kind, action.reason = Kind.ERROR, "Target escapes the course folder (symlink)."
     return plan
 
 

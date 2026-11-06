@@ -96,7 +96,10 @@ def diff(old: dict[str, CourseDate], new: list[CourseDate], now: datetime) -> li
             changes.append(Change(ChangeKind.CANCELLED, d, d.description))
         elif before.cancelled and not d.cancelled:
             changes.append(Change(ChangeKind.RESTORED, d))
-        if (d.start, d.end) != (before.start, before.end):
+        if (d.start.timestamp(), d.end.timestamp()) != (
+            before.start.timestamp(),
+            before.end.timestamp(),
+        ):
             changes.append(Change(ChangeKind.MOVED, d, f"was {_span(before)}"))
         if before.location and d.location != before.location:
             changes.append(

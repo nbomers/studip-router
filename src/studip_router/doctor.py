@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ import httpx
 from . import __version__, auth, paths, schedule
 from .api import ApiError, StudipClient, ssl_context
 from .config import Config, ConfigError, load
-from .fsutil import local_stat, walk_files
+from .fsutil import local_stat, path_problem, walk_files
 
 
 class Level(StrEnum):
@@ -52,6 +53,9 @@ def run_checks(*, offline: bool = False) -> Iterator[Check]:
 
 
 def _check_paths(cfg: Config) -> Iterator[Check]:
+    if problem := path_problem(cfg.root):
+        yield Check("root folder", Level.FAIL, problem)
+        return
     if not cfg.root.is_dir():
         yield Check("root folder", Level.FAIL, f"{cfg.root} does not exist")
         return
@@ -61,11 +65,22 @@ def _check_paths(cfg: Config) -> Iterator[Check]:
         Level.OK if writable else Level.FAIL,
         f"{cfg.root}" + ("" if writable else " is not writable"),
     )
+    free = shutil.disk_usage(cfg.root).free
+    yield Check(
+        "disk space",
+        Level.WARN if free < 512 * 1024**2 else Level.INFO,
+        f"{free // (1024**2)} MB free; downloads, ZIP extraction and merges need extra space",
+    )
     for course in cfg.courses.values():
         if course.exclude:
             continue
         directory = cfg.course_dir(course)
         label = course.name or course.target
+        candidates = [directory, directory / cfg.course_default_target(course)]
+        candidates.extend(directory / r.target for r in course.rules if r.target)
+        if problem := next((p for d in candidates if (p := path_problem(d))), None):
+            yield Check(f"course {label}", Level.FAIL, problem)
+            continue
         if cfg.root not in directory.parents and directory != cfg.root:
             yield Check(
                 f"course {label}", Level.INFO, f"target {directory} is outside the root folder"
